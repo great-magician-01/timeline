@@ -28,6 +28,12 @@
   --green: #1f8a5c;
   --avatar-bg: #e2e8e3;
   --avatar-fg: #37503f;
+  /* 覆盖层与媒体：灯箱遮罩、视频底色、覆盖层上的文字/图标与浮层阴影 */
+  --overlay: rgba(0, 0, 0, 0.82);
+  --on-media: #ffffff;
+  --on-media-soft: rgba(255, 255, 255, 0.16);
+  --media-bg: #000000;
+  --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.12);
 }
 
 html[data-theme='dark'] {
@@ -56,6 +62,12 @@ html[data-theme='dark'] {
   --green: #3fb950;
   --avatar-bg: #2a313a;
   --avatar-fg: #c9d1d9;
+  /* 覆盖层与媒体：深色主题与浅色主题保持同值 */
+  --overlay: rgba(0, 0, 0, 0.82);
+  --on-media: #ffffff;
+  --on-media-soft: rgba(255, 255, 255, 0.16);
+  --media-bg: #000000;
+  --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.12);
 }
 
 * {

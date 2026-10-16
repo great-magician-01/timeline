@@ -1,202 +1,432 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onUnmounted, watch } from 'vue'
+import { RouterLink, RouterView, useRoute } from 'vue-router'
+import AppIcon from './components/AppIcon.vue'
+import BrandMark from './components/BrandMark.vue'
+import UserAvatar from './components/UserAvatar.vue'
+import type { IconName } from './components/icons'
+import { useTheme } from './composables/theme'
+import { authState } from './stores/auth'
+import { notificationState, startNotificationPolling, stopNotificationPolling } from './stores/notifications'
 
-// 主题切换（docs/DESIGN_SYSTEM.md §8）：data-theme + localStorage，首帧由 index.html 内联脚本处理
-const theme = ref<'light' | 'dark'>(
-  (document.documentElement.getAttribute('data-theme') as 'light' | 'dark') || 'light',
+interface NavEntry {
+  label: string
+  to: string
+  icon: IconName
+}
+
+const { theme, toggleTheme } = useTheme()
+const route = useRoute()
+
+// 未读通知轮询只对登录用户开启
+watch(
+  () => authState.user?.id,
+  (id) => {
+    if (id) startNotificationPolling()
+    else stopNotificationPolling()
+  },
+  { immediate: true },
 )
-function toggleTheme() {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark'
-  document.documentElement.setAttribute('data-theme', theme.value)
-  try {
-    localStorage.setItem('tl-theme', theme.value)
-  } catch {
-    /* 忽略存储失败 */
+onUnmounted(stopNotificationPolling)
+
+const user = computed(() => authState.user)
+const isAdmin = computed(() => user.value?.role === 'admin')
+const themeLabel = computed(() => (theme.value === 'dark' ? '切换到浅色主题' : '切换到深色主题'))
+
+// 导航与 docs/PAGES_AND_PERMISSIONS.md §3 一致：游客只有时间线、搜索、登录与注册
+const mainNav = computed<NavEntry[]>(() => {
+  const items: NavEntry[] = [
+    { label: '首页', to: '/', icon: 'home' },
+    { label: '搜索', to: '/search', icon: 'search' },
+  ]
+  if (user.value) {
+    items.splice(1, 0, { label: '关注', to: '/following', icon: 'users' })
+    items.push(
+      { label: '发布', to: '/compose', icon: 'pencil' },
+      { label: '通知', to: '/notifications', icon: 'bell' },
+      { label: '关注申请', to: '/follow-requests', icon: 'user-plus' },
+      { label: '草稿', to: '/drafts', icon: 'file-text' },
+      { label: '定时发布', to: '/scheduled', icon: 'calendar' },
+      { label: '我的主页', to: `/users/${user.value.username}`, icon: 'user' },
+      { label: '设置', to: '/settings/profile', icon: 'sliders' },
+    )
+  } else {
+    items.push({ label: '登录', to: '/login', icon: 'user' })
+    items.push({ label: '注册', to: '/register', icon: 'user-plus' })
   }
+  return items
+})
+
+const adminNav = computed<NavEntry[]>(() =>
+  isAdmin.value
+    ? [
+        { label: '管理概览', to: '/admin/overview', icon: 'gauge' },
+        { label: '用户管理', to: '/admin/users', icon: 'users' },
+        { label: '内容审核', to: '/admin/content/posts', icon: 'file-text' },
+        { label: '模型预设', to: '/admin/providers', icon: 'key' },
+        { label: 'AI 管理', to: '/admin/ai', icon: 'sparkles' },
+        { label: '全局任务', to: '/admin/tasks', icon: 'list' },
+        { label: '调用记录', to: '/admin/ai-calls', icon: 'activity' },
+        { label: '审计日志', to: '/admin/audit', icon: 'scroll' },
+        { label: '系统设置', to: '/admin/settings', icon: 'toggle' },
+      ]
+    : [],
+)
+
+const tabNav = computed<NavEntry[]>(() => {
+  if (!user.value) return mainNav.value
+  const items: NavEntry[] = [
+    { label: '首页', to: '/', icon: 'home' },
+    { label: '关注', to: '/following', icon: 'users' },
+    { label: '搜索', to: '/search', icon: 'search' },
+    { label: '发布', to: '/compose', icon: 'pencil' },
+    { label: '通知', to: '/notifications', icon: 'bell' },
+  ]
+  if (isAdmin.value) items.push({ label: '管理', to: '/admin/overview', icon: 'shield' })
+  return items
+})
+
+function isActive(to: string): boolean {
+  if (to === '/') return route.path === '/'
+  return route.path === to || route.path.startsWith(`${to}/`)
 }
-
-// 骨架期自检：展示后端健康与就绪状态
-const health = ref('检测中…')
-const ready = ref('检测中…')
-
-async function check() {
-  health.value = await probe('/healthz')
-  ready.value = await probe('/readyz', true)
-}
-
-async function probe(url: string, showBody = false): Promise<string> {
-  try {
-    const resp = await fetch(url)
-    if (!showBody) return resp.ok ? '正常' : `异常（${resp.status}）`
-    const body = await resp.json().catch(() => ({}))
-    const detail = `database=${body.database ?? '?'} migrations=${body.migrations ?? '?'}`
-    return resp.ok ? `就绪（${detail}）` : `未就绪（${detail}）`
-  } catch {
-    return '无法连接'
-  }
-}
-
-onMounted(check)
 </script>
 
 <template>
-  <div class="shell">
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="时间线首页">
-        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
-          <rect width="64" height="64" rx="14" fill="#fff" />
-          <path
-            d="M9.5 12.5C17.5 10 46.5 10 53.5 12.8C55.8 20.5 55.8 43.5 53.8 50.8C46 53.5 18 53.5 10.8 50.5C8.6 43.5 8.6 20.5 9.5 12.5Z"
-            fill="none"
-            stroke="#111"
-            stroke-width="4.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-          <g
-            transform="rotate(-2 32 32)"
-            fill="none"
-            stroke="#111"
-            stroke-width="4"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+  <div class="app">
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="side-head">
+          <RouterLink to="/" class="brand" aria-label="时间线首页">
+            <BrandMark class="mark" />
+            <span class="wordmark">时间线</span>
+          </RouterLink>
+          <button class="icon-btn" type="button" :aria-label="themeLabel" @click="toggleTheme">
+            <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="19" />
+          </button>
+        </div>
+
+        <nav class="side-nav" aria-label="主导航">
+          <RouterLink
+            v-for="item in mainNav"
+            :key="item.to"
+            :to="item.to"
+            class="nav-item"
+            :class="{ 'is-active': isActive(item.to) }"
           >
-            <path
-              d="M21.2 21C25.4 20.3 29.1 20.3 31.3 21C32.1 25.4 32.1 33.6 31.3 37.9C27.6 38.6 23.9 38.6 21.2 37.9C20.3 33.6 20.3 25.4 21.2 21Z"
-            />
-            <path d="M21.4 29.6C24.4 29 27.8 29 30.9 29.6" />
-            <path d="M33.8 24.2C37.8 23.4 42.8 23.4 47.2 24.1" />
-            <path d="M41.8 17C42.6 24.6 42.6 35.4 41.8 44.6C39.6 45.3 37.1 44.4 36.2 41.9" />
-            <circle cx="36.4" cy="33.2" r="2.4" fill="#111" stroke="none" />
-          </g>
-        </svg>
-        <span class="wordmark">时间线</span>
-      </a>
+            <AppIcon :name="item.icon" :size="21" />
+            <span class="txt">{{ item.label }}</span>
+            <span
+              v-if="item.to === '/notifications' && notificationState.unread > 0"
+              class="nav-badge"
+              >{{ notificationState.unread > 99 ? '99+' : notificationState.unread }}</span
+            >
+          </RouterLink>
 
-      <button class="theme-toggle" type="button" aria-label="切换浅色/深色主题" @click="toggleTheme">
-        <svg v-if="theme === 'light'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-          <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" />
-        </svg>
-        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="4.2" />
-          <path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.2 5.2l1.7 1.7M17.1 17.1l1.7 1.7M18.8 5.2l-1.7 1.7M6.9 17.1l-1.7 1.7" />
-        </svg>
-      </button>
-    </header>
+          <template v-if="adminNav.length > 0">
+            <p class="nav-label">管理</p>
+            <RouterLink
+              v-for="item in adminNav"
+              :key="item.to"
+              :to="item.to"
+              class="nav-item"
+              :class="{ 'is-active': isActive(item.to) }"
+            >
+              <AppIcon :name="item.icon" :size="21" />
+              <span class="txt">{{ item.label }}</span>
+            </RouterLink>
+          </template>
+        </nav>
 
-    <main class="content">
-      <section class="card">
-        <h1>工程骨架已就绪</h1>
-        <p>后端（Go）与前端（Vue）连通性自检：</p>
-        <ul class="status">
-          <li>存活检查 /healthz：<strong>{{ health }}</strong></li>
-          <li>就绪检查 /readyz：<strong>{{ ready }}</strong></li>
-        </ul>
-        <button class="refresh" type="button" @click="check">重新检测</button>
-        <p class="hint">
-          下一步按实施顺序接入用户体系与内容模块；设计与约定见项目 <code>docs/</code> 目录。
-        </p>
-      </section>
-    </main>
+        <div class="side-foot">
+          <p v-if="!authState.ready" class="side-note">载入中…</p>
+          <RouterLink v-else-if="user" :to="`/users/${user.username}`" class="me">
+            <UserAvatar :user="user" size="sm" />
+            <span class="me-info">
+              <span class="me-name">{{ user.nickname || user.username }}</span>
+              <span class="me-handle">@{{ user.username }}</span>
+            </span>
+            <AppIcon name="chevron-right" :size="17" class="me-arrow" />
+          </RouterLink>
+          <p v-else class="side-note">
+            帖子、评论与 AI 功能尚未开放；现在可以注册账号、管理资料与账号安全。
+          </p>
+        </div>
+      </aside>
+
+      <header class="mtopbar">
+        <RouterLink to="/" class="brand" aria-label="时间线首页">
+          <BrandMark class="mark" />
+          <span class="wordmark">时间线</span>
+        </RouterLink>
+        <RouterLink
+          v-if="user"
+          :to="`/users/${user.username}`"
+          class="mtop-me"
+          :aria-label="`我的主页：${user.nickname || user.username}`"
+        >
+          <UserAvatar :user="user" size="sm" />
+        </RouterLink>
+        <button class="icon-btn" type="button" :aria-label="themeLabel" @click="toggleTheme">
+          <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="19" />
+        </button>
+      </header>
+
+      <main class="main">
+        <RouterView />
+      </main>
+    </div>
+
+    <nav class="tabbar" aria-label="底部导航">
+      <RouterLink
+        v-for="item in tabNav"
+        :key="item.to"
+        :to="item.to"
+        class="tab"
+        :class="{ 'is-active': isActive(item.to) }"
+      >
+        <AppIcon :name="item.icon" :size="22" />
+        <span>{{ item.label }}</span>
+      </RouterLink>
+    </nav>
   </div>
 </template>
 
 <style scoped>
 .shell {
-  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 0 16px;
 }
-.topbar {
+
+/* ---------- 桌面侧栏 ---------- */
+.sidebar {
   position: sticky;
   top: 0;
   display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 14px 0 12px;
+}
+.side-head {
+  display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  height: 60px;
-  background: var(--glass);
-  backdrop-filter: blur(6px);
-  border-bottom: 1px solid var(--border);
+  gap: 8px;
+  padding: 6px 10px;
 }
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
   color: var(--ink);
 }
 .brand:hover {
   text-decoration: none;
 }
 .mark {
-  width: 28px;
-  height: 28px;
-  display: block;
+  width: 30px;
+  height: 30px;
 }
 .wordmark {
   font-size: 17px;
   font-weight: 800;
   letter-spacing: 0.04em;
 }
-.theme-toggle {
-  margin-left: auto;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
+.icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  border-radius: 8px;
   color: var(--ink-3);
   transition: background 0.15s ease, color 0.15s ease;
 }
-.theme-toggle:hover {
+.icon-btn:hover {
   background: var(--hover);
   color: var(--ink);
 }
-.theme-toggle svg {
-  width: 18px;
-  height: 18px;
+.side-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 14px;
+  /* 导航项较多或窗口较矮时允许侧栏内部滚动，避免被 100vh 裁掉 */
+  min-height: 0;
+  overflow-y: auto;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-2);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.nav-item:hover {
+  background: var(--hover);
+  color: var(--ink);
+  text-decoration: none;
+}
+.nav-item.is-active {
+  background: var(--soft);
+  color: var(--ink);
+  font-weight: 700;
+}
+.nav-badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--on-media);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+.nav-label {
+  margin: 16px 12px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+.side-foot {
+  margin-top: auto;
+  padding-top: 12px;
+}
+.side-note {
+  margin: 0 10px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink-3);
+}
+.me {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  color: var(--ink);
+}
+.me:hover {
+  background: var(--hover);
+  text-decoration: none;
+}
+.me-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+.me-name {
+  font-size: 14.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.me-handle {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.me-arrow {
+  margin-left: auto;
+  color: var(--ink-3);
 }
 
-.content {
-  max-width: 620px;
-  margin: 0 auto;
-  padding: 32px 16px 72px;
+/* ---------- 内容列 ---------- */
+.main {
+  min-width: 0;
+  padding: 16px 0 72px;
 }
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 24px;
+.mtopbar {
+  display: none;
 }
-h1 {
-  font-size: 16.5px;
-  font-weight: 800;
-  margin: 0 0 8px;
+.tabbar {
+  display: none;
 }
-.status {
-  margin: 12px 0;
-  padding-left: 22px;
-}
-.refresh {
-  font-size: 14.5px;
-  font-weight: 600;
-  color: var(--btn-fg);
-  background: var(--btn-bg);
-  padding: 8px 22px;
-  border-radius: 9px;
-  transition: background 0.15s ease;
-}
-.refresh:hover {
-  background: var(--btn-hover);
-}
-.hint {
-  margin-top: 16px;
-  color: var(--ink-3);
-  font-size: 13px;
-}
-code {
-  background: var(--soft);
-  border-radius: 5px;
-  padding: 1px 6px;
-  font-size: 0.9em;
+
+/* ---------- 移动端（断点 880px） ---------- */
+@media (max-width: 880px) {
+  .shell {
+    display: block;
+    max-width: none;
+    padding: 0;
+  }
+  .sidebar {
+    display: none;
+  }
+  .mtopbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 50px;
+    padding: 0 14px;
+    background: var(--glass);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border);
+  }
+  .mtopbar .brand {
+    margin-right: auto;
+  }
+  .mtopbar .mark {
+    width: 26px;
+    height: 26px;
+  }
+  .mtopbar .wordmark {
+    font-size: 16px;
+  }
+  .mtopbar .icon-btn {
+    margin-left: 0;
+  }
+  .mtop-me {
+    display: flex;
+  }
+  .main {
+    padding: 12px 12px 84px;
+  }
+  .tabbar {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    display: flex;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+    background: var(--glass);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--border);
+  }
+  .tab {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 0;
+    font-size: 10.5px;
+    color: var(--ink-3);
+  }
+  .tab:hover {
+    text-decoration: none;
+  }
+  .tab.is-active {
+    color: var(--primary);
+    font-weight: 700;
+  }
 }
 </style>
