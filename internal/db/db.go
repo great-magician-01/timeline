@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	maxBackoff = 30 * time.Second
+	maxBackoff  = 30 * time.Second
 	pingTimeout = 5 * time.Second
 )
 
