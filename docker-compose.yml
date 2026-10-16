@@ -22,6 +22,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_FORMAT: ${LOG_FORMAT:-text}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
       SNOWFLAKE_WORKER_ID: ${SNOWFLAKE_WORKER_ID:-1}
     ports:

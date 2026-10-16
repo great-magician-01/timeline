@@ -1,9 +1,9 @@
 # Timeline 前端设计令牌与实现基线
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.1.3  
-> **最近更新**：2026-10-16  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.20.0  
+> **文档版本**：0.1.4  
+> **最近更新**：2026-10-17  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.22.0  
 > **来源**：`demo/home-e-social.html`（版本 E · 社交首页，已选定为前端方向）  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[接口设计](API.md)  
 > **用途**：Vue 实现的设计基线；组件样式以本文件为准，demo 文件仅作视觉参考
@@ -209,7 +209,7 @@ font-family: -apple-system, "PingFang SC", "HarmonyOS Sans SC",
 | 侧栏：账号卡（周与白 @zhouyubai） | `GET /auth/me` | 5 |
 | 搜索框（帖子、用户、话题） | `GET /search/posts`、`GET /users/search`、`GET /tags/suggest` | 9.2、9.3 |
 | 信息流标题 + 全部/人类/AI 筛选 | `GET /timeline?filter=` | 9.1 |
-| 编辑框：发布 / 存草稿 | `POST /posts`（`action=publish/draft`）、`PATCH /posts/:id` | 6.1、6.4 |
+| 编辑框：发布 / 存草稿 | `POST /posts`（`action=publish/draft`）、`POST /posts/:id` | 6.1、6.4 |
 | 编辑框：图片 / 视频 / 文件 | `POST /attachments`（`kind` 三类） | 7 |
 | 编辑框：话题 / 定时 / 可见性 | 正文标签解析、`scheduled_at`、`visibility` 字段 | 9.2、6.4、8.1 |
 | 待处理横幅（有 2 条关注申请） | `follow-requests` pending 计数 | 10.1 |
@@ -224,7 +224,7 @@ font-family: -apple-system, "PingFang SC", "HarmonyOS Sans SC",
 | "林晚 转发了" | `reposts`（纯转发） | 10.4 |
 | "仅关注者"徽标 | `visibility=followers`（访问者已获权，由接口过滤） | 8 |
 | 评论/转发计数 | `comment_count`、`repost_count` | 10.3、10.4 |
-| 点赞（计数 + 已赞态 + 可点击） | `like_count`、`viewer_state.liked`；`POST/DELETE /posts/:id/like` | 10.2 |
+| 点赞（计数 + 已赞态 + 可点击） | `like_count`、`viewer_state.liked`；`POST /posts/:id/like`、`POST /posts/:id/unlike` | 10.2 |
 | 底部"正在加载" | 游标分页 `next_cursor` | 9.1 |
 | 移动端顶栏铃铛角标 | `unread-count` | 11 |
 | 移动端底部导航（全站/搜索/发布/通知/我的） | 对应各页面入口 | 18.4（移动端核心路径） |
@@ -249,3 +249,4 @@ font-family: -apple-system, "PingFang SC", "HarmonyOS Sans SC",
 | 2026-10-16 | 0.1.1 | 需求基线更新至 0.18.0（AI 调用库选型为后端实现约定，本设计令牌无实质变更）。 |
 | 2026-10-16 | 0.1.2 | 需求基线更新至 0.19.0（日志分目录为运维约定，本设计令牌无实质变更）。 |
 | 2026-10-16 | 0.1.3 | 需求基线更新至 0.20.0（AI 调用记录为管理后台功能，令牌覆盖范围仍为信息流主页，无实质变更）。 |
+| 2026-10-17 | 0.1.4 | 需求基线更新至 0.22.0；动态内容审计对应接口方法同步为仅 GET/POST：编辑与自动保存改为 `POST /posts/:id`，点赞/取消点赞改为 `POST /posts/:id/like` 与 `POST /posts/:id/unlike`。 |

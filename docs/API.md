@@ -1,9 +1,9 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.3.0  
-> **最近更新**：2026-10-16  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.20.0  
+> **文档版本**：0.5.0  
+> **最近更新**：2026-10-17  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.22.0  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
 > **用途**：前后端接口对接、接口实现与验收用例的依据
 
@@ -22,6 +22,8 @@
 - 前端由 Go 后端同源托管；`/api` 前缀保留给接口，SPA 路由回退不得吞掉接口路径。
 - 请求与响应使用 JSON（上传接口使用 `multipart/form-data`）。
 - 字段命名使用 `snake_case`。
+- **方法约束**：业务接口只使用 `GET` 与 `POST`，不使用 `PUT`、`PATCH`、`DELETE`。修改类操作用 `POST`（可与资源路径相同，如 `POST /api/v1/users/me`）；删除、取消类操作使用语义化 action 路径（如 `/delete`、`/unlike`、`/unfollow`），并返回操作后的状态或占位。
+- 所有删除均为逻辑删除：接口不物理删除数据库记录，也不删除附件、衍生文件等持久化文件。
 
 ### 2.2 ID 与时间格式
 
@@ -31,10 +33,11 @@
 
 ### 2.3 认证与 CSRF
 
-1. 认证采用 **HttpOnly Cookie 服务端会话**：登录成功后下发会话 Cookie，具体实现为 `auth_sessions` 表记录，会话标识不可猜测。
+1. 认证采用 **HttpOnly Cookie 服务端会话**：登录成功后下发会话 Cookie，具体实现为 `auth_sessions` 表记录，会话标识不可猜测。当前会话有效期为 30 天。
 2. Cookie 属性包含 `HttpOnly`、`Secure`（生产）、`SameSite=Lax`；会话在登出、账号停用、密码重置时即时失效。
-3. CSRF 防护：登录响应返回 `csrf_token`，前端在所有非 GET 请求中通过 `X-CSRF-Token` 头回传；缺失或不匹配返回 403 `csrf_failed`。
-4. 未登录访问需要认证的接口返回 401 `unauthenticated`。
+3. CSRF 防护：`GET /api/v1/auth/csrf` 返回 `csrf_token`；登录响应和 `/auth/me` 也返回当前会话的 `csrf_token`。前端在所有非 GET 请求中通过 `X-CSRF-Token` 头回传；缺失或不匹配返回 403 `csrf_failed`。
+4. 登录、注册发生前没有用户会话，使用 `/auth/csrf` 签发的 HttpOnly 游客 CSRF Cookie 做双提交校验；登录后改用与服务端会话绑定的 CSRF 令牌。
+5. 未登录访问需要认证的接口返回 401 `unauthenticated`。
 
 ### 2.4 权限处理
 
@@ -86,11 +89,12 @@
 | 415 | `unsupported_media_type` | 文件类型不允许 |
 | 429 | `rate_limited` | 触发频率限制，带 `Retry-After` 头 |
 | 500 | `internal_error` | 服务端错误 |
+| 503 | `service_unavailable` | 数据库连接或迁移尚未就绪，稍后重试 |
 
 ### 2.7 幂等与重试
 
 1. 点赞、取消点赞、关注、取关、纯转发、已读标记等切换类接口天然幂等，重复调用返回成功或当前状态，不报重复错误。
-2. 创建类接口（发帖、评论、纯转发）支持可选 `Idempotency-Key` 请求头；相同键的重复请求返回首次结果。
+2. 创建类接口（发帖、评论、纯转发）的重复投递由唯一索引与业务幂等键在服务端兜底（`likes`、`reposts`、`follows`、`notifications.idempotency_key`、`background_jobs.idempotency_key`、`ai_tasks.idempotency_key`）。首版不提供客户端 `Idempotency-Key` 请求头，创建重试可能产生重复内容，前端在失败重试前必须确认前一次请求的结果。
 3. 失败重试必须遵守 429 的 `Retry-After`，不自动重试 4xx。
 
 ### 2.8 通用对象形态
@@ -110,34 +114,35 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
+| GET | `/api/v1/auth/csrf` | 获取 CSRF 令牌；有效会话返回会话令牌，游客签发双提交 Cookie 与令牌 | 所有人 |
 | POST | `/api/v1/auth/register` | 注册：`username`、`email`、`password`；返回 `user`；注册关闭时返回 403 | 游客 |
 | POST | `/api/v1/auth/login` | 登录：`identifier`（用户名或邮箱）、`password`；返回 `user` 和 `csrf_token` | 游客 |
 | POST | `/api/v1/auth/logout` | 注销当前会话 | 登录用户 |
-| GET | `/api/v1/auth/me` | 当前用户信息与 `require_follow_approval` 等设置 | 登录用户 |
-| PATCH | `/api/v1/auth/password` | 修改密码：`old_password`、`new_password`；其他会话失效，当前会话保留 | 登录用户 |
+| GET | `/api/v1/auth/me` | 当前用户信息、`require_follow_approval` 等设置及当前会话 `csrf_token` | 登录用户 |
+| POST | `/api/v1/auth/password` | 修改密码：`old_password`、`new_password`；其他会话失效，当前会话保留 | 登录用户 |
 
-登录接口按 IP 与账号维度限频，连续失败返回 429。
+登录接口按账号标识、账号+IP 与 IP 三个维度限频，连续失败返回 429；注册按 IP 限频。当前窗口分别为账号 30 次/15 分钟、账号+IP 10 次/5 分钟、IP 30 次/5 分钟；账号维度桶意味着攻击者可能造成目标账号最长 15 分钟的定向登录不可用，这是防爆破与可用性之间的当前取舍。反向代理部署仅信任 `TRUSTED_PROXIES` 明确配置的转发来源，禁止信任所有代理。
 
 ## 4. 用户与资料接口
 
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
 | GET | `/api/v1/users/:username` | 个人主页资料：user_brief、简介、计数、`follow_state`（`none`/`following`/`pending`/`incoming_pending`）、`is_suspended` | 所有人 |
-| PATCH | `/api/v1/users/me` | 修改昵称、头像、简介；头像引用已上传附件 ID | 登录用户 |
+| POST | `/api/v1/users/me` | 修改昵称、头像、简介；头像引用已上传附件 ID | 登录用户 |
 | GET | `/api/v1/users/:username/posts` | 主页时间线：`tab=posts\|replies\|reposts`，游标分页，按访问者权限过滤 | 所有人 |
 | GET | `/api/v1/users/:username/followers` | 粉丝列表（仅生效关系） | 所有人 |
 | GET | `/api/v1/users/:username/following` | 关注列表（仅生效关系） | 所有人 |
 | GET | `/api/v1/users/search` | `q` 关键词搜索用户 | 所有人 |
 | GET | `/api/v1/users/me/follow-settings` | 查询是否开启关注审批 | 登录用户 |
-| PATCH | `/api/v1/users/me/follow-settings` | `require_follow_approval` 开关 | 登录用户 |
+| POST | `/api/v1/users/me/follow-settings` | `require_follow_approval` 开关 | 登录用户 |
 
 ## 5. 关注与关注申请接口
 
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
 | POST | `/api/v1/users/:username/follow` | 关注；目标未开审批直接生效，开启则创建申请；返回 `follow_state` | 登录用户 |
-| DELETE | `/api/v1/users/:username/follow` | 取消关注，或取消自己发出的待审批申请 | 登录用户 |
-| DELETE | `/api/v1/users/me/followers/:username` | 移除自己的粉丝 | 登录用户 |
+| POST | `/api/v1/users/:username/unfollow` | 取消关注，或取消自己发出的待审批申请；返回 `follow_state` | 登录用户 |
+| POST | `/api/v1/users/me/followers/:username/remove` | 移除自己的粉丝（逻辑解除关注关系） | 登录用户 |
 | GET | `/api/v1/follow-requests` | 关注申请列表：`direction=incoming\|outgoing` | 登录用户 |
 | POST | `/api/v1/follow-requests/:id/approve` | 批准申请并建立关注关系 | 被申请者 |
 | POST | `/api/v1/follow-requests/:id/reject` | 拒绝申请 | 被申请者 |
@@ -151,18 +156,18 @@
 | --- | --- | --- | --- |
 | POST | `/api/v1/posts` | 创建：`content_format`、`content_source`、`visibility`、`attachment_ids`、`quoted_post_id`（可选）、`action`（`draft`/`publish`/`schedule`）、`scheduled_at`（schedule 时必填） | 登录用户 |
 | GET | `/api/v1/posts/:id` | 帖子详情（post_detail） | 有权查看者 |
-| PATCH | `/api/v1/posts/:id` | 更新内容：草稿/定时帖需携带 `revision`；已发布帖保存后生成新版本 | 作者 |
+| POST | `/api/v1/posts/:id` | 更新内容：草稿/定时帖需携带 `revision`；已发布帖保存后生成新版本 | 作者 |
 | POST | `/api/v1/posts/:id/publish` | 立即发布草稿或定时帖 | 作者 |
 | POST | `/api/v1/posts/:id/schedule` | 设置或修改定时：`scheduled_at` | 作者 |
 | POST | `/api/v1/posts/:id/cancel-schedule` | 取消定时转为草稿 | 作者 |
-| DELETE | `/api/v1/posts/:id` | 逻辑删除；同时取消未执行的定时任务 | 作者或管理员 |
+| POST | `/api/v1/posts/:id/delete` | 逻辑删除；同时取消未执行的定时任务 | 作者或管理员 |
 | GET | `/api/v1/posts/:id/versions` | 历史版本列表（版本号、时间、可见性、摘要） | 有权查看当前帖子者 |
 | GET | `/api/v1/posts/:id/versions/:version_id` | 历史版本详情（含附件快照） | 有权查看当前帖子者 |
 | POST | `/api/v1/posts/:id/versions/:version_id/restore` | 恢复历史版本，生成新版本 | 仅作者 |
 | GET | `/api/v1/me/drafts` | 我的草稿列表 | 登录用户 |
 | GET | `/api/v1/me/scheduled` | 我的定时发布列表（含失败状态） | 登录用户 |
 
-草稿自动保存使用 `PATCH /api/v1/posts/:id` 并携带 `revision`：
+草稿自动保存使用 `POST /api/v1/posts/:id` 并携带 `revision`：
 
 - 版本一致：200 返回新 `revision`；
 - 版本落后：409 `draft_conflict`，`details` 返回最新 `revision`、`content_source` 和服务端保存时间，前端负责合并或明确覆盖（覆盖需再次提交且携带最新 `revision`）。
@@ -172,7 +177,7 @@
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
 | POST | `/api/v1/posts/:id/repost` | 纯转发（要求原帖公开）；幂等 | 登录用户 |
-| DELETE | `/api/v1/posts/:id/repost` | 取消纯转发 | 登录用户 |
+| POST | `/api/v1/posts/:id/unrepost` | 取消纯转发 | 登录用户 |
 
 带评论的引用转发使用 `POST /api/v1/posts` 携带 `quoted_post_id`。
 
@@ -193,13 +198,13 @@
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
 | POST | `/api/v1/posts/:id/like` | 点赞帖子；幂等 | 有权查看且非只读 |
-| DELETE | `/api/v1/posts/:id/like` | 取消点赞 | 同上 |
+| POST | `/api/v1/posts/:id/unlike` | 取消点赞 | 同上 |
 | POST | `/api/v1/comments/:id/like` | 点赞评论 | 同上 |
-| DELETE | `/api/v1/comments/:id/like` | 取消点赞 | 同上 |
+| POST | `/api/v1/comments/:id/unlike` | 取消点赞 | 同上 |
 | GET | `/api/v1/posts/:id/comments` | 评论列表（顶层评论分页，含回复预览） | 有权查看原帖者 |
 | GET | `/api/v1/comments/:id/replies` | 楼中楼回复分页 | 同上 |
 | POST | `/api/v1/posts/:id/comments` | 发表评论：`content_format`、`content_source`、`parent_comment_id`（可选） | 同上 |
-| DELETE | `/api/v1/comments/:id` | 删除评论：评论作者、帖子作者、管理员 | 按角色 |
+| POST | `/api/v1/comments/:id/delete` | 逻辑删除评论：评论作者、帖子作者、管理员 | 按角色 |
 
 删除评论后返回占位状态：列表和详情中 `status=deleted`、`content_html` 为空。
 
@@ -221,7 +226,7 @@
 | POST | `/api/v1/attachments` | 上传：`multipart/form-data`，字段 `file`、`purpose`（`post`/`avatar`）；返回 attachment（含衍生文件初始状态） | 登录用户 |
 | GET | `/api/v1/attachments/:id/content` | 原文件内容；支持 `Range` 请求以播放视频 | 有权查看所属内容者 |
 | GET | `/api/v1/attachments/:id/derivatives/:type` | 衍生文件：`thumbnail`、`video_cover`；未就绪返回 404 或占位响应头 | 同上 |
-| DELETE | `/api/v1/attachments/:id` | 从草稿移除附件；已被历史版本引用时仅解除关联不物理删除 | 上传者或作者 |
+| POST | `/api/v1/attachments/:id/delete` | 从草稿移除附件并逻辑删除；已被有效内容或历史版本引用时仅解除关联，数据库记录与物理文件保留 | 上传者或作者 |
 
 上传校验大小、类型和实际内容；超限返回 413/415。头像类附件在更新资料前仅上传者本人可用。
 
@@ -240,6 +245,12 @@
 
 全部要求管理员权限，越权返回 403，涉及处置的写操作写入审计日志。
 
+### 12.0 概览
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/admin/overview` | 账号、内容、AI 与后台作业的聚合统计（管理概览页数据源） |
+
 ### 12.1 用户管理
 
 | 方法 | 路径 | 说明 |
@@ -256,9 +267,9 @@
 | --- | --- | --- |
 | GET | `/api/v1/admin/posts` | 全部可见性帖子：`visibility`、`status`、`author`、`q`、游标分页 |
 | GET | `/api/v1/admin/posts/:id` | 后台帖子详情：含历史版本、附件与评论上下文 |
-| DELETE | `/api/v1/admin/posts/:id` | 删除帖子并审计 |
+| POST | `/api/v1/admin/posts/:id/delete` | 逻辑删除帖子并审计 |
 | GET | `/api/v1/admin/comments` | 评论查询：`author`、`q`、游标分页 |
-| DELETE | `/api/v1/admin/comments/:id` | 删除评论并审计 |
+| POST | `/api/v1/admin/comments/:id/delete` | 逻辑删除评论并审计 |
 
 ### 12.3 模型接口预设
 
@@ -266,20 +277,28 @@
 | --- | --- | --- |
 | GET | `/api/v1/admin/providers` | 预设列表；密钥字段掩码显示 |
 | POST | `/api/v1/admin/providers` | 创建：`name`、`base_url`、`api_key`、`default_model` |
-| PATCH | `/api/v1/admin/providers/:id` | 修改；留空密钥表示不变更 |
-| DELETE | `/api/v1/admin/providers/:id` | 删除；有 AI 关联时返回 409 `duplicate` 或业务错误，先停用 |
+| POST | `/api/v1/admin/providers/:id` | 修改；留空密钥表示不变更 |
+| POST | `/api/v1/admin/providers/:id/delete` | 逻辑删除；有 AI 关联时返回 409 `duplicate` 或业务错误，先停用 |
 | POST | `/api/v1/admin/providers/:id/test` | 连接测试，返回连通性与延迟 |
 
 ### 12.4 AI 管理
+
+AI 任务的重试与取消使用独立路径（`ai_tasks` 与后台作业是两套记录）：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/v1/admin/ai-tasks/:id/retry` | 重新入队一个失败的 AI 任务 |
+| POST | `/api/v1/admin/ai-tasks/:id/cancel` | 取消一个待执行的 AI 任务 |
+
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/v1/admin/ai` | AI 列表：状态、当前预设、今日动作计数概览 |
 | POST | `/api/v1/admin/ai` | 创建 AI：资料、身份、预设、初始行为策略 |
 | GET | `/api/v1/admin/ai/:id` | AI 详情 |
-| PATCH | `/api/v1/admin/ai/:id` | 更新资料与身份、system prompt |
-| PATCH | `/api/v1/admin/ai/:id/model` | 更新接口预设、模型覆盖与生成参数 |
-| PATCH | `/api/v1/admin/ai/:id/behavior` | 更新动作开关、候选范围、AI 间互动、频率与冷却 |
+| POST | `/api/v1/admin/ai/:id` | 更新资料与身份、system prompt |
+| POST | `/api/v1/admin/ai/:id/model` | 更新接口预设、模型覆盖与生成参数 |
+| POST | `/api/v1/admin/ai/:id/behavior` | 更新动作开关、候选范围、AI 间互动、频率与冷却 |
 | POST | `/api/v1/admin/ai/:id/enable` | 启用单个 AI |
 | POST | `/api/v1/admin/ai/:id/disable` | 停用单个 AI；未开始任务取消 |
 
@@ -289,8 +308,8 @@
 | --- | --- | --- |
 | GET | `/api/v1/admin/ai/:id/memories` | 记忆列表：`type=recent\|long_term`、`status`、`q` |
 | POST | `/api/v1/admin/ai/:id/memories` | 手工添加记忆（含分类、关键词、重要性） |
-| PATCH | `/api/v1/admin/ai/:id/memories/:memory_id` | 编辑记忆正文、分类、标签、状态 |
-| DELETE | `/api/v1/admin/ai/:id/memories/:memory_id` | 删除单条记忆 |
+| POST | `/api/v1/admin/ai/:id/memories/:memory_id` | 编辑记忆正文、分类、标签、状态 |
+| POST | `/api/v1/admin/ai/:id/memories/:memory_id/delete` | 逻辑删除单条记忆 |
 | POST | `/api/v1/admin/ai/:id/memories/clear` | 清空：`type=recent\|long_term`，两类互不影响 |
 
 ### 12.6 AI 生成与发布
@@ -300,7 +319,7 @@
 | POST | `/api/v1/admin/ai/:id/generate` | 生成内容：`mode=draft`（可审核）；返回 202 与 `task_id` |
 | POST | `/api/v1/admin/ai/:id/publish-direct` | 生成并直接发布；返回 202 与 `task_id` |
 | GET | `/api/v1/admin/ai/:id/drafts` | AI 草稿列表（发布前仅管理员可见） |
-| PATCH | `/api/v1/admin/ai/:id/drafts/:post_id` | 编辑 AI 草稿内容 |
+| POST | `/api/v1/admin/ai/:id/drafts/:post_id` | 编辑 AI 草稿内容 |
 | POST | `/api/v1/admin/ai/:id/drafts/:post_id/publish` | 发布 AI 草稿 |
 
 生成接口异步执行，结果通过任务接口查询；成功生成草稿后出现在草稿列表。
@@ -317,7 +336,7 @@
 | GET | `/api/v1/admin/ai-calls/:id` | 调用详情：预设与模型、参数快照、请求内容与响应内容（按截断规则）、Token 用量、耗时、状态与错误；绝不返回 API Key |
 | GET | `/api/v1/admin/audit-logs` | 审计日志：`action_type`、`admin`、游标分页 |
 | GET | `/api/v1/admin/settings` | 系统设置：注册开关、上传限制、全局 AI 开关 |
-| PATCH | `/api/v1/admin/settings` | 修改设置 |
+| POST | `/api/v1/admin/settings` | 修改设置 |
 | POST | `/api/v1/admin/ai/global-stop` | 全局紧急停止 |
 | POST | `/api/v1/admin/ai/global-start` | 解除全局停止 |
 
@@ -338,6 +357,7 @@
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-17 | 0.5.0 | 主体功能实现同步：新增管理概览（`GET /admin/overview`）与 AI 任务重试/取消（`/admin/ai-tasks/:id/retry|cancel`）；§2.7 明确首版不提供客户端 `Idempotency-Key`，重复投递由服务端唯一索引与业务幂等键兜底；公开接口统一通过可选认证返回 `viewer_state` 与 `follow_state`。 |
 | 2026-10-16 | 0.1.0 | 基于需求 0.12.0 首次建立接口设计；确定 Cookie 服务端会话认证、雪花 ID 字符串序列化、北京时间、游标分页和统一错误码；覆盖认证、用户、关注、帖子与版本、时间线与发现、互动、通知、附件及管理后台全部接口分组。 |
 | 2026-10-16 | 0.2.0 | 配合部署设计新增系统接口章节：`GET /healthz` 存活检查与 `GET /readyz` 就绪检查；明确不参与 CSRF、不被 SPA 路由回退覆盖。 |
 | 2026-10-16 | 0.2.1 | 需求基线更新至 0.14.0（验收用例文档建立，接口清单无实质变更）。 |
@@ -347,3 +367,5 @@
 | 2026-10-16 | 0.2.5 | 需求基线更新至 0.18.0；预设连接测试接口（`POST /admin/providers/:id/test`）的实现基于 callable 的 `ListModels`（接口定义本身无变更）。 |
 | 2026-10-16 | 0.2.6 | 需求基线更新至 0.19.0（日志按天分目录为运维约定，接口清单无实质变更）。 |
 | 2026-10-16 | 0.3.0 | 新增 AI 调用记录接口（列表 + 详情，支持按 AI/预设/状态/错误类型/时间筛选）；同时修正管理后台子节编号（11.x → 12.x）。 |
+| 2026-10-17 | 0.4.1 | 第一阶段认证实现同步：新增 `GET /auth/csrf`，明确游客双提交 Cookie、登录/注册也执行 CSRF 校验、`/auth/me` 返回会话 CSRF 令牌、会话有效期 30 天、账号/账号+IP/IP 三维限频、API `no-store` 及 503 `service_unavailable`。 |
+| 2026-10-17 | 0.4.0 | 需求基线更新至 0.22.0（无外键、全量逻辑删除、仅 GET/POST）。通用约定新增方法约束：业务接口只使用 GET 与 POST。全部 PATCH 改为 POST（`/auth/password`、`/users/me`、`/users/me/follow-settings`、`/posts/:id`、`/admin/providers/:id`、`/admin/ai/*`、`/admin/settings` 等同路径或原路径）；全部 DELETE 改为语义化 POST action 路径：`/posts/:id/delete`、`/posts/:id/unlike`、`/comments/:id/delete`、`/users/:username/unfollow`、`/users/me/followers/:username/remove`、`/attachments/:id/delete`、`/admin/providers/:id/delete` 等；删除表述统一为逻辑删除。 |

@@ -1,9 +1,9 @@
 # Timeline Docker 单机部署设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.3.2  
-> **最近更新**：2026-10-16  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.21.0  
+> **文档版本**：0.3.4  
+> **最近更新**：2026-10-17  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.22.0  
 > **关联文档**：[接口设计](API.md)、[数据模型设计](DATA_MODEL.md)  
 > **用途**：部署脚本与 Compose 实现、运维操作和验收用例的依据
 
@@ -137,6 +137,8 @@ services:
 | `DB_PORT` | 数据库端口 | `5432` | 否 |
 | `DB_SSLMODE` | 数据库 SSL 模式，内网可用 `disable` | `disable` | 否 |
 | `COOKIE_SECURE` | 会话 Cookie 是否带 Secure；HTTP 内网部署时须设为 `false` | `true` | 否 |
+| `TRUSTED_PROXIES` | 受信反向代理 IP/CIDR，逗号分隔；留空表示不信任转发头 | 空 | 否 |
+| `ENCRYPTION_KEY` | 模型接口预设的 API Key 加密密钥；留空时由数据库连接信息派生 | 空 | 否 |
 | `RUN_MIGRATIONS` | 启动时自动执行迁移 | `true` | 否 |
 | `SNOWFLAKE_WORKER_ID` | 雪花 ID 工作节点号，单机固定值 | `1` | 否 |
 | `LOG_LEVEL` | 日志级别 | `info` | 否 |
@@ -147,16 +149,16 @@ services:
 说明：
 
 1. `DB_NAME`、`DB_USER`、`DB_PASSWORD`、`DB_HOST` 无默认值，未配置时应用拒绝启动并输出明确错误。
-2. AI 模型接口的 base_url、API Key 和模型配置**不通过环境变量管理**，全部在管理后台的接口预设中维护，存数据库并由服务端加密保护。
+2. AI 模型接口的 base_url、API Key 和模型配置**不通过环境变量管理**，全部在管理后台的接口预设中维护，存数据库并由服务端加密保护（AES-256-GCM，密钥来自 `ENCRYPTION_KEY`；未配置时由数据库连接信息派生）。更换 `ENCRYPTION_KEY` 后已保存的密钥无法解密，需要在管理后台重新填写。
 3. 单文件大小、存储配额等业务限制首版以管理后台设置为准；服务器层级的请求体上限通过应用默认值控制，具体数值在实现时按“待细化”确定。
 4. 数据库 schema 固定为 `timeline` 与 `user`，作为应用常量管理，不通过环境变量配置。
 
 ## 6. 启动、迁移与初始化
 
-1. **启动顺序**：`app` 启动 → 连接外部数据库（失败则退避重试）→ 执行迁移（`RUN_MIGRATIONS=true` 时）→ 启动 HTTP 服务与后台任务。
+1. **启动顺序**：`app` 加载配置并启动 HTTP 存活检查 → 后台连接外部数据库（失败则退避重试）→ 执行迁移（`RUN_MIGRATIONS=true` 时）→ 数据库与迁移就绪后 `/readyz` 返回 200。
 2. **迁移并发保护**：迁移使用 PostgreSQL advisory lock，保证重复启动或异常重启不会并发执行迁移；单实例部署下天然安全。
 3. **手动迁移**：`RUN_MIGRATIONS=false` 时，通过 `docker compose exec app /app/timeline migrate` 手动执行。
-4. **管理员初始化**：提供引导命令 `docker compose exec app /app/timeline init-admin`，交互式输入用户名和密码创建首个管理员；不通过环境变量传密码，避免残留明文。
+4. **管理员初始化**：通过 `docker compose exec app /app/timeline init-admin` 交互式输入用户名、邮箱和密码创建首个管理员；不通过环境变量传密码，避免残留明文。命令会先确保迁移完成，且已有管理员时拒绝重复初始化。
 5. **注册开关**：默认开放注册（需求基线），上线后可在管理后台设置中关闭。
 
 ## 7. HTTPS 与 Cookie 安全
@@ -168,6 +170,7 @@ services:
    - 后续为应用增加证书直出能力（需要另行更新需求）。
 3. `COOKIE_SECURE` 必须与实际访问协议一致：HTTPS 环境保持 `true`；纯 HTTP 内网部署必须设为 `false`，否则浏览器不会保存会话 Cookie。
 4. 无论哪种方式，生产环境不允许通过公网明文 HTTP 暴露应用。
+5. 经过反向代理时，`TRUSTED_PROXIES` 必须只填写实际代理的 IP 或 CIDR，应用才会采用 `X-Forwarded-For` / `X-Real-IP` 中的客户端地址用于日志与限频；留空可防伪造，但代理拓扑下所有访客会被视为同一个代理 IP，可能共同触发限频。禁止配置 `0.0.0.0/0` 或 `::/0`，否则任何访客都能伪造 IP 绕过限频。
 
 ## 8. 数据持久化与备份
 
@@ -249,7 +252,6 @@ tar -czf "$DIR/uploads.tar.gz" -C deploy/data uploads
 - 日志轮转参数与备份保留份数。
 - 服务器层级请求体上限的默认值。
 - 数据库跨主机访问时的 SSL 参数与证书约定。
-- 迁移工具选型（与数据模型文档的待细化一致）。
 
 ## 13. 变更记录
 
@@ -263,4 +265,6 @@ tar -czf "$DIR/uploads.tar.gz" -C deploy/data uploads
 | 2026-10-16 | 0.2.3 | 需求基线更新至 0.18.0（callable 为纯 Go、最小依赖库，静态编译无影响；集成需在 go.mod 锁定版本，私有源场景使用 replace）。 |
 | 2026-10-16 | 0.3.0 | 新增日志文件配置：`LOG_FILE` 基础路径，按北京时间每天 `yyyyMMdd` 目录写入、跨天自动切换；compose 增加 `deploy/data/logs` 挂载与环境变量；日志不参与业务备份，由部署方按日期清理。 |
 | 2026-10-16 | 0.3.1 | 需求基线更新至 0.20.0（AI 调用记录落库，随数据库备份自动覆盖，无部署变更）。 |
+| 2026-10-17 | 0.3.3 | 同步已实现的 `migrate` 与 `init-admin` 命令：首个管理员交互输入用户名、邮箱和密码；启动顺序明确为 HTTP 存活检查先启动、数据库与迁移后台就绪；新增 `TRUSTED_PROXIES` 以在反向代理下保留真实客户端 IP；需求基线更新至 0.22.0。 |
+| 2026-10-17 | 0.3.4 | 新增 `ENCRYPTION_KEY`：模型接口预设的 API Key 使用 AES-256-GCM 加密存储，未配置时由数据库连接信息派生并输出启动告警；说明更换密钥后需要重新填写预设密钥。 |
 | 2026-10-16 | 0.3.2 | 端口统一为 5070（宿主机映射与容器内监听一致）；构建镜像锁定 `golang:1.25-alpine`；compose 与环境变量表新增 `LOG_FORMAT`；数据库不可达时保持运行并以 `/readyz` 反映状态；检查清单补充 schema 授权命令。 |

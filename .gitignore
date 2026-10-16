@@ -5,6 +5,7 @@
 
 # 构建产物与本地产物
 /bin/
+/*.exe
 /logs/
 /data/
 /deploy/data/
