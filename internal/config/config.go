@@ -3,7 +3,9 @@
 package config
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -23,6 +25,7 @@ type Config struct {
 	RunMigrations     bool
 	SnowflakeWorkerID int64
 	CookieSecure      bool
+	TrustedProxies    []string
 
 	// 日志
 	LogLevel  string
@@ -31,6 +34,12 @@ type Config struct {
 
 	// 存储
 	UploadDir string
+
+	// SecretKey 用于加密接口预设中的 API Key（32 字节）。
+	// 未配置 ENCRYPTION_KEY 时由数据库连接信息派生，作为“至少不落明文”的兜底。
+	SecretKey []byte
+	// SecretKeyFromEnv 标记密钥是否来自显式配置；false 时启动日志需要告警。
+	SecretKeyFromEnv bool
 }
 
 // Load 读取环境变量并校验必填项；缺失时返回包含全部缺失项的错误，应用应拒绝启动。
@@ -76,6 +85,9 @@ func Load() (*Config, error) {
 	if cfg.CookieSecure, err = envBool("COOKIE_SECURE", true); err != nil {
 		return nil, err
 	}
+	if cfg.TrustedProxies, err = parseTrustedProxies(os.Getenv("TRUSTED_PROXIES")); err != nil {
+		return nil, err
+	}
 
 	worker := envOr("SNOWFLAKE_WORKER_ID", "1")
 	if cfg.SnowflakeWorkerID, err = strconv.ParseInt(worker, 10, 64); err != nil || cfg.SnowflakeWorkerID < 0 || cfg.SnowflakeWorkerID > 1023 {
@@ -93,7 +105,23 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("LOG_FORMAT 必须是 text/json 之一，当前值: %q", cfg.LogFormat)
 	}
 
+	cfg.SecretKey, cfg.SecretKeyFromEnv = deriveSecretKey(cfg)
 	return cfg, nil
+}
+
+// deriveSecretKey 返回 32 字节的对称密钥：
+//   - 配置了 ENCRYPTION_KEY 时按其 SHA-256 派生；
+//   - 否则由数据库连接信息派生，避免模型密钥在数据库中明文可见
+//     （但数据库凭据泄露即等于模型密钥泄露，生产环境应显式配置 ENCRYPTION_KEY）。
+func deriveSecretKey(cfg *Config) ([]byte, bool) {
+	raw := os.Getenv("ENCRYPTION_KEY")
+	if raw != "" {
+		sum := sha256.Sum256([]byte("timeline-secret-v1|" + raw))
+		return sum[:], true
+	}
+	sum := sha256.Sum256([]byte("timeline-secret-fallback-v1|" +
+		cfg.DBName + "|" + cfg.DBUser + "|" + cfg.DBPassword + "|" + cfg.DBHost))
+	return sum[:], false
 }
 
 // DSN 构造 PostgreSQL 连接串：
@@ -113,6 +141,31 @@ func (c *Config) DSN() string {
 	q.Set("search_path", `timeline,"user"`)
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+// parseTrustedProxies 只接受 IP 或 CIDR，拒绝域名和空片段，避免把伪造来源配置为受信代理。
+func parseTrustedProxies(raw string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var proxies []string
+	for part := range strings.SplitSeq(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return nil, fmt.Errorf("TRUSTED_PROXIES 含空的代理地址，多个值请用英文逗号分隔")
+		}
+		if _, err := netip.ParseAddr(part); err != nil {
+			prefix, prefixErr := netip.ParsePrefix(part)
+			if prefixErr != nil {
+				return nil, fmt.Errorf("TRUSTED_PROXIES 中的 %q 不是有效 IP 或 CIDR", part)
+			}
+			if prefix.Bits() == 0 {
+				return nil, fmt.Errorf("TRUSTED_PROXIES 不能使用 %q 信任所有代理", part)
+			}
+		}
+		proxies = append(proxies, part)
+	}
+	return proxies, nil
 }
 
 func envOr(key, def string) string {
