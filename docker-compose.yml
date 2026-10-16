@@ -1,0 +1,40 @@
+# 单机部署（docs/DEPLOYMENT.md）：compose 只管理应用容器；
+# PostgreSQL 为外部独立实例，仅通过 .env 中的连接信息访问。
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: timeline-app:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Shanghai
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/data/uploads}
+      LOG_FILE: ${LOG_FILE:-/data/logs/app.log}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
+      SNOWFLAKE_WORKER_ID: ${SNOWFLAKE_WORKER_ID:-1}
+    ports:
+      - "${APP_PORT:-5070}:5070"
+    volumes:
+      - ./deploy/data/uploads:/data/uploads
+      - ./deploy/data/logs:/data/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5070/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+    # 若数据库是同一宿主机上的另一个容器，按需添加：
+    # extra_hosts: ["host.docker.internal:host-gateway"]

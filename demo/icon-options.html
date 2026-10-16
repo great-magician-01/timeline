@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>时间线 · 项目图标候选（黑白 · 中文 · 恶搞）</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23fff'/%3E%3Cpath d='M9.5 12.5C17.5 10 46.5 10 53.5 12.8C55.8 20.5 55.8 43.5 53.8 50.8C46 53.5 18 53.5 10.8 50.5C8.6 43.5 8.6 20.5 9.5 12.5Z' fill='none' stroke='%23111' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cg transform='rotate(-2 32 32)' fill='none' stroke='%23111' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.2 21C25.4 20.3 29.1 20.3 31.3 21C32.1 25.4 32.1 33.6 31.3 37.9C27.6 38.6 23.9 38.6 21.2 37.9C20.3 33.6 20.3 25.4 21.2 21Z'/%3E%3Cpath d='M21.4 29.6C24.4 29 27.8 29 30.9 29.6'/%3E%3Cpath d='M33.8 24.2C37.8 23.4 42.8 23.4 47.2 24.1'/%3E%3Cpath d='M41.8 17C42.6 24.6 42.6 35.4 41.8 44.6C39.6 45.3 37.1 44.4 36.2 41.9'/%3E%3Ccircle cx='36.4' cy='33.2' r='2.4' fill='%23111' stroke='none'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:#F6F7F8;color:#1B201E;
+    font:400 15px/1.7 -apple-system,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;
+  }
+  .wrap{max-width:960px;margin:0 auto;padding:44px 20px 72px}
+  h1{font-size:22px;margin:0 0 6px}
+  .sub{color:#6B7568;font-size:14px;margin-bottom:28px;line-height:1.8}
+
+  .refrow{
+    display:flex;align-items:center;gap:16px;margin-bottom:26px;padding:14px 16px;
+    background:#fff;border:1px solid #E4E7E1;border-radius:14px;
+  }
+  .refrow img{width:56px;height:56px;image-rendering:pixelated;border-radius:10px;flex:none}
+  .refrow .t{font-size:14px;font-weight:700}
+  .refrow .d{font-size:13px;color:#8A9288}
+  .refrow.cur .applied{
+    margin-left:auto;font-size:12px;font-weight:700;color:#fff;background:#111;
+    border-radius:999px;padding:2px 11px;white-space:nowrap;
+  }
+
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+  @media (max-width:720px){.grid{grid-template-columns:1fr}}
+  .card{background:#fff;border:1px solid #E4E7E1;border-radius:14px;padding:18px}
+  .preview{display:flex;align-items:flex-end;gap:18px;padding-bottom:16px;border-bottom:1px solid #EEF0EC}
+  .preview .big svg{width:96px;height:96px;display:block;border-radius:21px}
+  .sizes{display:flex;align-items:flex-end;gap:14px}
+  .sizes figure{margin:0;text-align:center}
+  .sizes svg{display:block;margin:0 auto;border-radius:25%}
+  .sizes figcaption{font-size:11px;color:#98A29A;margin-top:6px}
+  .darkline{
+    margin-top:14px;display:flex;align-items:center;gap:14px;
+    background:#151B23;border-radius:12px;padding:12px 16px;
+  }
+  .darkline svg{width:48px;height:48px;display:block;border-radius:11px}
+  .darkline .cap{color:#9198A1;font-size:12.5px}
+  .name{font-size:16px;font-weight:700;margin:14px 0 2px;display:flex;align-items:center;gap:8px}
+  .name .rec{
+    font-size:11.5px;font-weight:700;color:#fff;background:#B03A2E;
+    border-radius:999px;padding:1px 9px;
+  }
+  .desc{font-size:13.5px;color:#5C6660;line-height:1.75}
+  .foot{margin-top:28px;font-size:12.5px;color:#8A9288;line-height:1.9}
+</style>
+</head>
+<body>
+
+<!-- 全部候选的 SVG 定义（黑白 · 中文 · 手绘风） -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+
+  <!-- 候选一 · 潦草印章（致敬原图标手感） -->
+  <symbol id="ic1" viewBox="0 0 64 64">
+    <rect width="64" height="64" rx="14" fill="#fff"/>
+    <path d="M9.5 12.5C17.5 10 46.5 10 53.5 12.8C55.8 20.5 55.8 43.5 53.8 50.8C46 53.5 18 53.5 10.8 50.5C8.6 43.5 8.6 20.5 9.5 12.5Z" fill="none" stroke="#111" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <g transform="rotate(-2 32 32)" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21.2 21C25.4 20.3 29.1 20.3 31.3 21C32.1 25.4 32.1 33.6 31.3 37.9C27.6 38.6 23.9 38.6 21.2 37.9C20.3 33.6 20.3 25.4 21.2 21Z"/>
+      <path d="M21.4 29.6C24.4 29 27.8 29 30.9 29.6"/>
+      <path d="M33.8 24.2C37.8 23.4 42.8 23.4 47.2 24.1"/>
+      <path d="M41.8 17C42.6 24.6 42.6 35.4 41.8 44.6C39.6 45.3 37.1 44.4 36.2 41.9"/>
+      <circle cx="36.4" cy="33.2" r="2.4" fill="#111" stroke="none"/>
+    </g>
+  </symbol>
+
+  <!-- 候选二 · 小表情时（日字变成斜眼笑 + 汗滴） -->
+  <symbol id="ic2" viewBox="0 0 64 64">
+    <rect x="3" y="3" width="58" height="58" rx="14" fill="#fff" stroke="#111" stroke-width="3.5"/>
+    <g transform="rotate(-3 32 32)" fill="none" stroke="#111" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20.5 19.6C25 18.9 29 18.9 31.4 19.7C32.3 24.5 32.3 34 31.4 38.8C27.4 39.6 23.4 39.6 20.5 38.8C19.5 34 19.5 24.5 20.5 19.6Z"/>
+      <path d="M20.8 29.8C24.6 31.9 28.7 31.3 31.2 28.5"/>
+      <path d="M33.6 23.4C38 22.5 43.6 22.5 48.4 23.3"/>
+      <path d="M42.2 15.8C43.1 24 43.1 36 42.2 46.2C39.8 47 37 46 36 43.2"/>
+      <circle cx="24" cy="25.8" r="1.5" fill="#111" stroke="none"/>
+      <circle cx="28.2" cy="25.8" r="1.5" fill="#111" stroke="none"/>
+      <circle cx="36.2" cy="33" r="2.6" fill="#111" stroke="none"/>
+    </g>
+    <path d="M50.2 12.2C52.1 14.8 53 16.4 52.3 17.9C51.4 19.4 49 19.4 48.1 17.9C47.4 16.4 48.3 14.8 50.2 12.2Z" fill="#111"/>
+  </symbol>
+
+  <!-- 候选三 · 耳朵时（时字长出熊猫耳朵，推荐） -->
+  <symbol id="ic3" viewBox="0 0 64 64">
+    <rect x="3" y="3" width="58" height="58" rx="14" fill="#fff" stroke="#111" stroke-width="3.5"/>
+    <g transform="rotate(-3 32 32)" fill="none" stroke="#111" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20.5 19.6C25 18.9 29 18.9 31.4 19.7C32.3 24.5 32.3 34 31.4 38.8C27.4 39.6 23.4 39.6 20.5 38.8C19.5 34 19.5 24.5 20.5 19.6Z"/>
+      <path d="M20.7 29.3C24 28.7 27.8 28.7 31.1 29.3"/>
+      <path d="M33.6 23.4C38 22.5 43.6 22.5 48.4 23.3"/>
+      <path d="M42.2 15.8C43.1 24 43.1 36 42.2 46.2C39.8 47 37 46 36 43.2"/>
+      <circle cx="36.2" cy="33" r="2.6" fill="#111" stroke="none"/>
+    </g>
+    <circle cx="20" cy="13" r="4.4" fill="#111"/>
+    <circle cx="44" cy="13" r="4.4" fill="#111"/>
+  </symbol>
+
+  <!-- 候选四 · 圆章时（橡皮图章的手绘圆环） -->
+  <symbol id="ic4" viewBox="0 0 64 64">
+    <rect width="64" height="64" rx="14" fill="#fff"/>
+    <path d="M32 7.6C45 7.6 56.3 16.8 56.1 31.9C55.9 46.5 45.7 56.3 31.6 56.1C17.8 55.9 7.8 45.9 8 31.8C8.2 17.4 18.7 7.6 32 7.6Z" fill="none" stroke="#111" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <g transform="rotate(-4 32 32)" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 20.4C25.3 19.7 29.1 19.7 31.3 20.4C32.1 24.8 32.1 33.4 31.3 37.6C27.6 38.3 23.8 38.3 21 37.6C20.1 33.4 20.1 24.8 21 20.4Z"/>
+      <path d="M21.2 29.2C24.3 28.6 27.8 28.6 30.9 29.2"/>
+      <path d="M33.8 23.8C37.8 23 42.9 23 47.3 23.7"/>
+      <path d="M41.6 16.6C42.4 24.2 42.4 35 41.6 44.2C39.4 44.9 36.9 44 36 41.5"/>
+      <circle cx="36.4" cy="32.8" r="2.4" fill="#111" stroke="none"/>
+    </g>
+  </symbol>
+</svg>
+
+<div class="wrap">
+  <h1>项目图标候选（黑白 · 中文 · 恶搞风）</h1>
+  <p class="sub">按你的要求重做：不要蓝色背景，整体黑白，里面是手绘的中文字，笔触歪歪扭扭但保持抖擞——参考你之前那个搞怪图标的记号笔质感。全部为 SVG 绘制，源文件即正式图标源。</p>
+
+  <div class="refrow">
+    <img src="icon-reference.png" alt="你之前的搞怪图标">
+    <span>
+      <span class="t">你的参考图标（icon.ico）</span><br>
+      <span class="d">粗黑手绘外框 + 涂鸦大字，黑白、歪斜、有墨感——新图标全部沿着这个手感做。</span>
+    </span>
+  </div>
+
+  <div class="refrow cur">
+    <svg viewBox="0 0 64 64" width="56" height="56" aria-hidden="true"><use href="#ic1"/></svg>
+    <span>
+      <span class="t">当前已应用 · 候选一「潦草印章」</span><br>
+      <span class="d">已同步到版本 E 的站点图标、侧栏品牌位与总览页；源文件 <code>demo/logo.svg</code>。</span>
+    </span>
+    <span class="applied">已应用</span>
+  </div>
+
+  <div class="grid">
+
+    <!-- 候选 1 -->
+    <div class="card">
+      <div class="preview">
+        <span class="big"><svg viewBox="0 0 64 64" role="img" aria-label="潦草印章时"><use href="#ic1"/></svg></span>
+        <div class="sizes">
+          <figure><svg viewBox="0 0 64 64" width="48" height="48" aria-hidden="true"><use href="#ic1"/></svg><figcaption>48</figcaption></figure>
+          <figure><svg viewBox="0 0 64 64" width="24" height="24" aria-hidden="true"><use href="#ic1"/></svg><figcaption>24</figcaption></figure>
+          <figure><svg viewBox="0 0 64 64" width="16" height="16" aria-hidden="true"><use href="#ic1"/></svg><figcaption>16</figcaption></figure>
+        </div>
+      </div>
+      <div class="name">候选一 · 潦草印章「时」 <span class="rec">已应用</span></div>
+      <div class="desc">直接致敬你原图标：歪歪扭扭的粗黑方框里一个手绘「时」。最原汁原味的恶搞感；方框不规整，小尺寸下框线会略晃。</div>
+      <div class="darkline"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#ic1"/></svg><span class="cap">深色界面下的效果</span></div>
+    </div>
+
+    <!-- 候选 2 -->
+    <div class="card">
+      <div class="preview">
+        <span class="big"><svg viewBox="0 0 64 64" role="img" aria-label="小表情时"><use href="#ic2"/></svg></span>
+        <div class="sizes">
+          <figure><svg viewBox="0 0 64 64" width="48" height="48" aria-hidden="true"><use href="#ic2"/></svg><figcaption>48</figcaption></figure>
+          <figure><svg viewBox="0 0 64 64" width="24" height="24" aria-hidden="true"><use href="#ic2"/></svg><figcaption>24</figcaption></figure>
+          <figure><svg viewBox="0 0 64 64" width="16" height="16" aria-hidden="true"><use href="#ic2"/></svg><figcaption>16</figcaption></figure>
+        </div>
+      </div>
+      <div class="name">候选二 · 会笑的「时」</div>
+      <div class="desc">「时」左边的「日」变成一张斜眼笑的脸，右上角挂一滴汗——被时间追着的表情。细节最小，小尺寸下嘴和汗会糊。</div>
+      <div class="darkline"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#ic2"/></svg><span class="cap">深色界面下的效果</span></div>
+    </div>
+
+    <!-- 候选 3 -->
+    <div class="card">
+      <div class="preview">
+        <span class="big"><svg viewBox="0 0 64 64" role="img" aria-label="耳朵时"><use href="#ic3"/></svg></span>
+        <div class="sizes">
+          <figure><svg viewBox="0 0 64 64" width="48" height="48" aria-hidden="true"><use href="#ic3"/></svg><figcaption>48</figcaption></figure>
+          <figure><svg viewBox="0 0 64 64" width="24" height="24" aria-hidden="true"><use href="#ic3"/></svg><figcaption>24</figcaption></figure>
+          <figure><svg viewBox="0 0 64 64" width="16" height="16" aria-hidden="true"><use href="#ic3"/></svg><figcaption>16</figcaption></figure>
+        </div>
+      </div>
+      <div class="name">候选三 · 耳朵「时」</div>
+      <div class="desc">「时」字头顶长出两只熊猫耳朵——汉字的黑白 + 熊猫的黑白，一笔不多。恶搞得克制，16px 下依然是一个清晰的字。</div>
+      <div class="darkline"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#ic3"/></svg><span class="cap">深色界面下的效果</span></div>
+    </div>
+
+    <!-- 候选 4 -->
+    <div class="card">
+      <div class="preview">
+        <span class="big"><svg viewBox="0 0 64 64" role="img" aria-label="圆章时"><use href="#ic4"/></svg></span>
+        <div class="sizes">
+          <figure><svg viewBox="0 0 64 64" width="48" height="48" aria-hidden="true"><use href="#ic4"/></svg><figcaption>48</figcaption></figure>
+          <figure><svg viewBox="0 0 64 64" width="24" height="24" aria-hidden="true"><use href="#ic4"/></svg><figcaption>24</figcaption></figure>
+          <figure><svg viewBox="0 0 64 64" width="16" height="16" aria-hidden="true"><use href="#ic4"/></svg><figcaption>16</figcaption></figure>
+        </div>
+      </div>
+      <div class="name">候选四 · 圆章「时」</div>
+      <div class="desc">手绘的歪圆环当外框，像盖歪了的橡皮章。比方框柔和，但"印章"语义比候选一弱一点。</div>
+      <div class="darkline"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#ic4"/></svg><span class="cap">深色界面下的效果</span></div>
+    </div>
+
+  </div>
+
+  <p class="foot">
+    四个候选全部是纯黑白 + 手绘笔触 + 中文单字，只是"恶搞点"不同：歪框（一）、表情（二）、熊猫耳（三）、歪圆章（四）。
+    换编号即可整体替换；正式图标源文件为 <code>demo/logo.svg</code>，部署时由它导出 PNG/ICO。
+  </p>
+</div>
+</body>
+</html>

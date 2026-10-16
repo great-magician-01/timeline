@@ -1,0 +1,11 @@
+.git
+.env
+bin
+docs
+demo
+deploy/data
+backups
+web/node_modules
+web/dist
+*.md
+!migrations/*.sql

@@ -1,0 +1,103 @@
+/* 时间线设计令牌与基础样式
+   唯一来源：docs/DESIGN_SYSTEM.md（Vue 实现基线）。
+   规则：组件中不得出现字面量颜色，一律引用这里的自定义属性。 */
+
+:root {
+  color-scheme: light;
+  --bg: #f6f7f8;
+  --surface: #ffffff;
+  --surface-subtle: #f7f8f7;
+  --soft: #f1f3f1;
+  --soft-hover: #e7eae7;
+  --glass: rgba(255, 255, 255, 0.94);
+  --ink: #1b201e;
+  --ink-2: #59635d;
+  --ink-3: #8d968f;
+  --border: #e6e9e6;
+  --hover: #f3f5f3;
+  --primary: #2b63f2;
+  --primary-soft: #ecf1fe;
+  --primary-hover: #1f53d8;
+  --btn-bg: #1f2328;
+  --btn-fg: #ffffff;
+  --btn-hover: #32383f;
+  --violet: #6c5ce0;
+  --violet-soft: #f0eefb;
+  --red: #d64550;
+  --red-soft: #fbecee;
+  --green: #1f8a5c;
+  --avatar-bg: #e2e8e3;
+  --avatar-fg: #37503f;
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --surface: #151b23;
+  --surface-subtle: #1c2128;
+  --soft: #21262d;
+  --soft-hover: #2a313a;
+  --glass: rgba(21, 27, 35, 0.92);
+  --ink: #f0f6fc;
+  --ink-2: #9198a1;
+  --ink-3: #6e7681;
+  --border: #3d444d;
+  --hover: #21262d;
+  --primary: #4493f8;
+  --primary-soft: rgba(68, 147, 248, 0.15);
+  --primary-hover: #5fa8ff;
+  --btn-bg: #f0f6fc;
+  --btn-fg: #0d1117;
+  --btn-hover: #ffffff;
+  --violet: #a78bfa;
+  --violet-soft: rgba(139, 110, 240, 0.18);
+  --red: #f85149;
+  --red-soft: rgba(248, 81, 73, 0.15);
+  --green: #3fb950;
+  --avatar-bg: #2a313a;
+  --avatar-fg: #c9d1d9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family:
+    -apple-system, 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', 'Noto Sans SC',
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}

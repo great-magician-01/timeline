@@ -1,0 +1,4 @@
+-- 0001_baseline：迁移序列的基线标记，不含表结构语句。
+-- 两个 schema（timeline、"user"）由迁移器启动引导负责创建（存在即跳过，见 internal/migrate），
+-- 应用本文件后会在 timeline.schema_migrations 记录 0001_baseline；
+-- 后续表结构迁移从 0002 起编号。

@@ -1,0 +1,16 @@
+# 环境与密钥
+.env
+.env.*
+!.env.example
+
+# 构建产物与本地产物
+/bin/
+/logs/
+/data/
+/deploy/data/
+/backups/
+
+# 编辑器（仅限仓库根目录；web/ 下由 web/.gitignore 自行管理）
+/.idea/
+/.vscode/
+.DS_Store

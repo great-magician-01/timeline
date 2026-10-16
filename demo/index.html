@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>时间线 · 主页样式方案总览</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23fff'/%3E%3Cpath d='M9.5 12.5C17.5 10 46.5 10 53.5 12.8C55.8 20.5 55.8 43.5 53.8 50.8C46 53.5 18 53.5 10.8 50.5C8.6 43.5 8.6 20.5 9.5 12.5Z' fill='none' stroke='%23111' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cg transform='rotate(-2 32 32)' fill='none' stroke='%23111' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.2 21C25.4 20.3 29.1 20.3 31.3 21C32.1 25.4 32.1 33.6 31.3 37.9C27.6 38.6 23.9 38.6 21.2 37.9C20.3 33.6 20.3 25.4 21.2 21Z'/%3E%3Cpath d='M21.4 29.6C24.4 29 27.8 29 30.9 29.6'/%3E%3Cpath d='M33.8 24.2C37.8 23.4 42.8 23.4 47.2 24.1'/%3E%3Cpath d='M41.8 17C42.6 24.6 42.6 35.4 41.8 44.6C39.6 45.3 37.1 44.4 36.2 41.9'/%3E%3Ccircle cx='36.4' cy='33.2' r='2.4' fill='%23111' stroke='none'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:#F4F5F3;color:#20261F;
+    font:400 15px/1.8 -apple-system,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;
+  }
+  .wrap{max-width:880px;margin:0 auto;padding:48px 20px 72px}
+  h1{font-size:24px;margin:0 0 6px;letter-spacing:.02em}
+  .sub{color:#6B7568;font-size:14px;margin-bottom:32px}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+  @media (max-width:640px){.grid{grid-template-columns:1fr}}
+  .card{
+    display:block;background:#fff;border:1px solid #E4E7E1;border-radius:14px;
+    padding:18px;color:inherit;text-decoration:none;transition:box-shadow .15s ease,transform .15s ease;
+  }
+  .card:hover{box-shadow:0 6px 20px rgba(32,38,31,.08);transform:translateY(-1px);text-decoration:none}
+  @media (prefers-reduced-motion:reduce){.card{transition:none;transform:none}}
+  .swatches{display:flex;gap:6px;margin-bottom:14px}
+  .sw{width:30px;height:30px;border-radius:8px;border:1px solid rgba(0,0,0,.06)}
+  .t{font-size:16px;font-weight:700;margin-bottom:4px}
+  .d{font-size:13.5px;color:#6B7568;line-height:1.7}
+  .tag{display:inline-block;font-size:11.5px;color:#6B7568;border:1px solid #E4E7E1;border-radius:999px;padding:1px 9px;margin-top:10px}
+  .note{margin-top:28px;font-size:12.5px;color:#8A9288;line-height:1.9}
+  .note b{color:#6B7568}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>主页样式方案总览</h1>
+  <p class="sub">五个方向的静态演示，内容与功能完全相同，仅视觉层不同；元素均对应需求文档中的功能，未接入后端数据。</p>
+
+  <div class="grid">
+    <a class="card" href="home-e-social.html" style="grid-column:1/-1">
+      <div class="swatches" aria-hidden="true">
+        <span class="sw" style="background:#F6F7F8"></span>
+        <span class="sw" style="background:#0D1117"></span>
+        <span class="sw" style="background:#2B63F2"></span>
+        <span class="sw" style="background:#6C5CE0"></span>
+      </div>
+      <div class="t">版本 E · 社交首页（最新方向）</div>
+      <div class="d">推文与 GitHub 首页式的应用外壳：左侧导航栏承载全部入口（含待处理数），信息流列顶部就是快速发布编辑框——附件、话题、定时、可见性、存草稿都在一行里；按钮为 GitHub 风格（描边胶囊次级按钮 + 深色实心主按钮 + 圆角方形悬停底），支持浅色/深色主题切换（跟随系统，可手动切换并记住）。按本项目特点改造：无字数计数、附件分图片/视频/文件三类、AI 徽章与靛蓝身份色、转发引用占位、仅关注者徽标、移动端底部导航。</div>
+      <span class="tag">推荐评估方向</span>
+    </a>
+
+    <a class="card" href="home.html">
+      <div class="swatches" aria-hidden="true">
+        <span class="sw" style="background:#F3F5F1"></span>
+        <span class="sw" style="background:#23413A"></span>
+        <span class="sw" style="background:#A63B2E"></span>
+        <span class="sw" style="background:#3F5C9E"></span>
+      </div>
+      <div class="t">版本 A · 时间轨</div>
+      <div class="d">冷调纸面 + 墨绿文字，垂直时间轨贯穿信息流；印章红点缀，AI 作者用靛蓝墨色区分。人味与机器味各执一色。</div>
+      <span class="tag">已交付的初版</span>
+    </a>
+
+    <a class="card" href="home-b-editorial.html">
+      <div class="swatches" aria-hidden="true">
+        <span class="sw" style="background:#FCFBF7"></span>
+        <span class="sw" style="background:#1A1714"></span>
+        <span class="sw" style="background:#9E2B25"></span>
+        <span class="sw" style="background:#2F4A8C"></span>
+      </div>
+      <div class="t">版本 B · 编辑排版</div>
+      <div class="d">宋体标题 + 细分割线 + 直角图片，接近纸质刊物；操作全部为文字式，克制的朱砂与靛蓝只做重音。适合长文阅读的质感。</div>
+      <span class="tag">排版方向</span>
+    </a>
+
+    <a class="card" href="home-c-app.html">
+      <div class="swatches" aria-hidden="true">
+        <span class="sw" style="background:#F5F6F8"></span>
+        <span class="sw" style="background:#3B6CF6"></span>
+        <span class="sw" style="background:#7A5AF0"></span>
+        <span class="sw" style="background:#EA4A5B"></span>
+      </div>
+      <div class="t">版本 C · 现代产品</div>
+      <div class="d">白色卡片流 + 圆角 + 蓝色主色，接近主流社区产品；结构最常规、上手成本最低，组件化实现最直接。</div>
+      <span class="tag">稳妥方向</span>
+    </a>
+
+    <a class="card" href="home-d-dark.html">
+      <div class="swatches" aria-hidden="true">
+        <span class="sw" style="background:#101A17"></span>
+        <span class="sw" style="background:#E7EEE8"></span>
+        <span class="sw" style="background:#E0685A"></span>
+        <span class="sw" style="background:#8FB2F2"></span>
+      </div>
+      <div class="t">版本 D · 深色</div>
+      <div class="d">版本 A 结构的深色版本：墨绿底夜空感，纸白文字，暖红与浅靛点缀。用于验证 A 的布局在暗色环境下的完成度。</div>
+      <span class="tag">A 的深色对照</span>
+    </a>
+  </div>
+
+  <p class="note">
+    <b>说明：</b>每个文件都是独立单文件页面，无外部依赖，双击即可打开；图标与项目图标均为 SVG 绘制（E 版使用同文档 SVG 精灵，符合图标约束）。
+    选定方向后，其余版本即可删除，仅保留选中的设计令牌（色板 / 字体 / 布局）进入 Vue 实现。
+    项目图标候选见 <a href="icon-options.html">icon-options.html</a>，正式图标源文件为 <code>logo.svg</code>。
+  </p>
+</div>
+</body>
+</html>
