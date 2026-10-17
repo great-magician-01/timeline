@@ -9,13 +9,13 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 当前仓库处于 **V1 已实现、待人工验证** 阶段，功能范围已全部落地：
 
 - Go/Gin HTTP 服务、`/healthz` 存活检查、`/readyz` 就绪检查，以及前端构建产物的 Go 内嵌托管和 SPA 回退。
-- PostgreSQL 连接、失败退避重试、最小迁移器；`migrations/` 内按文件名顺序追加的迁移（`0001` 起，含账号、内容、社交、AI、后台作业与 AI 记忆来源等表结构）。
-- 账号：用户名/邮箱注册与登录、bcrypt 哈希、HttpOnly 服务端会话、游客与会话 CSRF、三维登录限频、资料与密码修改、关注审批设置、头像上传；公开 `GET /auth/config` 提供注册开关状态。
+- PostgreSQL 连接、失败退避重试、最小迁移器；`migrations/` 内按文件名顺序追加的迁移（`0001` 起，含账号、超级管理员标记、内容、社交、AI、后台作业与 AI 记忆来源等表结构）。
+- 账号：用户名/邮箱注册与登录、bcrypt 哈希、HttpOnly 服务端会话、游客与会话 CSRF、三维登录限频、资料与密码修改、关注审批设置、头像上传；公开 `GET /auth/config` 提供注册开关状态与 `bootstrap_required` 初始化状态。空库首个注册用户自动成为唯一超级管理员；超级管理员可授权/撤销管理员，普通管理员不能操作超管账号。
 - 内容：富文本/Markdown 统一安全渲染、帖子、草稿与自动保存冲突、定时发布、编辑历史与版本恢复、附件上传与图片缩略图/视频封面（ffmpeg 可选）、可见性（公开/仅关注者/仅自己）、时间线（全站/关注/个人主页）。
 - 社交：关注与关注审批、移除粉丝、点赞、评论与楼中楼、纯转发与引用、提及、通知中心（轮询未读数、按类型筛选）。
 - 发现：`#话题#` 链接化与标签聚合、用户搜索、帖子搜索，全部按访问者权限过滤。
 - AI：OpenAI 兼容接口预设（API Key 加密存储）、AI 身份与行为策略（含发帖/主动互动间隔）、分层记忆（近期/长期、关键词检索、沉淀与失效、来源关联）、自主动作（发帖/评论/点赞/关注/转发/引用，默认全部关闭）、按 AI 开关的受控联网搜索（全局独立密钥、默认关闭、有限工具轮次）、任务与决策审计、模型调用记录（可按任务筛选）、管理员手动生成支持立即发布或定时发布、任务详情展示注入记忆。
-- 管理后台：概览、用户管理、内容审核（帖子/评论/附件）、模型预设、AI 配置与记忆、生成与发布、全局任务、调用记录、审计日志、系统设置（注册、全局独立网页搜索 Base URL/API Key、上传/请求大小、存储配额、发帖/上传限频、临时附件保留期、调用记录截断/保留期）与全局 AI 开关。
+- 管理后台：概览、用户管理（含超级管理员授权/撤销管理员）、内容审核（帖子/评论/附件）、模型预设、AI 配置与记忆、生成与发布、全局任务、调用记录、审计日志、系统设置（注册、全局独立网页搜索 Base URL/API Key、上传/请求大小、存储配额、发帖/上传限频、临时附件保留期、调用记录截断/保留期）与全局 AI 开关。
 - 后台作业：持久化在 `background_jobs`，重启恢复，有限次数与退避重试；附件失效清理与 AI 调度为周期任务。
 - 环境变量配置、双通道日志、雪花 ID 生成器、Docker/Compose、目录准备与备份恢复脚本，以及 GitHub Actions CI。
 
@@ -44,14 +44,14 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 
 ## 3. 目录与模块划分
 
-- `cmd/server/main.go`：唯一服务入口。负责固定 `Asia/Shanghai` 时区、加载配置、初始化日志/ID 生成器/附件存储/后台作业运行器、启动 HTTP、后台连接数据库/迁移、优雅关闭，以及 `migrate` / `init-admin` 子命令。
+- `cmd/server/main.go`：唯一服务入口。负责固定 `Asia/Shanghai` 时区、加载配置、初始化日志/ID 生成器/附件存储/后台作业运行器、启动 HTTP、后台连接数据库/迁移、优雅关闭，以及 `migrate` 子命令；迁移完成后输出初始化状态日志（人类用户数/超管数）。
 - `internal/api/`：统一 JSON 错误与 `*api.Failure` 业务错误、请求体限制、雪花 ID 字符串、游标与列表响应。
 - `internal/access/`：跨模块复用的可见性、只读与互动授权判断（`CanViewPost`、`RequireInteractivePost` 等）。
-- `internal/admin/`：管理员账号处置、内容审核、后台作业处置、概览、注册与全局 AI 开关、审计查询。
+- `internal/admin/`：管理员账号处置、管理员授权/撤销（仅超管）、内容审核、后台作业处置、概览、注册与全局 AI 开关、审计查询。
 - `internal/agent/`：AI 任务调度、决策引擎、受控联网搜索工具循环、动作执行、记忆形成与沉淀、调用记录与 AI 管理接口。
 - `internal/ai/`：模型接口预设（密钥加解密）、AI 身份/模型/行为配置、分层记忆存储与检索、callable 客户端构造。
 - `internal/audit/`：管理审计日志写入（同一事务内）。
-- `internal/auth/`：账号模型、注册登录、会话与 CSRF（含 `OptionalAuth`）、中间件、资料和密码、首个管理员初始化。
+- `internal/auth/`：账号模型、注册登录与首注册初始化引导（`BootstrapRequired`/`BootstrapStatus`、注册事务内 advisory lock）、会话与 CSRF（含 `OptionalAuth`）、中间件（含 `RequireSuperAdmin`）、资料和密码。
 - `internal/config/`：环境变量加载、校验、PostgreSQL DSN 构造与密钥派生。
 - `internal/content/`：帖子、草稿与自动保存、定时发布、编辑历史、标签、搜索与时间线。
 - `internal/db/`：连接池、Ping 和数据库退避重试。
@@ -103,10 +103,11 @@ go vet ./...
 go build -o bin/timeline.exe ./cmd/server   # Windows
 # Linux/macOS 可输出为：go build -o bin/timeline ./cmd/server
 go run ./cmd/server
-go run ./cmd/server migrate       # 显式执行迁移
-go run ./cmd/server init-admin    # 交互创建首个管理员，不从环境变量读密码
+go run ./cmd/server migrate       # 显式执行迁移（唯一的子命令）
 go run ./cmd/mock-llm             # 验收用本地 OpenAI 兼容 mock（默认 127.0.0.1:8099，非生产）
 ```
+
+`cmd/server` 只保留 `migrate` 子命令：不再提供 `init-admin`，首个管理员通过注册页的首个注册账号自动产生（空库环境）。
 
 集成测试使用现有开发实例中的 `timeline_test` 与 `user_test` 隔离 schema，不创建数据库，也不写正式业务表；需要测试账号具有这两个 schema 的创建/使用权限。默认全部跳过，需显式开启：
 
@@ -114,6 +115,7 @@ go run ./cmd/mock-llm             # 验收用本地 OpenAI 兼容 mock（默认 
 TIMELINE_INTEGRATION=1 go test ./internal/server -run TestAccountIntegration -count=1 -v
 TIMELINE_INTEGRATION=1 go test ./internal/server -run TestContentIntegration -count=1 -v
 TIMELINE_INTEGRATION=1 go test ./internal/server -run TestAdminSettingsAndAttachmentIntegration -count=1 -v
+TIMELINE_INTEGRATION=1 go test ./internal/server -run 'TestBootstrapIntegration|TestAdminGrantIntegration' -count=1 -v
 TIMELINE_INTEGRATION=1 go test ./internal/ai -run TestAIAdminIntegration -count=1 -v
 ```
 
@@ -175,6 +177,7 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 - 业务 HTTP 接口只使用 GET 与 POST，不使用 PUT/PATCH/DELETE；修改类操作用 POST（可与资源路径同路径），删除、取消类操作使用语义化 POST action 路径（如 `/delete`、`/unlike`、`/unfollow`）。
 - 内容、任务、媒体和记忆状态相互分离；任务执行时重新授权，并通过幂等键防止重试或重启造成重复结果。
 - 帖子、评论、附件等一律逻辑删除（记录保留，只更新状态/`deleted_at`）；已发布帖子的编辑和历史恢复采用追加版本，不覆盖旧历史。
+- 角色模型保持 `users.role` 为 `user`/`admin` 两值，不新增第三个角色；**超级管理员 = `role='admin'` 且 `is_super_admin=true`**，由空库首个注册用户自动获得且全库唯一（单超管部分唯一索引）。只有超级管理员可授权/撤销管理员；普通管理员不能操作超管账号；公开用户对象不返回 `is_super_admin`。
 
 迁移文件命名为 `NNNN_描述.sql`，按文件名排序，只允许追加，不能修改已应用迁移。当前迁移器只是按分号简单分句，不支持函数体等内部含分号的复合语句；需要复杂迁移时应先改进迁移工具，而不是绕过解析限制。
 
@@ -183,7 +186,7 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 当前自动化测试覆盖：
 
 - 单元测试：雪花 ID、密码与令牌、注册/资料校验、固定窗口限频、游标与 JSON 约束、代理配置、迁移安全约束（无外键/无物理删除）、路由方法与健康检查、富文本清洗与 Markdown 渲染（含 XSS 用例）、附件类型嗅探与图片缩放、帖子 DTO 与时间游标、评论状态机与幂等键、AI 密钥加解密与生成参数解析、AI 决策解析与频率判断、网页搜索 URL/重试/结果裁剪/密钥脱敏、有限工具轮次与降级、搜索设置加密与校验、候选范围二次授权、空工具调用兼容与控制字符校验。
-- 集成测试（默认跳过，需要测试 schema）：`TestAccountIntegration`（账号全链路）、`TestContentIntegration`（帖子/草稿/定时/版本/附件/可见性/时间线/关注/点赞/评论/转发/通知/标签/搜索/管理审核）、`TestAdminSettingsAndAttachmentIntegration`（系统设置即时生效、全局搜索密钥加密/清除、存储配额、附件审核/删除、用户统计、定时失败状态）、`TestAIAdminIntegration`（模型预设、AI 配置、`allow_web_search`、记忆、生成任务）。
+- 集成测试（默认跳过，需要测试 schema）：`TestAccountIntegration`（账号全链路）、`TestContentIntegration`（帖子/草稿/定时/版本/附件/可见性/时间线/关注/点赞/评论/转发/通知/标签/搜索/管理审核）、`TestAdminSettingsAndAttachmentIntegration`（系统设置即时生效、全局搜索密钥加密/清除、存储配额、附件审核/删除、用户统计、定时失败状态）、`TestBootstrapIntegration`（空库首注册超管、并发唯一超管、空库忽略注册开关的隔离 schema 用例）、`TestAdminGrantIntegration`（超管授权/撤销管理员、普通管理员越权与超管保护、审计与幂等）、`TestAIAdminIntegration`（模型预设、AI 配置、`allow_web_search`、记忆、生成任务）。
 - 前端以 `npm run build`（`vue-tsc` + `vite`）作为类型与构建校验，没有独立 lint/test 脚本。
 
 新增 Go 逻辑时，在对应包添加 `_test.go`，至少执行：
@@ -198,7 +201,7 @@ cd web && npm run build
 
 - P0 用例为上线必过项，P1 失败必须记录原因和计划；SEC 安全组不允许失败。
 - V1 功能已实现，但 P0 清单尚未人工执行；改动核心流程后需要重新走一遍对应条目。
-- 验收需要游客、普通用户、管理员和至少两个 AI 的隔离场景，并覆盖权限、XSS、CSRF、上传、ID 精度和备份恢复。
+- 验收需要游客、普通用户、超级管理员、普通管理员和至少两个 AI 的隔离场景，并覆盖权限、XSS、CSRF、上传、ID 精度和备份恢复；本轮新增初始化与角色授权用例（AUTH-07/08、ADMIN-11～14、SEC-09），重点覆盖空库首注册、并发唯一超管、授权/撤销即时生效、超管保护与审计。
 - AI 回归使用本地 OpenAI 兼容 mock 服务，覆盖正常、noop、非法 JSON、超时和接口错误；真实模型只做冒烟抽样。
 - 完整 P0 人工验收尚未执行，不能因为 `go test`、`npm run build`、CI 或开发机 Docker 冒烟通过就宣称整体验收通过；部署机仍应按清单复演 Docker 与备份恢复流程。
 
@@ -211,7 +214,7 @@ cd web && npm run build
 3. 文档冲突时以需求基线为准，并修正其他文档；未决事项保留在“待细化”中，不要自行当成已确认需求。
 4. 代码、配置、端口或部署约定变化时，同时更新对应文档和本文件。
 
-注意：`docs/README.md`、`docs/DEPLOYMENT.md`、`docs/ACCEPTANCE.md` 已于 2026-10-18 与当前实现同步（版本、Compose、目录准备、备份恢复与 CI）；如再修改部署文件、端口、镜像构建参数或配置变量，必须同时更新 `docs/DEPLOYMENT.md`、`.env.example`、`README.md` 与本文件，避免重新产生漂移。
+注意：`docs/README.md`、`docs/DEPLOYMENT.md`、`docs/ACCEPTANCE.md` 已于 2026-10-18 与当前实现同步（版本、Compose、目录准备、备份恢复、CI 与超级管理员初始化/授权流程）；如再修改部署文件、端口、镜像构建参数或配置变量，必须同时更新 `docs/DEPLOYMENT.md`、`.env.example`、`README.md` 与本文件，避免重新产生漂移。
 
 ## 8. 部署实现与当前边界
 
@@ -224,6 +227,7 @@ cd web && npm run build
 - `deploy/scripts/prepare.sh` 创建并授权宿主机数据目录；`backup.sh` 备份数据库、附件与 `ENCRYPTION_KEY`（独立 `encryption-key.txt`，权限 600）；`restore.sh` 校验目标库版本、恢复附件属主与权限。
 - 上传文件和日志使用绑定挂载；数据库与上传目录必须配套备份和恢复。
 - `/healthz` 用于应用存活，`/readyz` 用于数据库和迁移就绪检查。
+- 初始化不再使用命令行：`cmd/server` 只保留 `migrate`；首次部署在 `/readyz` 就绪后立即通过注册页创建首个账号（自动成为唯一超级管理员）并登录，之后才对外开放或按需关闭注册；存量部署升级到 `0010_super_admin` 后没有超级管理员，启动日志会告警，需要时另行制定迁移方案。
 
 边界：开发机已完成 Docker 构建/容器启动与备份恢复演练的基础验证（临时 PostgreSQL 实例），但真实部署环境、外部数据库网络与浏览器 P0 人工验收仍需按 `docs/DEPLOYMENT.md` 第 11 章和 `docs/ACCEPTANCE.md` 执行。
 
@@ -233,6 +237,8 @@ cd web && npm run build
 
 - 不提交 `.env`、数据库凭据、会话秘密或模型 API Key；不要在前端构建产物、接口响应或日志中暴露它们。
 - 所有认证、授权、账号状态和可见性检查都在后端执行；隐藏前端按钮不是权限控制。
+- 超级管理员唯一且受保护：只有空库首个注册用户自动成为超管（`role='admin'` + `is_super_admin=true`），不提供授予/转让超管接口；仅超管可授权/撤销管理员，普通管理员不能停用、重置密码或处置超管账号；授权/撤销必须写入审计（`user_grant_admin`/`user_revoke_admin`），角色变更即时生效且不吊销会话。
+- 空库初始化是安全窗口：系统尚无人类用户时注册接口忽略注册开关，任何能访问注册页的人都可能成为超管；首次部署必须先完成初始化再对外开放，或临时限制访问来源。
 - 非公开内容在时间线、详情、历史、评论、通知、标签、搜索、附件和 AI 上下文中都不得泄露；不应暴露资源存在性时返回 404。
 - 人类富文本和 AI Markdown 都必须在后端转换/清洗为安全 HTML，防止脚本、危险事件属性和任意 iframe。
 - 会话设计采用 HttpOnly Cookie、服务端 `auth_sessions` 和 `X-CSRF-Token`；所有非 GET 请求需要 CSRF 防护，账号停用和密码重置要使会话失效。

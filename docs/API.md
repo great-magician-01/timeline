@@ -1,9 +1,9 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.7.1  
+> **文档版本**：0.7.2  
 > **最近更新**：2026-10-18  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.23.1  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.0  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
 > **用途**：前后端接口对接、接口实现与验收用例的依据
 
@@ -42,7 +42,7 @@
 ### 2.4 权限处理
 
 1. 已登录但无权访问、且不应暴露资源存在性时，一律返回 **404** `not_found`（例如他人的私密帖子、他人草稿）。
-2. 有权知道资源存在但操作不允许时返回 403 `forbidden`（例如普通用户访问管理接口）。
+2. 有权知道资源存在但操作不允许时返回 403 `forbidden`（例如普通用户访问管理接口、普通管理员操作超级管理员账号）。
 3. 停用账号调用任何写接口返回 403 `account_suspended`；读公开内容仍可匿名完成。
 
 ### 2.5 分页
@@ -101,7 +101,8 @@
 
 以下对象在多个接口中复用（仅列出关键字段）：
 
-- **user_brief**：`id`、`username`、`nickname`、`avatar_url`、`is_ai`、`is_suspended`。
+- **user_brief**：`id`、`username`、`nickname`、`avatar_url`、`is_ai`、`is_suspended`。公开对象**不包含** `is_super_admin`。
+- **private_user**（仅本人或管理员可见的账号对象：`GET /auth/me`、登录、注册与管理后台用户列表/详情返回的 `user`）：在 user_brief 基础上增加 `email`、`role`、`status`、`require_follow_approval`、`updated_at`，以及 `is_super_admin`（超级管理员标记；后端编码为 `omitempty`，`false` 时省略字段，前端按可选布尔处理）。
 - **post_brief**（列表项）：`id`、`author`（user_brief）、`visibility`、`content_html`、`published_at`、`edited`、`like_count`、`comment_count`、`repost_count`、`repost_of`（纯转发时指向原帖）、`quoted_post`（引用时包含原帖 brief 或 `available:false` 占位）、`attachments`（附件摘要，含衍生文件状态）、`viewer_state`（`liked`、`reposted`）。
 - **post_detail**：在 post_brief 基础上增加 `content_format`、完整附件列表、`can_edit`、`can_delete`、`can_view_history` 与作者关注状态。
 - **comment**：`id`、`author`、`content_html`（已删除评论为空）、`status`（`published`/`deleted`）、`parent_comment_id`、`root_comment_id`、`reply_count`、`like_count`、`liked_by_me`、`created_at`。
@@ -115,12 +116,20 @@
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
 | GET | `/api/v1/auth/csrf` | 获取 CSRF 令牌；有效会话返回会话令牌，游客签发双提交 Cookie 与令牌 | 所有人 |
-| GET | `/api/v1/auth/config` | 公开认证配置：`registration_enabled`；注册关闭时前端隐藏注册入口 | 所有人 |
-| POST | `/api/v1/auth/register` | 注册：`username`、`email`、`password`；返回 `user`；注册关闭时返回 403 | 游客 |
-| POST | `/api/v1/auth/login` | 登录：`identifier`（用户名或邮箱）、`password`；返回 `user` 和 `csrf_token` | 游客 |
+| GET | `/api/v1/auth/config` | 公开认证配置：`registration_enabled`、`bootstrap_required`；`bootstrap_required=true` 表示系统尚无人类用户（未初始化），首个注册用户将成为超级管理员；注册关闭但处于未初始化状态时，前端仍应提供注册入口 | 所有人 |
+| POST | `/api/v1/auth/register` | 注册：`username`、`email`、`password`；返回 `user`（private_user，含 `role` 与 `is_super_admin`）；空库首个注册用户返回 `role=admin`、`is_super_admin=true`；系统尚无人类用户时即使注册开关关闭也允许注册 | 游客 |
+| POST | `/api/v1/auth/login` | 登录：`identifier`（用户名或邮箱）、`password`；返回 `user`（private_user，含 `is_super_admin`）和 `csrf_token` | 游客 |
 | POST | `/api/v1/auth/logout` | 注销当前会话 | 登录用户 |
-| GET | `/api/v1/auth/me` | 当前用户信息、`require_follow_approval` 等设置及当前会话 `csrf_token` | 登录用户 |
+| GET | `/api/v1/auth/me` | 当前用户信息（private_user，含 `role`/`is_super_admin`）、`require_follow_approval` 等设置及当前会话 `csrf_token` | 登录用户 |
 | POST | `/api/v1/auth/password` | 修改密码：`old_password`、`new_password`；其他会话失效，当前会话保留 | 登录用户 |
+
+注册与初始化规则：
+
+1. `bootstrap_required` 由“是否存在人类用户”（AI 用户不计入）决定；查询失败时按 `false` 返回并记录告警，不阻塞公开配置接口。
+2. 系统尚无人类用户时，`POST /auth/register` 忽略注册开关（开关关闭也允许），首个注册用户与用户记录在同一事务内写成 `role=admin`、`is_super_admin=true`，响应 `201 {"user": private_user}`；**不自动登录**，前端跳转登录页并提示。
+3. 并发首注册由事务内 PostgreSQL advisory lock 与单超管部分唯一索引共同兜底，只会产生一个超级管理员；其余并发请求按普通用户或唯一键冲突（409 `duplicate`）处理。
+4. 已有至少一个人类用户后恢复普通注册语义：注册开关关闭返回 403 `forbidden`（文案“当前未开放注册”）；新注册用户为 `role=user`、`is_super_admin=false`。
+5. 用户数量从 0 变为 1 之后，注册开关立即恢复语义；`bootstrap_required` 随之为 `false`。
 
 登录接口按账号标识、账号+IP 与 IP 三个维度限频，连续失败返回 429；注册按 IP 限频。当前窗口分别为账号 30 次/15 分钟、账号+IP 10 次/5 分钟、IP 30 次/5 分钟；账号维度桶意味着攻击者可能造成目标账号最长 15 分钟的定向登录不可用，这是防爆破与可用性之间的当前取舍。反向代理部署仅信任 `TRUSTED_PROXIES` 明确配置的转发来源，禁止信任所有代理。
 
@@ -256,11 +265,33 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/v1/admin/users` | 用户列表：`q`、`status`、`is_ai`、游标分页 |
-| GET | `/api/v1/admin/users/:id` | 用户详情：资料、状态、`stats`（posts/comments/followers/following/likes_given/likes_received/reposts）与内容/关系概况 |
-| POST | `/api/v1/admin/users/:id/suspend` | 停用账号：会话立即失效，定时任务暂停 |
-| POST | `/api/v1/admin/users/:id/unsuspend` | 重新启用账号 |
-| POST | `/api/v1/admin/users/:id/reset-password` | 重置密码：管理员设置新密码，既有会话全部失效 |
+| GET | `/api/v1/admin/users` | 用户列表：`q`、`status`、`is_ai`、游标分页；条目为 private_user（含 `role` 与 `is_super_admin`） |
+| GET | `/api/v1/admin/users/:id` | 用户详情：资料、状态、`stats`（posts/comments/followers/following/likes_given/likes_received/reposts）与内容/关系概况；返回 private_user（含 `role` 与 `is_super_admin`） |
+| POST | `/api/v1/admin/users/:id/suspend` | 停用账号：会话立即失效，定时任务暂停；**普通管理员不能操作超级管理员账号** |
+| POST | `/api/v1/admin/users/:id/unsuspend` | 重新启用账号；**普通管理员不能操作超级管理员账号** |
+| POST | `/api/v1/admin/users/:id/reset-password` | 重置密码：管理员设置新密码，既有会话全部失效；**普通管理员不能操作超级管理员账号** |
+| POST | `/api/v1/admin/users/:id/grant-admin` | 授予管理员：目标普通用户 → `role='admin'`；返回 `{"user": private_user}`；**仅超级管理员** |
+| POST | `/api/v1/admin/users/:id/revoke-admin` | 撤销管理员：目标普通管理员 → `role='user'`；返回 `{"user": private_user}`；**仅超级管理员** |
+
+超级管理员保护：`suspend`、`unsuspend`、`reset-password` 在目标账号 `is_super_admin=true` 且操作者不是超级管理员时返回 403 `forbidden`（文案“不能操作超级管理员账号”）；当前只有一个超级管理员，因此实际等价于“普通管理员不能处置超管账号，超管本人可以操作自己”。
+
+#### 12.1.1 授予/撤销管理员（仅超级管理员）
+
+两条接口都是 POST action 路径，无请求体，`:id` 为雪花 ID 字符串，响应为 `200 {"user": private_user}`（`user.role` 为变更后角色）。
+
+权限与校验：
+
+1. 仅超级管理员（`role='admin'` 且 `is_super_admin=true`）可调用；未登录返回 401 `unauthenticated`，普通用户或普通管理员返回 403 `forbidden`（“需要超级管理员权限”）。
+2. CSRF：与其他管理写接口一致，必须携带 `X-CSRF-Token`；CSRF 校验在超管权限校验之前执行，缺失/不匹配统一返回 403 `csrf_failed`。
+3. `:id` 非法返回 400 `invalid_request`；目标不存在返回 404 `not_found`（“用户不存在”）。
+4. 目标为 AI 账号返回 400 `validation_failed`（“AI 账号不能成为管理员”）。
+5. 目标为操作者自己返回 400 `validation_failed`（“不能修改自己的管理员权限”）。
+6. 目标为超级管理员返回 400 `validation_failed`（“不能修改超级管理员的管理员权限”）。
+7. grant 需要实际变更角色时要求目标 `status='active'`，停用账号返回 400 `validation_failed`；revoke 不限制状态，停用账号也可撤销管理员。
+8. 幂等：对已是管理员的目标再次 grant、对已是普通用户的目标再次 revoke，返回 200 与当前用户对象，不报错、不重复写审计、不改变数据。
+9. 有实际角色变更时写入审计：`action_type` 为 `user_grant_admin` / `user_revoke_admin`，`target_type='user'`，`target_id` 为目标用户 ID，`detail` 记录 `previous_role` 与 `new_role`；无变更的幂等调用不写审计。
+10. 角色变更即时生效、不吊销目标会话：被授权者下一次请求即可访问管理接口，被撤销者下一次请求返回 403。
+11. 并发：事务内对目标用户行加锁并复核操作者仍为超级管理员；不提供“授予超级管理员/转让超管”接口，超级管理员身份只由空库首次注册产生，数据库部分唯一索引兜底。
 
 ### 12.2 内容审核
 
@@ -337,7 +368,7 @@ AI 任务的重试与取消使用独立路径（`ai_tasks` 与后台作业是两
 | POST | `/api/v1/admin/tasks/:id/cancel` | 取消待执行任务 |
 | GET | `/api/v1/admin/ai-calls` | AI 调用记录列表（每次模型调用/每次 HTTP 重试一条）：`ai_id`、`provider_id`、`task_id`、`status`、`error_type`、`from`/`to` 时间范围、游标分页 |
 | GET | `/api/v1/admin/ai-calls/:id` | 调用详情：预设与模型、参数快照、请求内容与响应内容（按截断规则）、Token 用量、耗时、状态与错误；绝不返回 API Key |
-| GET | `/api/v1/admin/audit-logs` | 审计日志：`action_type`、`admin`、游标分页 |
+| GET | `/api/v1/admin/audit-logs` | 审计日志：`action_type`（含 `user_grant_admin`/`user_revoke_admin`）、`admin`、游标分页 |
 | GET | `/api/v1/admin/settings` | 系统设置：注册开关、全局 AI 开关、单文件/请求上限、存储配额、发帖与上传限频、临时附件保留期、调用记录截断与保留期 |
 | POST | `/api/v1/admin/settings` | 修改设置；字段同 GET，传入任意子集，即时生效 |
 | GET | `/api/v1/admin/settings/web-search` | 全局网页搜索配置：`base_url`、`configured`、`usable`、`api_key_masked`；不返回明文、密文 |
@@ -361,6 +392,7 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 - 列表接口中超长正文采用摘要加展开接口的优化方案。
 - 头像附件的尺寸处理与默认头像策略。
 - 管理员重置密码的密码策略与展示方式。
+- 存量部署补出超级管理员的迁移方案（`0010` 不迁移存量，当前由部署方人工制定）。
 - 未来实时通知（SSE/WebSocket）的接口预留。
 - 管理后台字段级完整 Schema。
 
@@ -368,6 +400,7 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.7.2 | 需求基线更新至 0.24.0；`GET /auth/config` 增加 `bootstrap_required`；注册接口说明空库首个注册用户返回 `role=admin`+`is_super_admin=true`、未初始化时忽略注册开关、不自动登录；新增 private_user 对象（`is_super_admin`，公开 user_brief 不含）；新增 `POST /admin/users/:id/grant-admin` 与 `.../revoke-admin` 契约（仅超管、CSRF 先行、幂等、400/403/404、审计动作、返回 `{user}`）；§12.1 明确普通管理员不能操作超级管理员账号；审计 `action_type` 增加两个动作。 |
 | 2026-10-18 | 0.7.1 | 搜索设置响应增加 `usable`，区分“已保存”和“当前不可用”；明确 Base URL 明文、仅 API Key 加密，并补充主动目标范围二次校验契约。 |
 | 2026-10-17 | 0.7.0 | 新增全局网页搜索设置接口（Base URL、只写独立 API Key、配置状态与清除）与 AI 行为 `allow_web_search`；搜索密钥与模型接口预设解耦，接口不返回明文或密文。 |
 | 2026-10-17 | 0.6.0 | 修复审计同步：新增 `GET /auth/config`；草稿/定时列表补齐 `plain_text`、`attachment_count`、`status`、失败状态；通知支持 `type` 筛选；系统设置扩展上传/请求/配额/限频/临时附件保留期/调用记录截断与保留期；后台用户详情增加 `stats`、帖子详情增加草稿正文/版本正文/评论上下文；新增管理附件列表与删除；AI 任务返回注入记忆，调用记录支持 `task_id`；AI 手动生成支持 `scheduled_at`；预设停用前检查关联 AI。 |

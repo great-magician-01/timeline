@@ -4,22 +4,17 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 	// 内嵌时区数据库：二进制在任意环境（含精简容器）都能解析 Asia/Shanghai
 	_ "time/tzdata"
-
-	"golang.org/x/term"
 
 	"github.com/great-magician-01/timeline/internal/auth"
 	"github.com/great-magician-01/timeline/internal/config"
@@ -86,7 +81,7 @@ func run() int {
 	defer stop()
 
 	if len(os.Args) > 1 {
-		if err := runCommand(ctx, os.Args[1:], cfg, log, gen); err != nil {
+		if err := runCommand(ctx, os.Args[1:], cfg, log); err != nil {
 			fmt.Fprintln(os.Stderr, "命令执行失败:", err)
 			return 1
 		}
@@ -132,6 +127,21 @@ func run() int {
 		}
 		state.MarkMigrationsDone()
 		log.Info("数据库与迁移就绪，/readyz 可返回 200")
+
+		// 迁移完成后输出初始化状态：空库或升级后无超管时提示运维先完成初始化/评估升级影响。
+		statusCtx, cancelStatus := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelStatus()
+		humanUsers, superAdmins, statusErr := auth.BootstrapStatus(statusCtx, pool)
+		switch {
+		case statusErr != nil:
+			log.Warn("读取初始化状态失败", "err", statusErr)
+		case humanUsers == 0:
+			log.Warn("系统尚未初始化：首个注册用户将自动成为超级管理员，请先完成初始化再对外开放", "users", humanUsers)
+		case superAdmins == 0:
+			log.Warn("系统已有用户但不存在超级管理员：管理员授权功能不可用", "users", humanUsers)
+		default:
+			log.Info("系统初始化状态", "users", humanUsers, "super_admins", superAdmins)
+		}
 	}()
 
 	// 后台作业与周期任务：连接池未就绪时空转，不阻塞进程。
@@ -159,16 +169,15 @@ func run() int {
 	return 0
 }
 
-// runCommand 提供部署文档约定的手动迁移和首个管理员初始化命令。
+// runCommand 提供部署文档约定的手动迁移命令；服务初始化通过注册首个账号完成。
 func runCommand(
 	ctx context.Context,
 	args []string,
 	cfg *config.Config,
 	log *slog.Logger,
-	ids auth.IDGenerator,
 ) error {
-	if len(args) != 1 || (args[0] != "migrate" && args[0] != "init-admin") {
-		return fmt.Errorf("未知命令；可用命令: migrate、init-admin")
+	if len(args) != 1 || args[0] != "migrate" {
+		return fmt.Errorf("未知命令；可用命令: migrate")
 	}
 	pool, err := db.Wait(ctx, cfg.DSN(), log)
 	if err != nil {
@@ -176,88 +185,10 @@ func runCommand(
 	}
 	defer pool.Close()
 
-	// 两个命令都显式保证表结构就绪，不受 RUN_MIGRATIONS=false 的服务配置影响。
+	// 手动命令显式保证表结构就绪，不受 RUN_MIGRATIONS=false 的服务配置影响。
 	if err := migrate.Run(ctx, pool, log); err != nil {
 		return err
 	}
-	if args[0] == "migrate" {
-		log.Info("手动数据库迁移完成")
-		return nil
-	}
-
-	in, err := promptInitialAdmin()
-	if err != nil {
-		return err
-	}
-	u, err := auth.CreateInitialAdmin(ctx, pool, ids, in)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("首个管理员创建成功，用户名: %s\n", u.Username)
+	log.Info("手动数据库迁移完成")
 	return nil
-}
-
-func promptInitialAdmin() (auth.RegisterInput, error) {
-	reader := bufio.NewReader(os.Stdin)
-	var terminal *term.Terminal
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		// 同一个 Terminal 处理全部交互输入，避免 bufio 预读把密码留在另一个缓冲区。
-		terminal = term.NewTerminal(struct {
-			io.Reader
-			io.Writer
-		}{Reader: os.Stdin, Writer: os.Stdout}, "")
-	}
-	readLine := func(label string) (string, error) {
-		if terminal != nil {
-			terminal.SetPrompt(label)
-			line, err := terminal.ReadLine()
-			if err != nil {
-				return "", fmt.Errorf("读取输入失败: %w", err)
-			}
-			return strings.TrimSpace(line), nil
-		}
-		fmt.Print(label)
-		line, err := reader.ReadString('\n')
-		if err != nil && len(line) == 0 {
-			return "", fmt.Errorf("读取输入失败: %w", err)
-		}
-		return strings.TrimSpace(line), nil
-	}
-	readPassword := func(label string) (string, error) {
-		if terminal != nil {
-			password, err := terminal.ReadPassword(label)
-			if err != nil {
-				return "", fmt.Errorf("读取密码失败: %w", err)
-			}
-			return password, nil
-		}
-		// 非交互管道用于自动化验收；输入本身不会回显到终端。
-		fmt.Print(label)
-		line, err := reader.ReadString('\n')
-		if err != nil && len(line) == 0 {
-			return "", fmt.Errorf("读取密码失败: %w", err)
-		}
-		return strings.TrimRight(line, "\r\n"), nil
-	}
-
-	username, err := readLine("用户名（3-32 位，字母开头，仅字母/数字/下划线）: ")
-	if err != nil {
-		return auth.RegisterInput{}, err
-	}
-	email, err := readLine("邮箱: ")
-	if err != nil {
-		return auth.RegisterInput{}, err
-	}
-	password, err := readPassword("密码（8-64 个字符）: ")
-	if err != nil {
-		return auth.RegisterInput{}, err
-	}
-	confirmation, err := readPassword("再次输入密码: ")
-	if err != nil {
-		return auth.RegisterInput{}, err
-	}
-	if password != confirmation {
-		return auth.RegisterInput{}, fmt.Errorf("两次输入的密码不一致")
-	}
-	return auth.RegisterInput{Username: username, Email: email, Password: password}, nil
 }

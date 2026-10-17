@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { getUserDetail, resetUserPassword, suspendUser, unsuspendUser } from '../../api/admin'
+import { grantAdmin, getUserDetail, resetUserPassword, revokeAdmin, suspendUser, unsuspendUser } from '../../api/admin'
 import { ApiError, errorMessage, fieldErrors } from '../../api/client'
 import type { AdminUserStats, CurrentUser } from '../../api/types'
 import AlertNote from '../../components/AlertNote.vue'
@@ -33,6 +33,46 @@ const STAT_FIELDS: { key: keyof AdminUserStats; label: string }[] = [
 ]
 
 const isSuspended = computed(() => user.value?.status === 'suspended' || user.value?.is_suspended === true)
+
+const isSelf = computed(() => !!user.value && !!authState.user && user.value.id === authState.user.id)
+const viewerIsSuperAdmin = computed(() => authState.user?.is_super_admin === true)
+/** 目标是超级管理员、而当前登录者不是：普通管理员不能处置该账号 */
+const superAdminProtected = computed(() => user.value?.is_super_admin === true && !viewerIsSuperAdmin.value)
+/** 只有超级管理员能授权/撤销管理员，且目标必须是人类、非本人、非超级管理员 */
+const canManageRoles = computed(
+  () =>
+    viewerIsSuperAdmin.value &&
+    !!user.value &&
+    user.value.is_ai !== true &&
+    !isSelf.value &&
+    user.value.is_super_admin !== true,
+)
+
+const roleLabel = computed(() => {
+  const target = user.value
+  if (!target) return ''
+  if (target.is_super_admin) return '超级管理员'
+  return target.role === 'admin' ? '管理员' : '普通用户'
+})
+
+const roleDescription = computed(() => {
+  const target = user.value
+  if (!target) return ''
+  if (target.is_ai) return 'AI 账号不能成为管理员，角色固定为普通用户；其行为策略由 AI 配置单独管理。'
+  if (target.is_super_admin) return '超级管理员拥有全部管理权限，可授权或撤销管理员；该账号不能被降级，普通管理员也不能处置。'
+  if (target.role === 'admin') return '管理员可访问管理后台；管理员的授权与撤销只能由超级管理员执行。'
+  return '普通用户可以使用社区功能；超级管理员可以将其授权为管理员。'
+})
+
+/** 当前登录者不能操作角色时的说明 */
+const roleActionHint = computed(() => {
+  const target = user.value
+  if (!target || canManageRoles.value) return ''
+  if (target.is_ai) return 'AI 账号不能成为管理员。'
+  if (target.is_super_admin) return '该账号为超级管理员，不能修改其管理员权限。'
+  if (isSelf.value) return '不能修改自己的管理员权限。'
+  return '只有超级管理员可以授权或撤销管理员。'
+})
 
 /** 请求序号：快速切换 :id 时作废旧响应，避免旧用户覆盖新用户 */
 let loadSequence = 0
@@ -153,6 +193,49 @@ async function confirmReset(): Promise<void> {
     passwordSaving.value = false
   }
 }
+
+// ---------- 授权 / 撤销管理员（仅超级管理员） ----------
+const roleConfirming = ref(false)
+const roleSaving = ref(false)
+const roleError = ref('')
+const roleNotice = ref('')
+
+const roleActive = computed(() => user.value?.role === 'admin')
+
+const roleActionLabel = computed(() => (roleActive.value ? '撤销管理员' : '授权为管理员'))
+
+const roleConfirmText = computed(() => {
+  const target = user.value
+  if (!target) return ''
+  return roleActive.value
+    ? `确认撤销 @${target.username} 的管理员权限？该用户将立即失去管理后台的访问权限，现有会话不会失效。`
+    : `确认将 @${target.username} 授权为管理员？该用户将立即获得管理后台的访问权限，现有会话不会失效。`
+})
+
+function askRoleChange(): void {
+  if (!canManageRoles.value) return
+  roleError.value = ''
+  roleNotice.value = ''
+  roleConfirming.value = true
+}
+
+async function confirmRoleChange(): Promise<void> {
+  if (!user.value || !canManageRoles.value) return
+  const granting = !roleActive.value
+  roleSaving.value = true
+  roleError.value = ''
+  roleNotice.value = ''
+  try {
+    const data = granting ? await grantAdmin(user.value.id) : await revokeAdmin(user.value.id)
+    applyResult(data.user)
+    roleConfirming.value = false
+    roleNotice.value = granting ? '已授权为管理员，角色权限立即生效。' : '已撤销管理员权限，角色变更立即生效。'
+  } catch (error) {
+    roleError.value = errorMessage(error)
+  } finally {
+    roleSaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -186,7 +269,8 @@ async function confirmReset(): Promise<void> {
           <div class="min-w-0">
             <p class="m-0 flex flex-wrap items-center gap-[6px] text-[17px] font-extrabold">
               <span class="font-extrabold">{{ user.nickname || user.username }}</span>
-              <span v-if="user.role === 'admin'" :class="ui.badge">管理员</span>
+              <span v-if="user.is_super_admin" :class="[ui.badge, ui.badgeSuper]">超级管理员</span>
+              <span v-else-if="user.role === 'admin'" :class="ui.badge">管理员</span>
               <span v-if="user.is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
               <span v-if="isSuspended" :class="[ui.badge, ui.badgeDanger]">已停用</span>
             </p>
@@ -202,7 +286,7 @@ async function confirmReset(): Promise<void> {
           <dt :class="ui.infoTerm">邮箱</dt>
           <dd :class="ui.infoDetails">{{ user.email }}</dd>
           <dt :class="ui.infoTerm">角色</dt>
-          <dd :class="ui.infoDetails">{{ user.role === 'admin' ? '管理员' : '普通用户' }}</dd>
+          <dd :class="ui.infoDetails">{{ roleLabel }}</dd>
           <dt :class="ui.infoTerm">状态</dt>
           <dd :class="ui.infoDetails">{{ isSuspended ? '已停用' : '正常' }}</dd>
           <dt :class="ui.infoTerm">类型</dt>
@@ -228,83 +312,127 @@ async function confirmReset(): Promise<void> {
       </section>
 
       <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">角色与权限</h2>
+        <p :class="ui.pageDesc">{{ roleDescription }}</p>
+
+        <AlertNote v-if="roleNotice" kind="success">{{ roleNotice }}</AlertNote>
+        <AlertNote v-if="roleError" kind="error">{{ roleError }}</AlertNote>
+
+        <template v-if="canManageRoles">
+          <div v-if="!roleConfirming" class="flex flex-wrap gap-2">
+            <button
+              :class="[ui.button, roleActive ? ui.buttonDanger : ui.buttonPrimary]"
+              type="button"
+              :disabled="roleSaving"
+              @click="askRoleChange"
+            >
+              {{ roleActionLabel }}
+            </button>
+          </div>
+
+          <div v-else class="mt-1">
+            <AlertNote kind="warning">{{ roleConfirmText }}</AlertNote>
+            <div class="flex flex-wrap gap-2">
+              <button :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]" type="button" :disabled="roleSaving" @click="confirmRoleChange">
+                <span v-if="roleSaving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
+                {{ roleSaving ? '处理中…' : '确认操作' }}
+              </button>
+              <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" :disabled="roleSaving" @click="roleConfirming = false">
+                取消
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <p v-else-if="roleActionHint" :class="[ui.muted, 'm-0 mt-[14px]']">{{ roleActionHint }}</p>
+      </section>
+
+      <section :class="[ui.card, ui.cardPad]">
         <h2 :class="ui.pageTitle">账号状态</h2>
         <p :class="ui.pageDesc">停用后该用户的所有会话立即失效；恢复后可以重新登录。</p>
 
-        <AlertNote v-if="actionNotice" kind="success">{{ actionNotice }}</AlertNote>
-        <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
+        <AlertNote v-if="superAdminProtected" kind="warning">该账号为超级管理员，普通管理员不能处置。</AlertNote>
 
-        <div v-if="!suspendConfirming" class="flex flex-wrap gap-2">
-          <button v-if="!isSuspended" :class="[ui.button, ui.buttonDanger]" type="button" :disabled="actionSaving" @click="suspendConfirming = true">
-            停用账号
-          </button>
-          <button v-else :class="[ui.button, ui.buttonPrimary]" type="button" :disabled="actionSaving" @click="onUnsuspend">
-            <span v-if="actionSaving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
-            {{ actionSaving ? '处理中…' : '恢复账号' }}
-          </button>
-        </div>
+        <template v-else>
+          <AlertNote v-if="actionNotice" kind="success">{{ actionNotice }}</AlertNote>
+          <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-        <div v-else class="mt-1">
-          <AlertNote kind="warning">
-            确认停用 @{{ user.username }}？停用后该用户的会话会立即失效，且无法执行写操作。
-          </AlertNote>
-          <div class="flex flex-wrap gap-2">
-            <button :class="[ui.button, ui.buttonDanger, ui.buttonSmall]" type="button" :disabled="actionSaving" @click="onSuspend">
-              <span v-if="actionSaving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
-              {{ actionSaving ? '处理中…' : '确认停用' }}
+          <div v-if="!suspendConfirming" class="flex flex-wrap gap-2">
+            <button v-if="!isSuspended" :class="[ui.button, ui.buttonDanger]" type="button" :disabled="actionSaving" @click="suspendConfirming = true">
+              停用账号
             </button>
-            <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" :disabled="actionSaving" @click="suspendConfirming = false">
-              取消
+            <button v-else :class="[ui.button, ui.buttonPrimary]" type="button" :disabled="actionSaving" @click="onUnsuspend">
+              <span v-if="actionSaving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
+              {{ actionSaving ? '处理中…' : '恢复账号' }}
             </button>
           </div>
-        </div>
+
+          <div v-else class="mt-1">
+            <AlertNote kind="warning">
+              确认停用 @{{ user.username }}？停用后该用户的会话会立即失效，且无法执行写操作。
+            </AlertNote>
+            <div class="flex flex-wrap gap-2">
+              <button :class="[ui.button, ui.buttonDanger, ui.buttonSmall]" type="button" :disabled="actionSaving" @click="onSuspend">
+                <span v-if="actionSaving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
+                {{ actionSaving ? '处理中…' : '确认停用' }}
+              </button>
+              <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" :disabled="actionSaving" @click="suspendConfirming = false">
+                取消
+              </button>
+            </div>
+          </div>
+        </template>
       </section>
 
       <section :class="[ui.card, ui.cardPad]">
         <h2 :class="ui.pageTitle">重置密码</h2>
         <p :class="ui.pageDesc">管理员直接设置新密码；重置后该用户的所有会话立即失效，旧密码不会回显。</p>
 
-        <AlertNote v-if="passwordNotice" kind="success">{{ passwordNotice }}</AlertNote>
-        <AlertNote v-if="passwordError" kind="error">{{ passwordError }}</AlertNote>
+        <AlertNote v-if="superAdminProtected" kind="warning">该账号为超级管理员，普通管理员不能处置。</AlertNote>
 
-        <form :class="ui.form" novalidate @submit.prevent="askReset">
-          <FormField
-            label="新密码"
-            input-id="admin-reset-password"
-            :error="passwordErrors.new_password"
-            hint="至少 8 个字符；请通过安全渠道告知用户"
-          >
-            <input
-              id="admin-reset-password"
-              v-model="passwordForm.new_password"
-              :class="ui.input"
-              type="password"
-              name="new_password"
-              autocomplete="new-password"
-              placeholder="输入新的临时密码"
-              :disabled="passwordSaving"
-            />
-          </FormField>
+        <template v-else>
+          <AlertNote v-if="passwordNotice" kind="success">{{ passwordNotice }}</AlertNote>
+          <AlertNote v-if="passwordError" kind="error">{{ passwordError }}</AlertNote>
 
-          <div v-if="!resetConfirming" class="flex flex-wrap gap-2">
-            <button :class="[ui.button, ui.buttonSecondary]" type="submit" :disabled="passwordSaving">重置密码</button>
+          <form :class="ui.form" novalidate @submit.prevent="askReset">
+            <FormField
+              label="新密码"
+              input-id="admin-reset-password"
+              :error="passwordErrors.new_password"
+              hint="至少 8 个字符；请通过安全渠道告知用户"
+            >
+              <input
+                id="admin-reset-password"
+                v-model="passwordForm.new_password"
+                :class="ui.input"
+                type="password"
+                name="new_password"
+                autocomplete="new-password"
+                placeholder="输入新的临时密码"
+                :disabled="passwordSaving"
+              />
+            </FormField>
+
+            <div v-if="!resetConfirming" class="flex flex-wrap gap-2">
+              <button :class="[ui.button, ui.buttonSecondary]" type="submit" :disabled="passwordSaving">重置密码</button>
+            </div>
+          </form>
+
+          <div v-if="resetConfirming" class="mt-1">
+            <AlertNote kind="warning">
+              确认重置 @{{ user.username }} 的密码？该用户的所有会话将立即失效，新密码只会提交给后端、不在页面显示。
+            </AlertNote>
+            <div class="flex flex-wrap gap-2">
+              <button :class="[ui.button, ui.buttonDanger, ui.buttonSmall]" type="button" :disabled="passwordSaving" @click="confirmReset">
+                <span v-if="passwordSaving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
+                {{ passwordSaving ? '提交中…' : '确认重置' }}
+              </button>
+              <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" :disabled="passwordSaving" @click="resetConfirming = false">
+                取消
+              </button>
+            </div>
           </div>
-        </form>
-
-        <div v-if="resetConfirming" class="mt-1">
-          <AlertNote kind="warning">
-            确认重置 @{{ user.username }} 的密码？该用户的所有会话将立即失效，新密码只会提交给后端、不在页面显示。
-          </AlertNote>
-          <div class="flex flex-wrap gap-2">
-            <button :class="[ui.button, ui.buttonDanger, ui.buttonSmall]" type="button" :disabled="passwordSaving" @click="confirmReset">
-              <span v-if="passwordSaving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
-              {{ passwordSaving ? '提交中…' : '确认重置' }}
-            </button>
-            <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" :disabled="passwordSaving" @click="resetConfirming = false">
-              取消
-            </button>
-          </div>
-        </div>
+        </template>
       </section>
     </template>
   </div>

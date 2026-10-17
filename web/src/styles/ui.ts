@@ -47,6 +47,7 @@ export const ui = {
   badge:
     'inline-flex items-center gap-1 rounded-[999px] bg-soft px-2 py-1 align-middle text-[11px] leading-none font-semibold text-ink-2',
   badgeAi: 'bg-violet-soft! text-violet!',
+  badgeSuper: 'bg-primary-soft! text-primary!',
   badgeDanger: 'bg-red-soft! text-red!',
   badgeMuted: 'text-ink-3!',
 

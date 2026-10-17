@@ -5,7 +5,7 @@ import { errorMessage, fieldErrors } from '../api/client'
 import AlertNote from '../components/AlertNote.vue'
 import FormField from '../components/FormField.vue'
 import { login } from '../stores/auth'
-import { siteState } from '../stores/site'
+import { registrationOpen } from '../stores/site'
 import { ui } from '../styles/ui'
 
 const route = useRoute()
@@ -19,6 +19,7 @@ const submitting = ref(false)
 const formError = ref('')
 const errors = ref<Record<string, string>>({})
 const registeredNotice = ref(route.query.registered === '1')
+const firstAdminNotice = ref(route.query.first_admin === '1')
 
 /** 只接受同源站内路径，避免 // 与反斜杠变体造成开放重定向 */
 function redirectTarget(): string {
@@ -68,7 +69,10 @@ async function onSubmit(): Promise<void> {
       <h1 :class="[ui.pageTitle]">登录</h1>
       <p :class="[ui.pageDesc]">使用用户名或邮箱登录，继续管理你的资料与账号。</p>
 
-      <AlertNote v-if="registeredNotice" kind="success">注册成功，请使用新账号登录。</AlertNote>
+      <AlertNote v-if="firstAdminNotice" kind="success">
+        首位注册用户已成为超级管理员，请登录后进入管理后台完成初始化。
+      </AlertNote>
+      <AlertNote v-else-if="registeredNotice" kind="success">注册成功，请使用新账号登录。</AlertNote>
 
       <form :class="[ui.form]" novalidate @submit.prevent="onSubmit">
         <FormField label="用户名或邮箱" input-id="login-identifier" :error="errors.identifier">
@@ -105,7 +109,7 @@ async function onSubmit(): Promise<void> {
         </button>
       </form>
 
-      <p v-if="siteState.registrationEnabled" :class="[ui.muted, 'mt-4 mb-0']">
+      <p v-if="registrationOpen" :class="[ui.muted, 'mt-4 mb-0']">
         还没有账号？<RouterLink to="/register">注册新账号</RouterLink>
       </p>
     </section>

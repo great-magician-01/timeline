@@ -17,6 +17,8 @@ export interface PublicUser {
 export interface CurrentUser extends PublicUser {
   email: string
   role: 'user' | 'admin'
+  /** 超级管理员标记（后端只在私有用户对象中返回，false 时省略）；超管 = role='admin' + 该标记 */
+  is_super_admin?: boolean
   status: 'active' | 'suspended'
   require_follow_approval: boolean
   updated_at: string

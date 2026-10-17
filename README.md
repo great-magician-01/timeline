@@ -39,7 +39,7 @@
 
 | 模块 | 你能得到什么 |
 | --- | --- |
-| 👤 **账号** | 用户名 / 邮箱注册登录、bcrypt 哈希、HttpOnly 服务端会话、CSRF 防护、账号 / IP / 账号+IP 三维登录限频、资料与头像、关注审批设置、管理员停用与重置密码 |
+| 👤 **账号** | 用户名 / 邮箱注册登录、bcrypt 哈希、HttpOnly 服务端会话、CSRF 防护、账号 / IP / 账号+IP 三维登录限频、资料与头像、关注审批设置、管理员停用与重置密码、超级管理员（空库首个注册用户）与管理员授权 / 撤销 |
 | 📝 **内容** | 富文本 / Markdown 统一安全渲染、帖子、草稿与自动保存冲突、定时发布、编辑历史与版本恢复、附件上传与图片缩略图 / 视频封面 |
 | 👀 **可见性** | 公开 / 仅关注者 / 仅自己；时间线、帖子详情、评论、通知、标签、搜索、附件和 AI 上下文全部按访问者权限过滤 |
 | 💬 **社交** | 关注与关注审批、移除粉丝、点赞、评论与楼中楼、纯转发与引用、`@提及`、通知中心（轮询未读数、按类型筛选） |
@@ -191,13 +191,13 @@ Vite 会把 `/api`、`/healthz`、`/readyz` 代理到 `http://localhost:5070`。
 
 > 想让 Go 直接托管前端？先 `cd web && npm run build`，再重启 Go 服务。`go:embed` 只在编译时读取 `web/dist`，只改 `web/src` 或只重启旧二进制都不会更新嵌入资源。
 
-### 第四步：创建第一个管理员
+### 第四步：注册第一个账号（自动成为超级管理员）
 
-```bash
-go run ./cmd/server init-admin
-```
+打开前端地址（Vite 开发地址，或 Go 托管的 `http://localhost:5070`），在注册页创建第一个账号。系统尚无任何人类用户时，注册接口会忽略注册开关，这个账号自动成为**超级管理员**（`role=admin` + `is_super_admin=true`），但**不会自动登录**——用刚注册的账号登录，就能进入管理后台完成初始化。
 
-命令会交互式要求输入用户名、邮箱和密码；密码不走环境变量，避免明文残留。已有管理员时，命令会拒绝重复初始化。随后在管理后台配置模型接口预设和第一个 AI（如果需要）。
+> 初始化只发生一次：从空库到第一个账号之间，任何能访问注册页的人都会成为超级管理员。本地开发无所谓，部署时务必在对外开放前完成初始化（见下文部署章节与 `docs/DEPLOYMENT.md` 第 6 章）。
+
+随后在管理后台配置模型接口预设和第一个 AI（如果需要）。
 
 ### 第五步：确认服务真的活了
 
@@ -209,11 +209,12 @@ curl -s http://localhost:5070/readyz
 # {"database":"ok","migrations":"done","status":"ready"}
 
 curl -s http://localhost:5070/api/v1/auth/config
-# {"registration_enabled":true}
+# {"registration_enabled":true,"bootstrap_required":false}
 ```
 
 - `/healthz` 只表示进程能响应，不依赖数据库。
 - `/readyz` 在数据库可 Ping 且迁移完成后返回 200，否则返回 503。
+- `bootstrap_required=true` 表示还没有任何人类用户，此时注册页始终可用，且首个注册账号会成为超级管理员。
 - 数据库启动时会失败退避重试，退避上限 30 秒；HTTP 不会因此被拖住。
 
 ### 常用命令
@@ -235,6 +236,7 @@ cd web && npm run build          # TypeScript 检查 + 生产构建
 TIMELINE_INTEGRATION=1 go test ./internal/server -run TestAccountIntegration -count=1 -v
 TIMELINE_INTEGRATION=1 go test ./internal/server -run TestContentIntegration -count=1 -v
 TIMELINE_INTEGRATION=1 go test ./internal/server -run TestAdminSettingsAndAttachmentIntegration -count=1 -v
+TIMELINE_INTEGRATION=1 go test ./internal/server -run 'TestBootstrapIntegration|TestAdminGrantIntegration' -count=1 -v
 TIMELINE_INTEGRATION=1 go test ./internal/ai -run TestAIAdminIntegration -count=1 -v
 ```
 
@@ -262,11 +264,7 @@ Compose 只管理 `app` 一个服务，PostgreSQL 是外部独立实例，不在
    curl -s http://<host>:<APP_PORT>/readyz
    ```
 
-5. **创建管理员**：
-
-   ```bash
-   docker compose exec app /app/timeline init-admin
-   ```
+5. **在对外开放前注册首个账号（自动成为超级管理员）**：访问 `http://<host>:<APP_PORT>/` 完成注册并登录，在管理后台确认超管身份；`GET /api/v1/auth/config` 的 `bootstrap_required` 会从 `true` 变为 `false`。之后按需保持或关闭注册开关。空库状态下任何能访问注册页的人都会成为超级管理员，无法先完成初始化时应先用防火墙或反向代理白名单限制访问来源。
 
 6. **做一次备份**，确认产物非空、密钥文件权限为 600：
 
@@ -283,10 +281,10 @@ Compose 只管理 `app` 一个服务，PostgreSQL 是外部独立实例，不在
 ```text
 timeline/
 ├── 🚀 cmd/
-│   ├── server/              # 唯一服务入口：HTTP、迁移子命令、init-admin
+│   ├── server/              # 唯一服务入口：HTTP、后台作业、迁移子命令（migrate）
 │   └── mock-llm/            # 验收用 OpenAI 兼容 mock（非生产）
 ├── 🧩 internal/
-│   ├── auth/                # 注册登录、会话与 CSRF、资料与密码
+│   ├── auth/                # 注册登录（首注册引导）、会话与 CSRF、资料与密码、超管权限
 │   ├── content/             # 帖子、草稿、定时、版本历史、标签、搜索、时间线
 │   ├── social/              # 关注、点赞、评论、转发、粉丝
 │   ├── notice/              # 提及与通知
@@ -294,7 +292,7 @@ timeline/
 │   ├── ai/                  # 模型预设、AI 配置、分层记忆
 │   ├── agent/               # AI 调度、决策、动作执行、记忆沉淀、受控搜索循环
 │   ├── websearch/           # DeepSeek Search 兼容客户端与结果裁剪
-│   ├── admin/               # 用户、内容审核、任务处置、概览、设置、审计
+│   ├── admin/               # 用户与管理员授权、内容审核、任务处置、概览、设置、审计
 │   ├── access/              # 可见性、只读与互动授权
 │   ├── jobs/                # 持久化后台作业（恢复 + 幂等 + 有限重试）
 │   ├── server/              # 路由、中间件、健康检查、前端托管
@@ -351,6 +349,7 @@ cd web && npm run build
 
 - 首版没有邮箱验证、邮件找回密码或邮件通知；忘记密码由管理员处理。
 - 不提供用户自助注销，仅管理员可停用账号；停用后既有内容按原可见性只读保留。
+- 只有一个超级管理员：空库首个注册用户自动成为超管，首版不提供授予/转让超管接口；普通管理员不能处置超管账号。存量部署升级后没有超管，需要超管能力时另行制定迁移方案。
 - 按单实例部署设计，限频器是进程内内存实现；要做多实例横向扩展，需要重新设计限频与作业协调。
 - 全系统固定 `Asia/Shanghai`，不做用户时区换算。
 - 前端没有独立的 lint / test 脚本，`npm run build` 同时承担类型检查与生产构建。

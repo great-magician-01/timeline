@@ -62,6 +62,8 @@ func TestBusinessRoutesOnlyUseGetAndPost(t *testing.T) {
 		"POST:/api/v1/admin/users/:id/suspend":        false,
 		"POST:/api/v1/admin/users/:id/unsuspend":      false,
 		"POST:/api/v1/admin/users/:id/reset-password": false,
+		"POST:/api/v1/admin/users/:id/grant-admin":    false,
+		"POST:/api/v1/admin/users/:id/revoke-admin":   false,
 	}
 	for _, route := range s.engine.Routes() {
 		if !strings.HasPrefix(route.Path, "/api/v1") {

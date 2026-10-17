@@ -19,6 +19,8 @@ const (
 	ActionUserSuspend      = "user_suspend"
 	ActionUserUnsuspend    = "user_unsuspend"
 	ActionUserResetPwd     = "user_reset_password"
+	ActionUserGrantAdmin   = "user_grant_admin"
+	ActionUserRevokeAdmin  = "user_revoke_admin"
 	ActionPostDelete       = "post_delete"
 	ActionCommentDelete    = "comment_delete"
 	ActionAttachmentDelete = "attachment_delete"

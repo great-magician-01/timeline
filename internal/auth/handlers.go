@@ -40,11 +40,21 @@ func (s *Service) Register(c *gin.Context) {
 		s.internalError(c, "读取注册开关失败", err)
 		return
 	}
+	// 注册关闭时先判断是否处于未初始化状态（空库例外）：无人类用户仍允许首个注册。
+	// 这里只是快速拒绝路径，事务内持锁后会再次复核，避免并发下状态变化。
 	if !enabled {
-		api.Error(c, http.StatusForbidden, "forbidden", "当前未开放注册")
-		return
+		bootstrap, err := BootstrapRequired(c.Request.Context(), pool)
+		if err != nil {
+			s.internalError(c, "读取初始化状态失败", err)
+			return
+		}
+		if !bootstrap {
+			api.Error(c, http.StatusForbidden, "forbidden", "当前未开放注册")
+			return
+		}
 	}
 
+	// bcrypt 成本较高，放在事务外执行，锁内只做计数、INSERT 与开关复核。
 	passwordHash, err := HashPassword(in.Password)
 	if err != nil {
 		api.ErrorWithDetails(c, http.StatusBadRequest, "validation_failed", "密码不符合要求", gin.H{"password": err.Error()})
@@ -55,13 +65,43 @@ func (s *Service) Register(c *gin.Context) {
 		s.internalError(c, "生成用户 ID 失败", err)
 		return
 	}
-	u, err := ScanUser(pool.QueryRow(c.Request.Context(), `
+
+	tx, err := pool.Begin(c.Request.Context())
+	if err != nil {
+		s.internalError(c, "开启注册事务失败", err)
+		return
+	}
+	defer func() { _ = tx.Rollback(c.Request.Context()) }()
+	if _, err := tx.Exec(c.Request.Context(),
+		`SELECT pg_advisory_xact_lock($1)`, bootstrapAdvisoryLockKey,
+	); err != nil {
+		s.internalError(c, "获取注册初始化锁失败", err)
+		return
+	}
+	var bootstrap bool
+	if err := tx.QueryRow(c.Request.Context(),
+		`SELECT NOT EXISTS (SELECT 1 FROM users WHERE NOT is_ai)`,
+	).Scan(&bootstrap); err != nil {
+		s.internalError(c, "读取初始化状态失败", err)
+		return
+	}
+	if !bootstrap && !enabled {
+		api.Error(c, http.StatusForbidden, "forbidden", "当前未开放注册")
+		return
+	}
+
+	// 空库首个注册用户成为唯一超级管理员；已有人类用户时按普通用户创建。
+	role := RoleUser
+	if bootstrap {
+		role = RoleAdmin
+	}
+	u, err := ScanUser(tx.QueryRow(c.Request.Context(), `
 		INSERT INTO users (
-			id, username, email, password_hash, nickname, role, is_ai, status,
+			id, username, email, password_hash, nickname, role, is_super_admin, is_ai, status,
 			require_follow_approval, token_version
-		) VALUES ($1, $2, $3, $4, $2, 'user', FALSE, 'active', FALSE, 1)
+		) VALUES ($1, $2, $3, $4, $2, $5, $6, FALSE, 'active', FALSE, 1)
 		RETURNING `+UserColumns,
-		userID, in.Username, in.Email, passwordHash,
+		userID, in.Username, in.Email, passwordHash, role, bootstrap,
 	))
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -78,6 +118,13 @@ func (s *Service) Register(c *gin.Context) {
 		}
 		s.internalError(c, "创建用户失败", err)
 		return
+	}
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		s.internalError(c, "提交注册事务失败", err)
+		return
+	}
+	if bootstrap {
+		s.log.Info("系统首个注册用户已创建为超级管理员", "user_id", u.ID)
 	}
 	c.JSON(http.StatusCreated, gin.H{"user": PrivateUser(u)})
 }

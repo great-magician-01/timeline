@@ -8,7 +8,7 @@ import type { IconName } from './components/icons'
 import { useTheme } from './composables/theme'
 import { authState } from './stores/auth'
 import { notificationState, startNotificationPolling, stopNotificationPolling } from './stores/notifications'
-import { siteState } from './stores/site'
+import { registrationOpen } from './stores/site'
 
 interface NavEntry {
   label: string
@@ -54,7 +54,8 @@ const mainNav = computed<NavEntry[]>(() => {
   } else {
     items.push({ label: '登录', to: '/login', icon: 'user' })
     // 注册关闭时隐藏入口；仍保留登录（docs/PAGES_AND_PERMISSIONS.md §3.1）
-    if (siteState.registrationEnabled) {
+    // 空库尚未初始化时，即使关闭注册也要保留入口，保证首个超级管理员能完成初始化
+    if (registrationOpen.value) {
       items.push({ label: '注册', to: '/register', icon: 'user-plus' })
     }
   }
@@ -169,7 +170,7 @@ function isActive(to: string): boolean {
           </RouterLink>
           <p v-else class="mx-[10px] my-0 text-[12.5px] leading-[1.7] text-ink-3">
             {{
-              siteState.registrationEnabled
+              registrationOpen
                 ? '帖子、评论与 AI 功能需要登录后使用；现在可以注册账号、管理资料与账号安全。'
                 : '注册暂时关闭；已有账号可以直接登录，浏览公开内容无需登录。'
             }}

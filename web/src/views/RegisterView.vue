@@ -5,7 +5,7 @@ import { register } from '../api/auth'
 import { errorMessage, fieldErrors } from '../api/client'
 import AlertNote from '../components/AlertNote.vue'
 import FormField from '../components/FormField.vue'
-import { loadSiteConfig, siteState } from '../stores/site'
+import { loadSiteConfig, registrationOpen, siteState } from '../stores/site'
 import { ui } from '../styles/ui'
 
 const router = useRouter()
@@ -16,7 +16,6 @@ const formError = ref('')
 const errors = ref<Record<string, string>>({})
 
 const configLoaded = computed(() => siteState.ready)
-const registrationOpen = computed(() => siteState.registrationEnabled)
 
 onMounted(() => {
   if (!siteState.ready) void loadSiteConfig()
@@ -54,9 +53,20 @@ async function onSubmit(): Promise<void> {
 
   submitting.value = true
   try {
-    await register(form.username.trim(), form.email.trim(), form.password)
+    const data = await register(form.username.trim(), form.email.trim(), form.password)
+    const identifier = form.username.trim()
+    if (data.user.is_super_admin === true) {
+      // 首个注册用户已成为超级管理员：登录后直接进入管理后台完成初始化
+      // 重新读取公开配置，让登录页的注册入口按初始化后的真实状态展示
+      void loadSiteConfig()
+      await router.push({
+        name: 'login',
+        query: { registered: '1', identifier, first_admin: '1', redirect: '/admin/overview' },
+      })
+      return
+    }
     // 注册不自动登录：跳转登录页并提示
-    await router.push({ name: 'login', query: { registered: '1', identifier: form.username.trim() } })
+    await router.push({ name: 'login', query: { registered: '1', identifier } })
   } catch (error) {
     const fields = fieldErrors(error)
     if (Object.keys(fields).length > 0) {
@@ -89,6 +99,10 @@ async function onSubmit(): Promise<void> {
 
       <template v-else>
         <p :class="[ui.pageDesc]">创建时间线账号；注册成功后不会自动登录。</p>
+
+        <AlertNote v-if="siteState.bootstrapRequired" kind="warning">
+          本站尚未初始化：首个注册账号将自动成为超级管理员，注册后请立即登录完成初始化。
+        </AlertNote>
 
         <AlertNote v-if="formError" kind="error">{{ formError }}</AlertNote>
 

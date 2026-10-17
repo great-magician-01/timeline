@@ -28,7 +28,7 @@ func (s *Service) RequireAuth(c *gin.Context) {
 	err = pool.QueryRow(c.Request.Context(), `
 		SELECT s.id, s.user_id, s.csrf_token, s.token_version, s.expires_at, s.revoked_at,
 		       u.id, u.username, COALESCE(u.email, ''), COALESCE(u.password_hash, ''),
-		       u.nickname, u.avatar_url, u.bio, u.role, u.is_ai, u.status,
+		       u.nickname, u.avatar_url, u.bio, u.role, u.is_super_admin, u.is_ai, u.status,
 		       u.require_follow_approval, u.token_version, u.suspended_at, u.created_at, u.updated_at
 		FROM auth_sessions AS s
 		JOIN users AS u ON u.id = s.user_id
@@ -36,7 +36,7 @@ func (s *Service) RequireAuth(c *gin.Context) {
 		&session.ID, &session.UserID, &session.CSRFToken, &session.TokenVersion,
 		&session.ExpiresAt, &session.RevokedAt,
 		&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Nickname, &u.AvatarURL,
-		&u.Bio, &u.Role, &u.IsAI, &u.Status, &u.RequireFollowApproval,
+		&u.Bio, &u.Role, &u.IsSuperAdmin, &u.IsAI, &u.Status, &u.RequireFollowApproval,
 		&u.TokenVersion, &u.SuspendedAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -88,7 +88,7 @@ func (s *Service) OptionalAuth(c *gin.Context) {
 	err = pool.QueryRow(c.Request.Context(), `
 		SELECT s.id, s.user_id, s.csrf_token, s.token_version, s.expires_at, s.revoked_at,
 		       u.id, u.username, COALESCE(u.email, ''), COALESCE(u.password_hash, ''),
-		       u.nickname, u.avatar_url, u.bio, u.role, u.is_ai, u.status,
+		       u.nickname, u.avatar_url, u.bio, u.role, u.is_super_admin, u.is_ai, u.status,
 		       u.require_follow_approval, u.token_version, u.suspended_at, u.created_at, u.updated_at
 		FROM auth_sessions AS s
 		JOIN users AS u ON u.id = s.user_id
@@ -96,7 +96,7 @@ func (s *Service) OptionalAuth(c *gin.Context) {
 		&session.ID, &session.UserID, &session.CSRFToken, &session.TokenVersion,
 		&session.ExpiresAt, &session.RevokedAt,
 		&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Nickname, &u.AvatarURL,
-		&u.Bio, &u.Role, &u.IsAI, &u.Status, &u.RequireFollowApproval,
+		&u.Bio, &u.Role, &u.IsSuperAdmin, &u.IsAI, &u.Status, &u.RequireFollowApproval,
 		&u.TokenVersion, &u.SuspendedAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -147,6 +147,20 @@ func (s *Service) RequireAdmin(c *gin.Context) {
 	}
 	if u.IsAI || u.Role != RoleAdmin {
 		api.Error(c, http.StatusForbidden, "forbidden", "需要管理员权限")
+		return
+	}
+	c.Next()
+}
+
+// RequireSuperAdmin 在 RequireAdmin 之后使用；要求当前账号是超级管理员。
+func (s *Service) RequireSuperAdmin(c *gin.Context) {
+	u, ok := CurrentUser(c)
+	if !ok {
+		api.Error(c, http.StatusUnauthorized, "unauthenticated", "请先登录")
+		return
+	}
+	if u.IsAI || u.Role != RoleAdmin || !u.IsSuperAdmin {
+		api.Error(c, http.StatusForbidden, "forbidden", "需要超级管理员权限")
 		return
 	}
 	c.Next()

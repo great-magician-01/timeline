@@ -60,6 +60,16 @@ export function resetUserPassword(id: string, new_password: string): Promise<voi
   })
 }
 
+/** POST /admin/users/:id/grant-admin：超级管理员把普通用户授权为管理员 */
+export function grantAdmin(id: string): Promise<{ user: CurrentUser }> {
+  return apiRequest<{ user: CurrentUser }>(`/admin/users/${encodeURIComponent(id)}/grant-admin`, { method: 'POST' })
+}
+
+/** POST /admin/users/:id/revoke-admin：超级管理员撤销普通管理员权限 */
+export function revokeAdmin(id: string): Promise<{ user: CurrentUser }> {
+  return apiRequest<{ user: CurrentUser }>(`/admin/users/${encodeURIComponent(id)}/revoke-admin`, { method: 'POST' })
+}
+
 /** GET /admin/settings：系统设置 */
 export function getAdminSettings(): Promise<AdminSettings> {
   return apiRequest<AdminSettings>('/admin/settings')

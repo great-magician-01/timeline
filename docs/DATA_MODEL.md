@@ -1,9 +1,9 @@
 # Timeline 数据模型设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.7.1  
+> **文档版本**：0.7.2  
 > **最近更新**：2026-10-18  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.23.1  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.0  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[核心状态机与流程](WORKFLOWS.md)  
 > **用途**：数据库迁移、接口设计、后台任务和验收用例的依据
 
@@ -85,6 +85,7 @@
 3. 骨架期迁移器按 `;` 简单分句执行：迁移文件中不得使用函数体、DO 块等含分号的复合语句（需要时先升级迁移器或更换成熟工具）。
 4. 所有迁移和 DDL 显式带 schema 前缀；迁移不创建外键约束，跨 schema 引用（如 `timeline` 表引用 `"user".users`）只建立普通索引，引用完整性由应用层维护。
 5. 迁移只管理表结构，不负责创建数据库本身；数据库由部署配置提供，名称从配置读取。
+6. 迁移只做结构变更，不回填业务数据。例如 `0010_super_admin` 只追加 `users.is_super_admin` 列、CHECK 约束与单超管部分唯一索引，**不把任何存量管理员提升为超级管理员**；存量部署升级后没有超级管理员，由启动日志告警（详见第 6.1 节与 `DEPLOYMENT.md` 第 9 章）。
 
 ## 5. 实体总览
 
@@ -111,7 +112,8 @@
 - `password_hash`：人类用户必填；AI 用户为空。
 - `nickname`、`avatar_url`、`bio`：展示资料。
 - `role`：`user` 或 `admin`。
-- `is_ai`：是否为 AI 用户。
+- `is_super_admin`：布尔，默认 `false`；`true` 表示**超级管理员**。超级管理员 = `role = 'admin'` 且 `is_super_admin = true`，不新增第三角色枚举。当前版本只有空库首个注册用户自动获得该标记，不提供“授予超管/转让超管”接口。
+- `is_ai`：是否为 AI 用户；AI 账号不可能是管理员或超级管理员，`is_super_admin` 恒为 `false`。
 - `status`：`active` 或 `suspended`。
 - `require_follow_approval`：人类用户是否审批新关注者；AI 恒为关闭。
 - `token_version`：整数，递增后使既有认证凭证失效，用于停用账号和重置密码。
@@ -121,7 +123,16 @@
 
 - `is_ai = true` 时 `email`、`password_hash` 为空；
 - `is_ai = false` 时 `email`、`password_hash` 不为空；
-- `username` 全局唯一；用户名与人类用户邮箱均通过 `LOWER` 普通唯一索引保证忽略大小写唯一。
+- `username` 全局唯一；用户名与人类用户邮箱均通过 `LOWER` 普通唯一索引保证忽略大小写唯一；
+- 超管必须是管理员：CHECK 约束 `users_super_admin_check` 为 `NOT is_super_admin OR role = 'admin'`；
+- 单超管：部分唯一索引 `users_single_super_admin ON "user".users (is_super_admin) WHERE is_super_admin`，数据库层保证最多一个超级管理员（并发首注册由应用层事务与 advisory lock 保证只产生一个）；
+- 角色变更由应用层在事务内校验：只有超级管理员可授予/撤销管理员，不能操作自己或超管账号，AI 账号不能成为管理员（见 `WORKFLOWS.md`、`API.md`）。
+
+迁移说明（`0010_super_admin`，2026-10-18 追加）：
+
+- 只追加列、CHECK 约束与部分唯一索引，**不回填、不 `UPDATE` 任何存量用户**：既有部署升级后不存在超级管理员，启动日志会输出告警，管理员授权/撤销接口在补出超管前不可用；
+- 空库首次注册时，注册事务在 advisory lock 内把首个用户写成 `role = 'admin'`、`is_super_admin = true`，因此新库天然只有一个超级管理员；
+- 需要为存量部署补出超管时，另行制定迁移方案（例如人工确认一名现有管理员后更新该标记），不在常规升级中自动执行。
 
 ### 6.2 auth_sessions（`user`）
 
@@ -416,9 +427,9 @@
 
 - `id`：主键。
 - `admin_id`：操作管理员。
-- `action_type`：账号停用、内容删除、记忆管理、预设变更、全局开关等。
+- `action_type`：账号停用/启用、密码重置、管理员授权与撤销（`user_grant_admin`、`user_revoke_admin`）、内容删除、记忆管理、预设变更、全局开关等。
 - `target_type`、`target_id`。
-- `detail`：JSONB。
+- `detail`：JSONB；管理员授权/撤销的 `target_type` 为 `user`，`detail` 记录 `previous_role` 与 `new_role`。
 - `created_at`。
 
 ## 7. 关系概览
@@ -451,7 +462,7 @@
 9. 记忆：`ai_memories(ai_id, memory_type, status)`、`keywords` GIN 索引。
 10. 附件清理（标记失效，逻辑删除）：`post_version_attachments(attachment_id)`、`post_draft_attachments(attachment_id)`。
 11. 幂等：任务、通知、作业均使用唯一幂等键。
-12. AI 内容公开性、`follows` 唯一组合、`likes` 唯一组合使用数据库唯一或 CHECK 约束兜底（均不使用外键）。
+12. AI 内容公开性、`follows` 唯一组合、`likes` 唯一组合、超管必须是管理员（CHECK）与单超管（部分唯一索引）使用数据库唯一或 CHECK 约束兜底（均不使用外键）。
 13. 索引与唯一约束均建在对应 schema 的表上；不使用外键约束，跨 schema 引用列建立普通索引。
 
 ## 9. 与流程文档的状态映射
@@ -469,6 +480,7 @@
 | AI 任务状态 | `ai_tasks.status` |
 | 记忆状态 | `ai_memories.status` |
 | 账号状态 | `users.status` |
+| 超级管理员身份 | `users.role = 'admin'` 且 `users.is_super_admin = true`（单超管，部分唯一索引兜底） |
 
 ## 10. 计数与派生数据
 
@@ -493,6 +505,7 @@
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.7.2 | 需求基线更新至 0.24.0；`users` 增加 `is_super_admin` 标记（超级管理员 = `role = 'admin'` + 该标记，不新增角色枚举）、CHECK 约束 `users_super_admin_check` 与单超管部分唯一索引 `users_single_super_admin`；新增 `0010_super_admin` 迁移说明（只加列/约束/索引，存量不迁移、升级后无超管、启动日志告警）；审计 `action_type` 增加 `user_grant_admin`/`user_revoke_admin` 并说明 `detail` 结构。 |
 | 2026-10-16 | 0.1.0 | 基于需求 0.9.0 首次建立数据模型设计；覆盖账号、帖子与版本、草稿、附件与衍生文件、社交互动、通知、AI 配置、AI 任务、分层记忆、后台作业、系统设置与审计日志，并给出关系、索引、状态映射和待细化事项。 |
 | 2026-10-16 | 0.2.0 | 确认主键统一使用后端生成的雪花 ID（BIGINT）；确认数据库名从配置读取、schema 固定为 `user`（仅账号认证表）和 `timeline`（其余全部表），并补充 `user` 保留字引用、幂等建 schema 与跨 schema 外键约定。 |
 | 2026-10-16 | 0.3.0 | 时间基准改为中国标准时间（北京时间，`Asia/Shanghai`）；新增“时区约定”章节，明确应用、数据库会话与定时任务使用同一时区，不做用户时区换算。 |

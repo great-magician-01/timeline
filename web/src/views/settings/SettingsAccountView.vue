@@ -15,7 +15,12 @@ const router = useRouter()
 const user = computed(() => authState.user)
 const suspended = computed(() => authState.user?.status === 'suspended')
 
-const roleLabel = computed(() => (authState.user?.role === 'admin' ? '管理员' : '普通用户'))
+const roleLabel = computed(() => {
+  const user = authState.user
+  if (!user) return ''
+  if (user.is_super_admin) return '超级管理员'
+  return user.role === 'admin' ? '管理员' : '普通用户'
+})
 
 // ---------- 关注审批开关 ----------
 const followLoading = ref(true)

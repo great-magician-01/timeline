@@ -17,7 +17,7 @@ import PostCard from '../components/PostCard.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useCursorList } from '../composables/useCursorList'
 import { authState } from '../stores/auth'
-import { siteState } from '../stores/site'
+import { registrationOpen } from '../stores/site'
 import { ui } from '../styles/ui'
 import { textToParagraphHTML } from '../utils/text'
 
@@ -141,7 +141,7 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
         </p>
         <div class="flex flex-wrap gap-2">
           <RouterLink :class="[ui.button, ui.buttonPrimary]" to="/login">登录</RouterLink>
-          <RouterLink v-if="siteState.registrationEnabled" :class="[ui.button, ui.buttonSecondary]" to="/register">
+          <RouterLink v-if="registrationOpen" :class="[ui.button, ui.buttonSecondary]" to="/register">
             注册新账号
           </RouterLink>
         </div>

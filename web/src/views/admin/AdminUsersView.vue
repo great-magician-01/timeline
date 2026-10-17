@@ -146,7 +146,8 @@ onMounted(() => void load(true))
             <span class="flex min-w-0 flex-col gap-[2px]">
               <span class="flex flex-wrap items-center gap-[6px]">
                 <span class="text-[14.5px] font-bold">{{ item.nickname || item.username }}</span>
-                <span v-if="item.role === 'admin'" :class="ui.badge">管理员</span>
+                <span v-if="item.is_super_admin" :class="[ui.badge, ui.badgeSuper]">超级管理员</span>
+                <span v-else-if="item.role === 'admin'" :class="ui.badge">管理员</span>
                 <span v-if="item.is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
                 <span v-if="item.status === 'suspended' || item.is_suspended" :class="[ui.badge, ui.badgeDanger]">已停用</span>
               </span>

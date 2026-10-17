@@ -28,6 +28,7 @@ type User struct {
 	AvatarURL             string
 	Bio                   string
 	Role                  string
+	IsSuperAdmin          bool
 	IsAI                  bool
 	Status                string
 	RequireFollowApproval bool
@@ -41,7 +42,7 @@ func (u User) IsSuspended() bool { return u.Status == StatusSuspended }
 
 // UserColumns 供账号相关查询复用；不带表名或别名，JOIN 查询需自行列全字段。
 const UserColumns = `id, username, COALESCE(email, ''), COALESCE(password_hash, ''),
-	nickname, avatar_url, bio, role, is_ai, status, require_follow_approval,
+	nickname, avatar_url, bio, role, is_super_admin, is_ai, status, require_follow_approval,
 	token_version, suspended_at, created_at, updated_at`
 
 type Row interface {
@@ -52,7 +53,7 @@ func ScanUser(row Row) (User, error) {
 	var u User
 	err := row.Scan(
 		&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Nickname, &u.AvatarURL,
-		&u.Bio, &u.Role, &u.IsAI, &u.Status, &u.RequireFollowApproval,
+		&u.Bio, &u.Role, &u.IsSuperAdmin, &u.IsAI, &u.Status, &u.RequireFollowApproval,
 		&u.TokenVersion, &u.SuspendedAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	return u, err
@@ -88,6 +89,7 @@ type UserResponse struct {
 	CreatedAt             string `json:"created_at"`
 	Email                 string `json:"email,omitempty"`
 	Role                  string `json:"role,omitempty"`
+	IsSuperAdmin          bool   `json:"is_super_admin,omitempty"`
 	Status                string `json:"status,omitempty"`
 	RequireFollowApproval *bool  `json:"require_follow_approval,omitempty"`
 	UpdatedAt             string `json:"updated_at,omitempty"`
@@ -110,6 +112,7 @@ func PrivateUser(u User) UserResponse {
 	resp := PublicUser(u)
 	resp.Email = u.Email
 	resp.Role = u.Role
+	resp.IsSuperAdmin = u.IsSuperAdmin
 	resp.Status = u.Status
 	resp.RequireFollowApproval = &u.RequireFollowApproval
 	resp.UpdatedAt = api.FormatTime(u.UpdatedAt)

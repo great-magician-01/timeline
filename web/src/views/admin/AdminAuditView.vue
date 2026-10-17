@@ -24,6 +24,8 @@ const ACTION_OPTIONS: ActionOption[] = [
   { value: 'user_suspend', label: '停用账号' },
   { value: 'user_unsuspend', label: '恢复账号' },
   { value: 'user_reset_password', label: '重置密码' },
+  { value: 'user_grant_admin', label: '授权管理员' },
+  { value: 'user_revoke_admin', label: '撤销管理员' },
   { value: 'post_delete', label: '删除帖子' },
   { value: 'comment_delete', label: '删除评论' },
   { value: 'attachment_delete', label: '删除附件' },

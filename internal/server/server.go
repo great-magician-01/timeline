@@ -272,6 +272,9 @@ func (s *Server) registerAdminRoutes(v1 *gin.RouterGroup, services apiServices, 
 	adminRoutes.POST("/users/:id/suspend", csrf, services.admin.SuspendUser)
 	adminRoutes.POST("/users/:id/unsuspend", csrf, services.admin.UnsuspendUser)
 	adminRoutes.POST("/users/:id/reset-password", csrf, services.admin.ResetPassword)
+	// 仅超级管理员可授权/撤销管理员；csrf 在前，保证缺少 CSRF 时仍统一返回 csrf_failed。
+	adminRoutes.POST("/users/:id/grant-admin", csrf, services.auth.RequireSuperAdmin, services.admin.GrantAdmin)
+	adminRoutes.POST("/users/:id/revoke-admin", csrf, services.auth.RequireSuperAdmin, services.admin.RevokeAdmin)
 
 	// 内容审核
 	adminRoutes.GET("/posts", services.admin.ListPosts)

@@ -33,6 +33,8 @@ export function me(): Promise<AuthResponse> {
 /** 公开注册配置（GET /auth/config）；未登录也可访问 */
 export interface AuthConfig {
   registration_enabled: boolean
+  /** 系统尚无人类用户（未初始化）：首个注册账号将自动成为超级管理员，且空库时忽略注册开关 */
+  bootstrap_required: boolean
 }
 
 export function getAuthConfig(): Promise<AuthConfig> {

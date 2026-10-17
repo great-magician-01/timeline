@@ -47,6 +47,11 @@ func (s *Service) changeUserStatus(c *gin.Context, suspend bool) {
 		s.internalError(c, "读取待处置账号失败", err)
 		return
 	}
+	// 超级管理员账号只能由超级管理员本人处置，普通管理员一律 403。
+	if target.IsSuperAdmin && !adminUser.IsSuperAdmin {
+		api.Error(c, http.StatusForbidden, "forbidden", "不能操作超级管理员账号")
+		return
+	}
 	desired := auth.StatusActive
 	action := "user_unsuspend"
 	if suspend {
@@ -162,6 +167,11 @@ func (s *Service) ResetPassword(c *gin.Context) {
 	}
 	if err != nil {
 		s.internalError(c, "读取待重置账号失败", err)
+		return
+	}
+	// 超级管理员账号只能由超级管理员本人处置，普通管理员一律 403。
+	if target.IsSuperAdmin && !adminUser.IsSuperAdmin {
+		api.Error(c, http.StatusForbidden, "forbidden", "不能操作超级管理员账号")
 		return
 	}
 	if target.IsAI {

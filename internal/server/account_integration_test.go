@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/great-magician-01/timeline/internal/auth"
 	"github.com/great-magician-01/timeline/internal/config"
 	"github.com/great-magician-01/timeline/internal/id"
 	"github.com/great-magician-01/timeline/internal/jobs"
@@ -74,13 +72,7 @@ func TestAccountIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := auth.CreateInitialAdmin(ctx, pool, ids, auth.RegisterInput{
-		Username: "admin_integration",
-		Email:    "admin-integration@example.com",
-		Password: "admin-password-123",
-	}); err != nil && !errors.Is(err, auth.ErrAdminExists) {
-		t.Fatalf("初始化测试管理员失败: %v", err)
-	}
+	ensureIntegrationAdmin(t, pool, ids)
 	state := NewState()
 	state.SetPool(pool)
 	state.MarkMigrationsDone()
