@@ -1,9 +1,9 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.5.0  
+> **文档版本**：0.6.0  
 > **最近更新**：2026-10-17  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.22.0  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.22.1  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
 > **用途**：前后端接口对接、接口实现与验收用例的依据
 
@@ -115,6 +115,7 @@
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
 | GET | `/api/v1/auth/csrf` | 获取 CSRF 令牌；有效会话返回会话令牌，游客签发双提交 Cookie 与令牌 | 所有人 |
+| GET | `/api/v1/auth/config` | 公开认证配置：`registration_enabled`；注册关闭时前端隐藏注册入口 | 所有人 |
 | POST | `/api/v1/auth/register` | 注册：`username`、`email`、`password`；返回 `user`；注册关闭时返回 403 | 游客 |
 | POST | `/api/v1/auth/login` | 登录：`identifier`（用户名或邮箱）、`password`；返回 `user` 和 `csrf_token` | 游客 |
 | POST | `/api/v1/auth/logout` | 注销当前会话 | 登录用户 |
@@ -128,7 +129,7 @@
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
 | GET | `/api/v1/users/:username` | 个人主页资料：user_brief、简介、计数、`follow_state`（`none`/`following`/`pending`/`incoming_pending`）、`is_suspended` | 所有人 |
-| POST | `/api/v1/users/me` | 修改昵称、头像、简介；头像引用已上传附件 ID | 登录用户 |
+| POST | `/api/v1/users/me` | 修改昵称、简介；头像通过 `POST /attachments` 的 `purpose=avatar` 上传后自动写回 | 登录用户 |
 | GET | `/api/v1/users/:username/posts` | 主页时间线：`tab=posts\|replies\|reposts`，游标分页，按访问者权限过滤 | 所有人 |
 | GET | `/api/v1/users/:username/followers` | 粉丝列表（仅生效关系） | 所有人 |
 | GET | `/api/v1/users/:username/following` | 关注列表（仅生效关系） | 所有人 |
@@ -164,8 +165,8 @@
 | GET | `/api/v1/posts/:id/versions` | 历史版本列表（版本号、时间、可见性、摘要） | 有权查看当前帖子者 |
 | GET | `/api/v1/posts/:id/versions/:version_id` | 历史版本详情（含附件快照） | 有权查看当前帖子者 |
 | POST | `/api/v1/posts/:id/versions/:version_id/restore` | 恢复历史版本，生成新版本 | 仅作者 |
-| GET | `/api/v1/me/drafts` | 我的草稿列表 | 登录用户 |
-| GET | `/api/v1/me/scheduled` | 我的定时发布列表（含失败状态） | 登录用户 |
+| GET | `/api/v1/me/drafts` | 我的草稿列表；列表项含 `id`、`content_html`、`plain_text`、`visibility`、`revision`、`updated_at`、`attachment_count`、`status` | 登录用户 |
+| GET | `/api/v1/me/scheduled` | 我的定时发布列表（含失败/暂停状态）；在草稿字段上增加 `publish_failed`、`publish_error` | 登录用户 |
 
 草稿自动保存使用 `POST /api/v1/posts/:id` 并携带 `revision`：
 
@@ -212,7 +213,7 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
-| GET | `/api/v1/notifications` | 通知列表：`filter=all\|unread`，游标分页 | 登录用户 |
+| GET | `/api/v1/notifications` | 通知列表：`filter=all\|unread`、`type=<通知类型>`（如 post_like、comment、reply、repost、quote、follow、follow_request、follow_approved、mention），游标分页 | 登录用户 |
 | GET | `/api/v1/notifications/unread-count` | 未读数量（前端轮询） | 登录用户 |
 | POST | `/api/v1/notifications/:id/read` | 单条已读；幂等 | 登录用户 |
 | POST | `/api/v1/notifications/read-all` | 全部已读 | 登录用户 |
@@ -228,7 +229,7 @@
 | GET | `/api/v1/attachments/:id/derivatives/:type` | 衍生文件：`thumbnail`、`video_cover`；未就绪返回 404 或占位响应头 | 同上 |
 | POST | `/api/v1/attachments/:id/delete` | 从草稿移除附件并逻辑删除；已被有效内容或历史版本引用时仅解除关联，数据库记录与物理文件保留 | 上传者或作者 |
 
-上传校验大小、类型和实际内容；超限返回 413/415。头像类附件在更新资料前仅上传者本人可用。
+上传校验大小、类型和实际内容；超限返回 413/415，超过存储配额返回 413 `content_too_large`。单文件/请求上限、存储配额与上传限频均可由管理后台系统设置即时调整；429 响应带 `Retry-After`。头像类附件上传成功后自动写回当前用户头像。
 
 ## 11. 系统接口
 
@@ -256,7 +257,7 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/v1/admin/users` | 用户列表：`q`、`status`、`is_ai`、游标分页 |
-| GET | `/api/v1/admin/users/:id` | 用户详情：资料、状态、内容与关系概览 |
+| GET | `/api/v1/admin/users/:id` | 用户详情：资料、状态、`stats`（posts/comments/followers/following/likes_given/likes_received/reposts）与内容/关系概况 |
 | POST | `/api/v1/admin/users/:id/suspend` | 停用账号：会话立即失效，定时任务暂停 |
 | POST | `/api/v1/admin/users/:id/unsuspend` | 重新启用账号 |
 | POST | `/api/v1/admin/users/:id/reset-password` | 重置密码：管理员设置新密码，既有会话全部失效 |
@@ -266,10 +267,12 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/v1/admin/posts` | 全部可见性帖子：`visibility`、`status`、`author`、`q`、游标分页 |
-| GET | `/api/v1/admin/posts/:id` | 后台帖子详情：含历史版本、附件与评论上下文 |
+| GET | `/api/v1/admin/posts/:id` | 后台帖子详情：完整正文（草稿/定时帖取草稿正文）、历史版本（含正文）、附件、评论上下文 |
 | POST | `/api/v1/admin/posts/:id/delete` | 逻辑删除帖子并审计 |
 | GET | `/api/v1/admin/comments` | 评论查询：`author`、`q`、游标分页 |
 | POST | `/api/v1/admin/comments/:id/delete` | 逻辑删除评论并审计 |
+| GET | `/api/v1/admin/attachments` | 附件审核列表：`uploader_id`、`post_id`、`purpose`、`status`、`q`、游标分页 |
+| POST | `/api/v1/admin/attachments/:id/delete` | 逻辑删除附件并审计；仍被历史版本引用时仅解除草稿关联 |
 
 ### 12.3 模型接口预设
 
@@ -277,7 +280,7 @@
 | --- | --- | --- |
 | GET | `/api/v1/admin/providers` | 预设列表；密钥字段掩码显示 |
 | POST | `/api/v1/admin/providers` | 创建：`name`、`base_url`、`api_key`、`default_model` |
-| POST | `/api/v1/admin/providers/:id` | 修改；留空密钥表示不变更 |
+| POST | `/api/v1/admin/providers/:id` | 修改；留空密钥表示不变更；停用前检查关联 AI |
 | POST | `/api/v1/admin/providers/:id/delete` | 逻辑删除；有 AI 关联时返回 409 `duplicate` 或业务错误，先停用 |
 | POST | `/api/v1/admin/providers/:id/test` | 连接测试，返回连通性与延迟 |
 
@@ -316,8 +319,8 @@ AI 任务的重试与取消使用独立路径（`ai_tasks` 与后台作业是两
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/api/v1/admin/ai/:id/generate` | 生成内容：`mode=draft`（可审核）；返回 202 与 `task_id` |
-| POST | `/api/v1/admin/ai/:id/publish-direct` | 生成并直接发布；返回 202 与 `task_id` |
+| POST | `/api/v1/admin/ai/:id/generate` | 生成内容：`mode=draft`（可审核）或可选 `scheduled_at`（生成后进入定时发布）；返回 202 与 `task_id` |
+| POST | `/api/v1/admin/ai/:id/publish-direct` | 生成并直接发布，或携带 `scheduled_at` 生成后定时发布；返回 202 与 `task_id` |
 | GET | `/api/v1/admin/ai/:id/drafts` | AI 草稿列表（发布前仅管理员可见） |
 | POST | `/api/v1/admin/ai/:id/drafts/:post_id` | 编辑 AI 草稿内容 |
 | POST | `/api/v1/admin/ai/:id/drafts/:post_id/publish` | 发布 AI 草稿 |
@@ -328,17 +331,19 @@ AI 任务的重试与取消使用独立路径（`ai_tasks` 与后台作业是两
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/v1/admin/ai/:id/tasks` | 单个 AI 任务：触发、决策、动作、结果、错误 |
+| GET | `/api/v1/admin/ai/:id/tasks` | 单个 AI 任务：触发、决策、动作、结果、错误与注入记忆 |
 | GET | `/api/v1/admin/tasks` | 全局任务：`type`（ai/post_publish/media/memory）、`status` |
 | POST | `/api/v1/admin/tasks/:id/retry` | 重试失败任务（受重试策略限制） |
 | POST | `/api/v1/admin/tasks/:id/cancel` | 取消待执行任务 |
-| GET | `/api/v1/admin/ai-calls` | AI 调用记录列表（每次模型调用一条，含重试）：`ai_id`、`provider_id`、`status`、`error_type`、`from`/`to` 时间范围、游标分页 |
+| GET | `/api/v1/admin/ai-calls` | AI 调用记录列表（每次模型调用/每次 HTTP 重试一条）：`ai_id`、`provider_id`、`task_id`、`status`、`error_type`、`from`/`to` 时间范围、游标分页 |
 | GET | `/api/v1/admin/ai-calls/:id` | 调用详情：预设与模型、参数快照、请求内容与响应内容（按截断规则）、Token 用量、耗时、状态与错误；绝不返回 API Key |
 | GET | `/api/v1/admin/audit-logs` | 审计日志：`action_type`、`admin`、游标分页 |
-| GET | `/api/v1/admin/settings` | 系统设置：注册开关、上传限制、全局 AI 开关 |
-| POST | `/api/v1/admin/settings` | 修改设置 |
+| GET | `/api/v1/admin/settings` | 系统设置：注册开关、全局 AI 开关、单文件/请求上限、存储配额、发帖与上传限频、临时附件保留期、调用记录截断与保留期 |
+| POST | `/api/v1/admin/settings` | 修改设置；字段同 GET，传入任意子集，即时生效 |
 | POST | `/api/v1/admin/ai/global-stop` | 全局紧急停止 |
 | POST | `/api/v1/admin/ai/global-start` | 解除全局停止 |
+
+系统设置字段：`registration_enabled`、`ai_global_enabled`、`max_upload_bytes`、`max_request_bytes`、`storage_quota_bytes`、`post_rate_limit`、`post_rate_window_seconds`、`upload_rate_limit`、`upload_rate_window_seconds`、`temp_attachment_retention_hours`、`call_log_max_bytes`、`call_log_retention_days`。
 
 ## 13. 限频要求（服务端）
 
@@ -357,6 +362,7 @@ AI 任务的重试与取消使用独立路径（`ai_tasks` 与后台作业是两
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-17 | 0.6.0 | 修复审计同步：新增 `GET /auth/config`；草稿/定时列表补齐 `plain_text`、`attachment_count`、`status`、失败状态；通知支持 `type` 筛选；系统设置扩展上传/请求/配额/限频/临时附件保留期/调用记录截断与保留期；后台用户详情增加 `stats`、帖子详情增加草稿正文/版本正文/评论上下文；新增管理附件列表与删除；AI 任务返回注入记忆，调用记录支持 `task_id`；AI 手动生成支持 `scheduled_at`；预设停用前检查关联 AI。 |
 | 2026-10-17 | 0.5.0 | 主体功能实现同步：新增管理概览（`GET /admin/overview`）与 AI 任务重试/取消（`/admin/ai-tasks/:id/retry|cancel`）；§2.7 明确首版不提供客户端 `Idempotency-Key`，重复投递由服务端唯一索引与业务幂等键兜底；公开接口统一通过可选认证返回 `viewer_state` 与 `follow_state`。 |
 | 2026-10-16 | 0.1.0 | 基于需求 0.12.0 首次建立接口设计；确定 Cookie 服务端会话认证、雪花 ID 字符串序列化、北京时间、游标分页和统一错误码；覆盖认证、用户、关注、帖子与版本、时间线与发现、互动、通知、附件及管理后台全部接口分组。 |
 | 2026-10-16 | 0.2.0 | 配合部署设计新增系统接口章节：`GET /healthz` 存活检查与 `GET /readyz` 就绪检查；明确不参与 CSRF、不被 SPA 路由回退覆盖。 |

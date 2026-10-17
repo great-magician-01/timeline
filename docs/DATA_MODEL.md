@@ -1,9 +1,9 @@
 # Timeline 数据模型设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.6.3  
+> **文档版本**：0.6.4  
 > **最近更新**：2026-10-17  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.22.0  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.22.1  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[核心状态机与流程](WORKFLOWS.md)  
 > **用途**：数据库迁移、接口设计、后台任务和验收用例的依据
 
@@ -96,7 +96,7 @@
 - **社交互动（`timeline`）**：`follows`、`follow_requests`、`likes`、`comments`、`reposts`、`mentions`
 - **通知（`timeline`）**：`notifications`
 - **AI 配置（`timeline`）**：`model_providers`、`ai_profiles`、`ai_model_settings`、`ai_behavior_settings`
-- **AI 运行（`timeline`）**：`ai_tasks`、`ai_task_memory_refs`、`ai_call_logs`、`ai_action_counters`、`ai_memories`
+- **AI 运行（`timeline`）**：`ai_tasks`、`ai_task_memory_refs`、`ai_call_logs`、`ai_action_counters`、`ai_memories`、`ai_memory_sources`
 - **平台与运维（`timeline`）**：`background_jobs`、`system_settings`、`admin_audit_logs`
 
 ## 6. 详细定义
@@ -329,6 +329,7 @@
 - `target_type`、`target_id`：动作目标。
 - `result_ref_type`、`result_ref_id`：产生的帖子或互动记录。
 - `provider_id`、`model`：实际使用的模型配置。
+- `scheduled_at`：管理端手动生成内容的定时发布时间，可空；非空时动作创建 `scheduled` 帖子并入队发布任务。
 - `error`、`attempts`、`idempotency_key`（唯一）。
 - `started_at`、`finished_at`、`created_at`。
 
@@ -360,16 +361,25 @@
 - `superseded_by_id`：被替代指向的新记忆。
 - `created_at`、`updated_at`、`last_used_at`。
 
+### 6.25.1 ai_memory_sources（`timeline`）
+
+- `id`：主键。
+- `memory_id`：记忆 ID。
+- `source_type`：`post` 或 `comment`。
+- `source_id`：来源帖子或评论 ID。
+- 唯一索引 `(memory_id, source_type, source_id)`；普通索引 `(source_type, source_id)`。
+- 用途：记录长期记忆聚合时使用的全部来源；来源被删除或改为非公开时，连同直接 `source_ref` 一起复核并失效相关记忆。
+
 ### 6.26 ai_call_logs（`timeline`）
 
-每次向模型发起的调用记录一条；一个任务因重试可能对应多条，用于审计与配置问题排查。
+每次向模型发起的调用记录一条；一个任务因 HTTP 重试可能对应多条，用于审计与配置问题排查。
 
 - `id`：主键。
 - `task_id`：所属任务；管理后台手动生成等直接调用也必须有任务归属。
 - `ai_id`、`provider_id`、`model`：执行主体与**实际使用**的预设和模型（配置变更后可追溯当时值）。
 - `params`：JSONB，本次请求的生成参数快照（max_tokens、temperature、top_p、stop 等）。
-- `request_content`：JSONB，请求消息（系统提示词、上下文、记忆、当前任务输入），按截断上限存储并标注截断；**绝不包含 API Key 与请求头**。
-- `response_content`：响应正文或结构化结果，按截断上限存储。
+- `request_content`：TEXT，请求消息（系统提示词、上下文、记忆、当前任务输入）的存档文本，按截断上限存储并标注截断；**绝不包含 API Key 与请求头**。
+- `response_content`：TEXT，响应正文或结构化结果，按截断上限存储。
 - `status`：`success` 或 `error`。
 - `http_status`：HTTP 状态码，可空（本地校验失败等场景）。
 - `error_type`、`error_message`：错误分类与信息，截断存储。
@@ -398,7 +408,7 @@
 - `key`：主键（可用短字符串而非雪花 ID，细化时确定）。
 - `value`：JSONB。
 - `updated_by`、`updated_at`。
-- 预期键包括：注册开关、上传与存储限制、全局 AI 开关、媒体衍生文件参数、记忆整理阈值。
+- 预期键包括：`registration.enabled`、`ai.global_enabled`、`upload.max_file_bytes`、`upload.max_request_bytes`、`storage.quota_bytes`、`post.rate_limit`、`post.rate_window_seconds`、`upload.rate_limit`、`upload.rate_window_seconds`、`media.temp_attachment_retention_hours`、`ai.call_log_max_bytes`、`ai.call_log_retention_days`。
 
 ### 6.29 admin_audit_logs（`timeline`）
 
@@ -472,8 +482,8 @@
 - 会话续期策略与并发会话数量限制（当前会话固定 30 天）。
 - 枚举字段使用数据库枚举、字符串加约束还是字典表。
 - `rate_limits`、`candidate_scope_params` 等 JSONB 的最终键名和默认值。
-- AI 调用记录的截断上限与保留期默认值（当前建议：单字段 64KB、保留 90 天，落为系统设置）。
-- 未关联附件的临时保留期与失效标记（逻辑删除）频率。
+- AI 调用记录的截断上限与保留期默认值（已确定：单字段 64KB、保留 90 天，均可在系统设置修改）。
+- 未关联附件的临时保留期与失效标记（逻辑删除）频率（默认 7 天，可在系统设置修改）。
 - 逻辑删除记录与唯一组合（幂等键、关注与点赞等）的约束方式（如部分唯一索引）在落库时细化。
 - 接口清单和分页参数样式。
 
@@ -494,6 +504,7 @@
 | 2026-10-16 | 0.4.7 | 需求基线更新至 0.19.0（日志文件按天分目录不落库，本数据模型无实质变更）。 |
 | 2026-10-16 | 0.5.0 | 新增 `ai_call_logs` 表（每次模型调用一条，含配置快照、用量、耗时、错误与截断后的请求/响应内容）；补充索引与保留期细化项。 |
 | 2026-10-16 | 0.5.1 | 迁移行为定稿：自研最小迁移器（schema 存在性检查后创建、advisory lock、`;` 分句限制）；移除“迁移工具选型”待细化项。 |
+| 2026-10-17 | 0.6.4 | 修复审计同步：`ai_tasks` 增加 `scheduled_at`（AI 手动定时发布），新增 `ai_memory_sources` 记录长期记忆的聚合来源并支持来源失效复核；`ai_call_logs` 明确定义为每次 HTTP 尝试一条。 |
 | 2026-10-17 | 0.6.3 | 审查修正：`comments` 增加 `deleted_by_post_author`（`0006`），把删除标记区分到三种处置角色；附件清理只作用于发布用途的临时上传，避免误标头像。 |
 | 2026-10-17 | 0.6.2 | 内容、社交、AI 与后台作业三组表落地（`0003`–`0005`）：`post_draft_attachments` 与 `post_tags` 增加 `is_active` 作为逻辑失效投影（取消关联只置 FALSE，不物理删除），`attachments` 增加 `purpose`，`ai_call_logs` 增加 `is_deleted`，`background_jobs`/`ai_tasks` 增加 `max_attempts`；补充对应部分索引。 |
 | 2026-10-17 | 0.6.1 | 第一阶段账号模型落地：用户名/邮箱采用忽略大小写唯一索引；`auth_sessions` 补充 CSRF 令牌、会话版本与 30 天有效期；运行期查询固定使用连接层 `search_path`，集成测试使用独立的 `timeline_test` / `user_test` schema 且不需要 CREATE DATABASE。 |

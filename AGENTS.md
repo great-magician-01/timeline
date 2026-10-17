@@ -6,20 +6,20 @@
 
 Timeline 是一个支持长文、多附件、分级可见性、完整社交互动，以及具有独立身份和分层记忆的 AI 用户的时间线社区。目标界面为简体中文响应式 Web，部署形态是单个 Go 应用托管 Vue 前端并访问独立 PostgreSQL 实例。
 
-当前仓库处于**业务功能实现阶段**，V1 功能范围已全部落地：
+当前仓库处于 **V1 已实现、待人工验证** 阶段，功能范围已全部落地：
 
 - Go/Gin HTTP 服务、`/healthz` 存活检查、`/readyz` 就绪检查，以及前端构建产物的 Go 内嵌托管和 SPA 回退。
-- PostgreSQL 连接、失败退避重试、最小迁移器；`0001_baseline`、`0002_auth_and_admin`、`0003_content`、`0004_social`、`0005_ai_and_jobs`、`0006_comment_delete_actor` 六组迁移。
-- 账号：用户名/邮箱注册与登录、bcrypt 哈希、HttpOnly 服务端会话、游客与会话 CSRF、三维登录限频、资料与密码修改、关注审批设置、头像上传。
+- PostgreSQL 连接、失败退避重试、最小迁移器；`migrations/` 内按文件名顺序追加的迁移（`0001` 起，含账号、内容、社交、AI、后台作业与 AI 记忆来源等表结构）。
+- 账号：用户名/邮箱注册与登录、bcrypt 哈希、HttpOnly 服务端会话、游客与会话 CSRF、三维登录限频、资料与密码修改、关注审批设置、头像上传；公开 `GET /auth/config` 提供注册开关状态。
 - 内容：富文本/Markdown 统一安全渲染、帖子、草稿与自动保存冲突、定时发布、编辑历史与版本恢复、附件上传与图片缩略图/视频封面（ffmpeg 可选）、可见性（公开/仅关注者/仅自己）、时间线（全站/关注/个人主页）。
-- 社交：关注与关注审批、移除粉丝、点赞、评论与楼中楼、纯转发与引用、提及、通知中心（轮询未读数）。
+- 社交：关注与关注审批、移除粉丝、点赞、评论与楼中楼、纯转发与引用、提及、通知中心（轮询未读数、按类型筛选）。
 - 发现：`#话题#` 链接化与标签聚合、用户搜索、帖子搜索，全部按访问者权限过滤。
-- AI：OpenAI 兼容接口预设（API Key 加密存储）、AI 身份与行为策略、分层记忆（近期/长期、关键词检索、沉淀与失效）、自主动作（发帖/评论/点赞/关注/转发/引用，默认全部关闭）、任务与决策审计、模型调用记录。
-- 管理后台：概览、用户管理、内容审核（帖子/评论）、模型预设、AI 配置与记忆、生成与发布、全局任务、调用记录、审计日志、注册与全局 AI 开关。
+- AI：OpenAI 兼容接口预设（API Key 加密存储）、AI 身份与行为策略（含发帖/主动互动间隔）、分层记忆（近期/长期、关键词检索、沉淀与失效、来源关联）、自主动作（发帖/评论/点赞/关注/转发/引用，默认全部关闭）、任务与决策审计、模型调用记录（可按任务筛选）、管理员手动生成支持立即发布或定时发布、任务详情展示注入记忆。
+- 管理后台：概览、用户管理、内容审核（帖子/评论/附件）、模型预设、AI 配置与记忆、生成与发布、全局任务、调用记录、审计日志、系统设置（注册、上传/请求大小、存储配额、发帖/上传限频、临时附件保留期、调用记录截断/保留期）与全局 AI 开关。
 - 后台作业：持久化在 `background_jobs`，重启恢复，有限次数与退避重试；附件失效清理与 AI 调度为周期任务。
-- 环境变量配置、双通道日志、雪花 ID 生成器、Docker/Compose 与备份脚本。
+- 环境变量配置、双通道日志、雪花 ID 生成器、Docker/Compose、目录准备与备份恢复脚本，以及 GitHub Actions CI。
 
-尚未完成或未验证的部分：Docker 镜像的实际构建与容器内运行；`deploy/scripts` 备份脚本的演练；浏览器端人工验收（`docs/ACCEPTANCE.md` 中的 P0 清单需要人工执行）。
+验证状态：默认 Go 测试、`go vet`、`npm run build` 与隔离 schema 集成测试已通过；开发机已使用临时 PostgreSQL 实例完成 Docker 镜像构建、容器启动、健康检查、前端托管与基础 API 冒烟，并完成一次备份/恢复演练（含附件属主修正）。尚未执行：`docs/ACCEPTANCE.md` 中的完整 P0 人工验收，以及部署机上的真实环境复演。
 
 ## 2. 技术栈与关键配置
 
@@ -39,6 +39,8 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 - `web/vite.config.ts`：开发代理，将 `/api`、`/healthz`、`/readyz` 转发到 `http://localhost:5070`。
 - `web/tsconfig*.json`：TypeScript 项目引用和检查规则，包括未使用变量/参数检查。
 - `.env.example`：部署配置模板，真实凭据不得写入或提交。
+- `Dockerfile` / `docker-compose.yml`：多阶段镜像与单应用 Compose（外部 PostgreSQL）。
+- `.github/workflows/ci.yml`：CI（Go 测试/静态检查、前端构建、镜像构建）；不启动容器。
 
 ## 3. 目录与模块划分
 
@@ -71,7 +73,8 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 - `web/dist/`：Vite 生成物，由 Go 嵌入；不要手工编辑。
 - `docs/`：需求、页面权限、状态机、数据模型、API、部署、验收和设计系统的权威设计文档。
 - `demo/`：未接后端的静态视觉方案；`home-e-social.html` 是选定方向，`logo.svg` 是品牌图源。实现样式以 `docs/DESIGN_SYSTEM.md` 为准，而不是以 demo 为准。
-- `deploy/scripts/`：`backup.sh` 与 `restore.sh`（数据库 + 附件配套备份）。
+- `deploy/scripts/`：`prepare.sh`（创建并授权数据目录）、`backup.sh`（数据库 + 附件 + 加密密钥）、`restore.sh`（数据库 + 附件配套恢复）。
+- `.github/workflows/ci.yml`：CI 流水线（Go 测试/`vet`、前端 `npm ci` + 构建、镜像构建）。
 - `bin/`：本地编译产物，不是源码。
 
 ## 4. 构建、运行与检查
@@ -108,6 +111,7 @@ go run ./cmd/mock-llm             # 验收用本地 OpenAI 兼容 mock（默认 
 ```bash
 TIMELINE_INTEGRATION=1 go test ./internal/server -run TestAccountIntegration -count=1 -v
 TIMELINE_INTEGRATION=1 go test ./internal/server -run TestContentIntegration -count=1 -v
+TIMELINE_INTEGRATION=1 go test ./internal/server -run TestAdminSettingsAndAttachmentIntegration -count=1 -v
 TIMELINE_INTEGRATION=1 go test ./internal/ai -run TestAIAdminIntegration -count=1 -v
 ```
 
@@ -121,6 +125,19 @@ TIMELINE_INTEGRATION=1 go test ./internal/ai -run TestAIAdminIntegration -count=
 - `/healthz` 只表示进程可响应，始终不依赖数据库。
 - `/readyz` 在数据库可 Ping 且迁移步骤完成（或按配置跳过）后返回 200，否则返回 503。
 - 已构建前端存在时，未知 `/api` 路径返回 JSON 404，其他前端路径回退到 `index.html`；`web/dist/index.html` 不存在时服务端显示内置占位页。
+
+### 部署文件与 CI
+
+```bash
+bash -n deploy/scripts/*.sh                  # 脚本语法检查
+docker compose config                        # 校验 Compose 与环境变量展开（需 .env）
+IMAGE_TAG=local docker compose build         # 构建镜像；APP_VERSION 由 IMAGE_TAG 注入
+docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
+```
+
+- 运行镜像内已预创建 `/data/uploads` 与 `/data/logs`，属主 UID/GID 10001；宿主机目录由 `deploy/scripts/prepare.sh` 准备。
+- 镜像构建参数 `APP_VERSION` 默认 `dev`，Compose 传入 `IMAGE_TAG`；启动日志会输出 `version` 字段。
+- CI 只执行 `go test ./...`、`go vet ./...`、`npm ci && npm run build` 与 `docker build`，**不启动容器**，因此不替代部署机上的容器运行验证。
 
 ## 5. 代码与接口约定
 
@@ -162,7 +179,7 @@ TIMELINE_INTEGRATION=1 go test ./internal/ai -run TestAIAdminIntegration -count=
 当前自动化测试覆盖：
 
 - 单元测试：雪花 ID、密码与令牌、注册/资料校验、固定窗口限频、游标与 JSON 约束、代理配置、迁移安全约束（无外键/无物理删除）、路由方法与健康检查、富文本清洗与 Markdown 渲染（含 XSS 用例）、附件类型嗅探与图片缩放、帖子 DTO 与时间游标、评论状态机与幂等键、AI 密钥加解密与生成参数解析、AI 决策解析与频率判断。
-- 集成测试（默认跳过，需要测试 schema）：`TestAccountIntegration`（账号全链路）、`TestContentIntegration`（帖子/草稿/定时/版本/附件/可见性/时间线/关注/点赞/评论/转发/通知/标签/搜索/管理审核）、`TestAIAdminIntegration`（模型预设、AI 配置、记忆、生成任务）。
+- 集成测试（默认跳过，需要测试 schema）：`TestAccountIntegration`（账号全链路）、`TestContentIntegration`（帖子/草稿/定时/版本/附件/可见性/时间线/关注/点赞/评论/转发/通知/标签/搜索/管理审核）、`TestAdminSettingsAndAttachmentIntegration`（系统设置即时生效、存储配额、附件审核/删除、用户统计、定时失败状态）、`TestAIAdminIntegration`（模型预设、AI 配置、记忆、生成任务）。
 - 前端以 `npm run build`（`vue-tsc` + `vite`）作为类型与构建校验，没有独立 lint/test 脚本。
 
 新增 Go 逻辑时，在对应包添加 `_test.go`，至少执行：
@@ -176,10 +193,10 @@ cd web && npm run build
 `docs/ACCEPTANCE.md` 是完整手工验收和开发自测清单：
 
 - P0 用例为上线必过项，P1 失败必须记录原因和计划；SEC 安全组不允许失败。
-- 功能已全部实现，但 P0 清单尚未人工执行完成；改动核心流程后需要重新走一遍对应条目。
+- V1 功能已实现，但 P0 清单尚未人工执行；改动核心流程后需要重新走一遍对应条目。
 - 验收需要游客、普通用户、管理员和至少两个 AI 的隔离场景，并覆盖权限、XSS、CSRF、上传、ID 精度和备份恢复。
 - AI 回归使用本地 OpenAI 兼容 mock 服务，覆盖正常、noop、非法 JSON、超时和接口错误；真实模型只做冒烟抽样。
-- 当前大量验收项对应尚未实现的功能，不能仅因现有骨架能启动就宣称通过整体验收。
+- 完整 P0 人工验收尚未执行，不能因为 `go test`、`npm run build`、CI 或开发机 Docker 冒烟通过就宣称整体验收通过；部署机仍应按清单复演 Docker 与备份恢复流程。
 
 ## 7. 文档维护约定
 
@@ -190,24 +207,25 @@ cd web && npm run build
 3. 文档冲突时以需求基线为准，并修正其他文档；未决事项保留在“待细化”中，不要自行当成已确认需求。
 4. 代码、配置、端口或部署约定变化时，同时更新对应文档和本文件。
 
-注意：`docs/README.md` 的“尚未开始编码”状态已经落后于当前骨架代码；`docs/DEPLOYMENT.md` 仍是设计稿，其中示例端口和构建镜像不能替代 `go.mod` 与当前代码的实际配置。修改相关文件时应顺手消除这类漂移。
+注意：`docs/README.md`、`docs/DEPLOYMENT.md`、`docs/ACCEPTANCE.md` 已于 2026-10-17 与当前实现同步（版本、Compose、目录准备、备份恢复与 CI）；如再修改部署文件、端口、镜像构建参数或配置变量，必须同时更新 `docs/DEPLOYMENT.md`、`.env.example`、`README.md` 与本文件，避免重新产生漂移。
 
-## 8. 部署设计与当前边界
+## 8. 部署实现与当前边界
 
-目标部署流程记录在 `docs/DEPLOYMENT.md`，但相关 Docker 文件和备份脚本尚未落地，因此目前不能假设 `docker compose up` 可用。目标架构为：
+部署文件已落地并与 `docs/DEPLOYMENT.md` 保持同步。当前实现：
 
-- 多阶段构建前端和 Go 二进制，前端静态资源嵌入二进制，由 Go 同源托管。
-- Compose 只管理一个应用容器，不设置独立前端、Nginx 或 worker 服务。
-- PostgreSQL 是外部独立实例，数据库和账号需预先创建；应用迁移只管理 schema/表结构。
-- 上传文件和日志使用本地持久化挂载；数据库与上传目录必须配套备份和恢复。
-- 运行镜像计划包含 ffmpeg、时区数据和 CA 证书，并以非 root 用户运行。
+- `Dockerfile` 三阶段构建：Node 22 构建前端 → Go 1.25 编译二进制（`go:embed` 嵌入前端）→ `alpine:3.20` 运行镜像，含 ffmpeg、tzdata、CA 证书。
+- 构建参数 `APP_VERSION`（默认 `dev`）通过 `-ldflags "-X main.appVersion=..."` 注入；Compose 传入 `IMAGE_TAG`。
+- 运行镜像预创建 `/data/uploads` 与 `/data/logs` 并 `chown 10001:10001`，以非 root 用户运行，`EXPOSE 5070`。
+- `docker-compose.yml` 只管理 `app` 一个服务，PostgreSQL 为外部独立实例；标准输出使用 `json-file` 驱动并限制 `max-size: 10m` / `max-file: 3`，文件日志由应用按天目录管理。
+- `deploy/scripts/prepare.sh` 创建并授权宿主机数据目录；`backup.sh` 备份数据库、附件与 `ENCRYPTION_KEY`（独立 `encryption-key.txt`，权限 600）；`restore.sh` 校验目标库版本、恢复附件属主与权限。
+- 上传文件和日志使用绑定挂载；数据库与上传目录必须配套备份和恢复。
 - `/healthz` 用于应用存活，`/readyz` 用于数据库和迁移就绪检查。
 
-实现部署文件时，以当前 Go 版本、实际 5070 监听端口和配置加载行为为准，并同步修订部署文档中的设计示例。
+边界：开发机已完成 Docker 构建/容器启动与备份恢复演练的基础验证（临时 PostgreSQL 实例），但真实部署环境、外部数据库网络与浏览器 P0 人工验收仍需按 `docs/DEPLOYMENT.md` 第 11 章和 `docs/ACCEPTANCE.md` 执行。
 
 ## 9. 安全与核心业务红线
 
-这些规则多数对应待实现功能，但从一开始就必须进入设计、代码和测试：
+这些规则已在 V1 实现中执行，并继续作为后续修改不可突破的红线。架构与实现约定见 `docs/REQUIREMENTS.md`、`docs/API.md`、`docs/DATA_MODEL.md` 和 `docs/DEPLOYMENT.md`。
 
 - 不提交 `.env`、数据库凭据、会话秘密或模型 API Key；不要在前端构建产物、接口响应或日志中暴露它们。
 - 所有认证、授权、账号状态和可见性检查都在后端执行；隐藏前端按钮不是权限控制。

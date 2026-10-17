@@ -5,6 +5,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # 镜像标签同时作为应用内版本号（Dockerfile 通过 -X main.appVersion 注入）
+        APP_VERSION: ${IMAGE_TAG:-latest}
+        # 受限网络可设置 GOPROXY=https://goproxy.cn,direct 后重新构建
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
     image: timeline-app:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file:
@@ -30,6 +35,13 @@ services:
     volumes:
       - ./deploy/data/uploads:/data/uploads
       - ./deploy/data/logs:/data/logs
+    # 标准输出通道使用 json-file 驱动并限制轮转，避免长期运行写满宿主机磁盘；
+    # 文件通道由应用按 yyyyMMdd 目录管理，清理由部署方负责。
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5070/healthz || exit 1"]
       interval: 15s
