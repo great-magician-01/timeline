@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -36,6 +37,10 @@ type callRecord struct {
 	Model      string
 	Params     ai.GenerationParams
 	Attempt    int
+	// Round 是启用联网搜索时的模型轮次（从 1 开始）；0 表示旧单轮路径。
+	Round int
+	// WebSearch 表示本次决策调用启用了联网搜索工具。
+	WebSearch bool
 	// MaxLogBytes 是本次调用记录的单字段截断上限；为 0 时使用代码默认值。
 	MaxLogBytes int
 }
@@ -55,12 +60,37 @@ func (s *Service) callModel(
 	systemPrompt, userPrompt string,
 	format callable.ResponseFormat,
 ) (*callable.Response, error) {
+	request := callable.NewRequest(
+		callable.System(systemPrompt),
+		callable.User(userPrompt),
+	)
+	if format.Name != "" || format.Schema != nil {
+		request = request.WithResponseFormat(format)
+	}
+	return s.callModelRound(ctx, rt, rec, request)
+}
+
+// callModelRound 执行一轮模型请求；请求已由调用方组装好（可能包含工具或
+// 多轮消息）。provider 构造、逐次超时、外层重试、钩子和调用记录都集中在这里，
+// 因此搜索工具循环的每一轮仍然生成独立的 ai_call_logs。
+func (s *Service) callModelRound(
+	ctx context.Context,
+	rt ai.Runtime,
+	rec callRecord,
+	request *callable.Request,
+) (*callable.Response, error) {
+	if request == nil {
+		return nil, errProviderUnavailable
+	}
 	if rt.Provider.ID == 0 || strings.TrimSpace(rt.Provider.BaseURL) == "" {
 		return nil, errProviderUnavailable
 	}
 	model := firstNonEmpty(rt.Model, rt.Provider.DefaultModel)
 	if model == "" {
 		return nil, errProviderUnavailable
+	}
+	if strings.TrimSpace(request.Model) == "" {
+		request.Model = model
 	}
 	if rec.Model == "" {
 		rec.Model = model
@@ -116,14 +146,6 @@ func (s *Service) callModel(
 		}),
 	)
 	client := callable.NewClient(provider, options...)
-
-	request := callable.NewRequest(
-		callable.System(systemPrompt),
-		callable.User(userPrompt),
-	).WithModel(model)
-	if format.Name != "" || format.Schema != nil {
-		request = request.WithResponseFormat(format)
-	}
 
 	return withOutboundRetry(ctx, outboundRetries, sleepContext,
 		func(attemptCtx context.Context, attempt int) (*callable.Response, error) {
@@ -216,8 +238,8 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 // errProviderUnavailable 表示该 AI 尚未配置可用的模型接口预设。
 var errProviderUnavailable = errors.New("模型接口预设不可用")
 
-// renderRequestContent 把请求消息渲染为可存档文本；只包含角色与文本片段，
-// 不包含请求头、API Key 等敏感信息。
+// renderRequestContent 把请求消息渲染为可存档文本；包含文本、工具调用与
+// 工具结果，不包含 ThinkingPart、请求头、API Key 等敏感信息。
 func renderRequestContent(req *callable.Request) string {
 	if req == nil {
 		return ""
@@ -228,13 +250,44 @@ func renderRequestContent(req *callable.Request) string {
 		builder.WriteString(string(message.Role))
 		builder.WriteString("]\n")
 		for _, part := range message.Parts {
-			if text, ok := part.(callable.TextPart); ok {
-				builder.WriteString(text.Text)
+			switch current := part.(type) {
+			case callable.TextPart:
+				builder.WriteString(current.Text)
+			case callable.ToolCallPart:
+				writeToolCall(&builder, current.ID, current.Name, current.Arguments)
+			case callable.ToolResultPart:
+				builder.WriteString(fmt.Sprintf("[tool_result tool_call_id=%s name=%s is_error=%t]\n",
+					current.ToolCallID, current.Name, current.IsError))
+				builder.WriteString(current.Content)
+				builder.WriteString("\n")
 			}
 		}
 		builder.WriteString("\n")
 	}
 	return strings.TrimSpace(builder.String())
+}
+
+// renderResponseContent 记录模型文本与工具调用；工具轮通常没有文本，
+// 若不记录 ToolCalls，调用记录会显示为空响应。
+func renderResponseContent(resp *callable.Response) string {
+	if resp == nil {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString(resp.Text)
+	for _, call := range resp.ToolCalls {
+		if builder.Len() > 0 && !strings.HasSuffix(builder.String(), "\n") {
+			builder.WriteString("\n")
+		}
+		writeToolCall(&builder, call.ID, call.Name, call.Arguments)
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func writeToolCall(builder *strings.Builder, id, name, arguments string) {
+	builder.WriteString(fmt.Sprintf("[tool_call id=%s name=%s]\n", id, name))
+	builder.WriteString(arguments)
+	builder.WriteString("\n")
 }
 
 // writeCallLog 写入一条调用记录；写入失败只记日志，不影响任务结果。
@@ -273,11 +326,7 @@ func (s *Service) writeCallLog(
 	}
 
 	requestStored, requestTruncated := truncateBytes(requestText, rec.MaxLogBytes)
-	responseText := ""
-	if resp != nil {
-		responseText = resp.Text
-	}
-	responseStored, responseTruncated := truncateBytes(responseText, rec.MaxLogBytes)
+	responseStored, responseTruncated := truncateBytes(renderResponseContent(resp), rec.MaxLogBytes)
 	errorStored, _ := truncateBytes(errorMessage, rec.MaxLogBytes)
 
 	params := paramsSnapshot(rec)
@@ -315,6 +364,12 @@ func paramsSnapshot(rec callRecord) json.RawMessage {
 	}
 	if rec.ProviderID > 0 {
 		payload["provider_id"] = rec.ProviderID
+	}
+	if rec.Round > 0 {
+		payload["round"] = rec.Round
+	}
+	if rec.WebSearch {
+		payload["web_search"] = true
 	}
 	if rec.Params.MaxTokens > 0 {
 		payload["max_tokens"] = rec.Params.MaxTokens

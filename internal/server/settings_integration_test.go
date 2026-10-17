@@ -9,8 +9,12 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/great-magician-01/timeline/internal/ai"
+	"github.com/great-magician-01/timeline/internal/settings"
 )
 
 // TestAdminSettingsAndAttachmentIntegration 覆盖本轮修复的关键契约：
@@ -23,7 +27,7 @@ func TestAdminSettingsAndAttachmentIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	pool, _, baseURL := setupIntegrationServer(t)
+	pool, srv, baseURL := setupIntegrationServer(t)
 	guest := newIntegrationClient(t, baseURL)
 	alice := newIntegrationClient(t, baseURL)
 	admin := newIntegrationClient(t, baseURL)
@@ -95,6 +99,62 @@ func TestAdminSettingsAndAttachmentIntegration(t *testing.T) {
 	}
 	if stored != 10 {
 		t.Fatalf("存储配额未落库: %d", stored)
+	}
+
+	// 全局网页搜索密钥是独立配置：只写、加密落库、响应不返回明文或密文。
+	restoreSearchSettings := func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		for key, value := range map[string]string{
+			settings.KeyWebSearchBaseURL:      `"https://api.deepseek.com"`,
+			settings.KeyWebSearchAPIKeyCipher: `""`,
+		} {
+			if _, err := pool.Exec(cleanupCtx, `
+				INSERT INTO system_settings (key, value) VALUES ($1, $2::jsonb)
+				ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+				key, value); err != nil {
+				t.Logf("恢复网页搜索设置 %s 失败: %v", key, err)
+			}
+		}
+	}
+	restoreSearchSettings()
+	t.Cleanup(restoreSearchSettings)
+
+	status, _, payload, raw = admin.call(http.MethodGet, "/api/v1/admin/settings/web-search", false, nil)
+	expectIntegrationStatus(t, status, http.StatusOK, raw)
+	if payload["configured"] != false || payload["base_url"] == "" {
+		t.Fatalf("初始网页搜索设置不符: %v", payload)
+	}
+	const searchKey = "sk-integration-search-secret"
+	status, _, payload, raw = admin.call(http.MethodPost, "/api/v1/admin/settings/web-search", true, map[string]any{
+		"base_url": "https://gateway.example.com/deepseek/",
+		"api_key":  searchKey,
+	})
+	expectIntegrationStatus(t, status, http.StatusOK, raw)
+	if payload["configured"] != true || payload["usable"] != true || payload["api_key_masked"] == "" {
+		t.Fatalf("保存搜索密钥后状态不符: %v", payload)
+	}
+	if strings.Contains(string(raw), searchKey) || strings.Contains(string(raw), "v1:") {
+		t.Fatalf("响应泄漏搜索密钥或密文: %s", raw)
+	}
+	var cipherText string
+	if err := pool.QueryRow(ctx, `SELECT value #>> '{}' FROM system_settings WHERE key = $1`,
+		settings.KeyWebSearchAPIKeyCipher).Scan(&cipherText); err != nil {
+		t.Fatalf("读取搜索密钥密文失败: %v", err)
+	}
+	if cipherText == "" || strings.Contains(cipherText, searchKey) {
+		t.Fatalf("搜索密钥未加密落库: %q", cipherText)
+	}
+	decrypted, err := ai.DecryptSecret(srv.cfg.SecretKey, cipherText)
+	if err != nil || decrypted != searchKey {
+		t.Fatalf("搜索密钥解密失败: %v", err)
+	}
+	status, _, payload, raw = admin.call(http.MethodPost, "/api/v1/admin/settings/web-search", true, map[string]any{
+		"clear_api_key": true,
+	})
+	expectIntegrationStatus(t, status, http.StatusOK, raw)
+	if payload["configured"] != false || payload["usable"] != false {
+		t.Fatalf("清除后应标记为未配置: %v", payload)
 	}
 
 	// 配额为 10 字节时上传应被拒绝。

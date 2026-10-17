@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/great-magician-01/timeline/internal/settings"
 )
 
 // 所有测试都不依赖数据库，只覆盖纯逻辑：加解密、掩码、参数解析、校验与导出契约。
@@ -50,6 +52,45 @@ func TestEncryptDecryptSecretRoundTrip(t *testing.T) {
 	}
 	if again == encoded {
 		t.Fatal("两次加密结果不应相同（nonce 应为随机值）")
+	}
+}
+
+func TestDecodeWebSearchConfig(t *testing.T) {
+	const apiKey = "sk-global-search"
+	cipherText, err := EncryptSecret(testKey(), apiKey)
+	if err != nil {
+		t.Fatalf("加密搜索密钥失败: %v", err)
+	}
+	config, err := decodeWebSearchConfig(testKey(), settings.WebSearchValues{
+		BaseURL:      "https://api.deepseek.com",
+		APIKeyCipher: cipherText,
+	})
+	if err != nil || config.APIKey != apiKey || config.BaseURL != "https://api.deepseek.com" {
+		t.Fatalf("搜索配置解密不符: %+v, %v", config, err)
+	}
+	empty, err := decodeWebSearchConfig(testKey(), settings.WebSearchValues{BaseURL: "https://example.com"})
+	if err != nil || empty.APIKey != "" || empty.BaseURL != "https://example.com" {
+		t.Fatalf("未配置密钥应返回空 API Key: %+v, %v", empty, err)
+	}
+	if _, err := decodeWebSearchConfig(testKey(), settings.WebSearchValues{
+		BaseURL: "https://example.com", APIKeyCipher: "v1:broken",
+	}); err == nil {
+		t.Fatal("损坏密文应返回错误")
+	}
+	if _, err := decodeWebSearchConfig(testKey(), settings.WebSearchValues{
+		APIKeyCipher: cipherText,
+	}); err == nil {
+		t.Fatal("有密钥但缺少 Base URL 时必须失败关闭")
+	}
+	if (settings.WebSearchValues{BaseURL: "https://example.com"}).Ready() {
+		t.Fatal("没有密钥时不应 Ready")
+	}
+	service := &Service{secretKey: testKey()}
+	if !service.CanDecryptSecret(cipherText) {
+		t.Fatal("当前主密钥应能解开搜索密钥")
+	}
+	if service.CanDecryptSecret("v1:broken") {
+		t.Fatal("损坏密文不应通过校验")
 	}
 }
 
@@ -246,7 +287,7 @@ func TestDailyLimit(t *testing.T) {
 
 func TestDefaultBehaviorMatchesDatabaseDefaults(t *testing.T) {
 	settings := defaultBehaviorSettings()
-	if settings.AllowPassiveReply != true || settings.AllowOriginalPost || settings.AllowAIToAI {
+	if settings.AllowPassiveReply != true || settings.AllowOriginalPost || settings.AllowAIToAI || settings.AllowWebSearch {
 		t.Fatalf("默认动作开关不符合数据库默认值: %+v", settings)
 	}
 	if settings.CandidateScopeType != "none" || settings.CooldownSeconds != 900 ||
@@ -259,15 +300,22 @@ func TestApplyBehaviorPatch(t *testing.T) {
 	base := defaultBehaviorSettings()
 	patched := applyBehaviorPatch(base, behaviorInput{
 		AllowLike:            boolPtr(true),
+		AllowWebSearch:       boolPtr(true),
 		CandidateScopeType:   stringPtr("tags"),
 		CandidateScopeParams: json.RawMessage(`{"tags":["go"]}`),
 		ActiveHoursStart:     intPtr(10),
 	})
-	if !patched.AllowLike || patched.CandidateScopeType != "tags" || patched.ActiveHoursStart != 10 {
+	if !patched.AllowLike || !patched.AllowWebSearch || patched.CandidateScopeType != "tags" || patched.ActiveHoursStart != 10 {
 		t.Fatalf("补丁未正确应用: %+v", patched)
 	}
 	if !patched.AllowPassiveReply || patched.CooldownSeconds != 900 {
 		t.Fatalf("未提供的字段应保持默认值: %+v", patched)
+	}
+	if applyBehaviorPatch(patched, behaviorInput{AllowWebSearch: boolPtr(false)}).AllowWebSearch {
+		t.Fatal("显式 false 应能关闭联网搜索")
+	}
+	if !applyBehaviorPatch(patched, behaviorInput{}).AllowWebSearch {
+		t.Fatal("未提供搜索字段时应保留原值")
 	}
 }
 

@@ -3,6 +3,7 @@
 // 子页面自行读取路由参数 aiId（由 /admin/ai/:id 提供）
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { getWebSearchSettings } from '../../api/admin'
 import { getAI, updateAIBehavior } from '../../api/aiAdmin'
 import { errorMessage } from '../../api/client'
 import type { AIBehavior } from '../../api/types'
@@ -41,6 +42,7 @@ const form = reactive({
   allow_unfollow: false,
   allow_repost: false,
   allow_quote: false,
+  allow_web_search: false,
   candidate_scope_type: 'none' as ScopeType,
   scope_tags: '',
   scope_usernames: '',
@@ -66,6 +68,8 @@ function scheduleNumber(schedule: Record<string, unknown>, key: string): number 
 
 const loading = ref(true)
 const loadError = ref('')
+const webSearchConfigured = ref<boolean | null>(null)
+const webSearchConfigError = ref('')
 const saving = ref(false)
 const saveError = ref('')
 const saveNotice = ref('')
@@ -90,6 +94,7 @@ async function load(): Promise<void> {
     form.allow_unfollow = behavior.allow_unfollow
     form.allow_repost = behavior.allow_repost
     form.allow_quote = behavior.allow_quote
+    form.allow_web_search = behavior.allow_web_search
     form.candidate_scope_type = behavior.candidate_scope_type
     form.scope_tags = (behavior.candidate_scope_params.tags ?? []).join(', ')
     form.scope_usernames = (behavior.candidate_scope_params.usernames ?? []).join(', ')
@@ -113,7 +118,20 @@ async function load(): Promise<void> {
   }
 }
 
-onMounted(() => void load())
+async function loadWebSearchStatus(): Promise<void> {
+  webSearchConfigError.value = ''
+  try {
+    const data = await getWebSearchSettings()
+    webSearchConfigured.value = data.configured
+  } catch (error) {
+    webSearchConfigError.value = errorMessage(error)
+  }
+}
+
+onMounted(() => {
+  void load()
+  void loadWebSearchStatus()
+})
 watch(aiId, () => void load())
 
 function parseList(value: string): string[] {
@@ -175,6 +193,7 @@ async function onSubmit(): Promise<void> {
     allow_unfollow: form.allow_unfollow,
     allow_repost: form.allow_repost,
     allow_quote: form.allow_quote,
+    allow_web_search: form.allow_web_search,
     candidate_scope_type: form.candidate_scope_type,
     candidate_scope_params: scopeParams,
     allow_ai_to_ai: form.allow_ai_to_ai,
@@ -250,6 +269,21 @@ async function onSubmit(): Promise<void> {
               <span>引用</span>
             </label>
           </div>
+
+          <h3 class="mx-0 mb-[6px] mt-[22px] text-[14px] font-extrabold">模型工具</h3>
+          <p :class="[ui.muted, 'm-0 mb-3']">
+            联网搜索使用系统设置中的全局独立密钥，与模型接口预设无关；所用模型需支持工具调用，搜索结果只是不可信参考资料，不会改变动作权限。
+          </p>
+          <label :class="ui.switch">
+            <input v-model="form.allow_web_search" :class="ui.switchInput" type="checkbox" :disabled="saving" />
+            <span>允许联网搜索</span>
+          </label>
+          <AlertNote v-if="webSearchConfigured === false" kind="warning">
+            系统设置尚未配置全局网页搜索密钥；开启后 AI 仍可正常决策，但不会实际联网搜索。
+          </AlertNote>
+          <AlertNote v-else-if="webSearchConfigError" kind="info">
+            无法读取全局网页搜索配置状态：{{ webSearchConfigError }}
+          </AlertNote>
 
           <h3 class="mx-0 mb-[6px] mt-[22px] text-[14px] font-extrabold">定时策略</h3>
           <p :class="[ui.muted, 'm-0 mb-3']">按分钟配置 AI 的自主节奏，0 表示关闭对应策略；修改后保存立即生效。</p>

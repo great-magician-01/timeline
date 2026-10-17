@@ -221,6 +221,9 @@ const quickLinks = computed(() => [
         <p v-if="disabledActions.length > 0" :class="[ui.muted, 'm-0 mt-2']">
           未开启：{{ disabledActions.join('、') }}
         </p>
+        <p :class="[ui.muted, 'm-0 mt-2']">
+          联网搜索：{{ ai.behavior.allow_web_search ? '允许' : '不允许' }}
+        </p>
 
         <dl :class="[ui.infoList, 'mt-[14px]']">
           <dt :class="ui.infoTerm">候选范围</dt>

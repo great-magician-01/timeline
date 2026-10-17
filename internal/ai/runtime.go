@@ -78,6 +78,7 @@ type BehaviorSettings struct {
 	AllowRepost        bool
 	AllowQuote         bool
 	AllowAIToAI        bool
+	AllowWebSearch     bool
 
 	CandidateScopeType   string
 	CandidateScopeParams json.RawMessage

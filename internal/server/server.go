@@ -105,7 +105,7 @@ func New(
 	mediaService := media.NewService(state, ids, log, store, runner)
 	aiService := ai.NewService(state, ids, log, cfg.SecretKey)
 	agentService := agent.NewService(state, ids, log, aiService, contentService, socialService, runner)
-	adminService := admin.NewService(state, ids, log, contentService, socialService, mediaService)
+	adminService := admin.NewService(state, ids, log, contentService, socialService, aiService, mediaService)
 
 	s.registerBackgroundJobs(runner, contentService, mediaService, agentService)
 	s.registerAPI(authService, contentService, socialService, noticeService, mediaService, aiService, agentService, adminService)
@@ -327,6 +327,8 @@ func (s *Server) registerAdminRoutes(v1 *gin.RouterGroup, services apiServices, 
 	adminRoutes.GET("/audit-logs", services.admin.ListAuditLogs)
 	adminRoutes.GET("/settings", services.admin.GetSettings)
 	adminRoutes.POST("/settings", csrf, services.admin.UpdateSettings)
+	adminRoutes.GET("/settings/web-search", services.admin.GetWebSearchSettings)
+	adminRoutes.POST("/settings/web-search", csrf, services.admin.UpdateWebSearchSettings)
 }
 
 // requireReady 防止迁移完成前请求落到尚不存在的业务表。

@@ -434,12 +434,48 @@ type decisionTarget struct {
 
 // validateDecisionTarget 在执行动作前重新校验动作白名单、目标类型、公开性、
 // 账号状态、AI 间互动与讨论深度；返回非空原因表示应丢弃该动作（任务 rejected）。
+// proactiveTargetScope 是主动互动任务在服务器端允许的目标集合。
+// 仅依赖提示词让模型不要越界不够：搜索结果是外部不可信输入，必须再次授权。
+type proactiveTargetScope struct {
+	posts map[int64]struct{}
+	users map[int64]struct{}
+}
+
+func buildProactiveTargetScope(candidates []candidatePost) *proactiveTargetScope {
+	scope := &proactiveTargetScope{
+		posts: make(map[int64]struct{}, len(candidates)),
+		users: make(map[int64]struct{}, len(candidates)),
+	}
+	for _, candidate := range candidates {
+		scope.posts[candidate.ID] = struct{}{}
+		scope.users[candidate.AuthorID] = struct{}{}
+	}
+	return scope
+}
+
+func (s *proactiveTargetScope) allowsPost(postID int64) bool {
+	if s == nil {
+		return true
+	}
+	_, ok := s.posts[postID]
+	return ok
+}
+
+func (s *proactiveTargetScope) allowsUser(userID int64) bool {
+	if s == nil {
+		return true
+	}
+	_, ok := s.users[userID]
+	return ok
+}
+
 func (s *Service) validateDecisionTarget(
 	ctx context.Context,
 	q access.Querier,
 	aiID int64,
 	behavior ai.BehaviorSettings,
 	decision Decision,
+	targetScope *proactiveTargetScope,
 ) (decisionTarget, string, error) {
 	viewer := aiViewer(aiID)
 	switch decision.Action {
@@ -464,6 +500,9 @@ func (s *Service) validateDecisionTarget(
 			}
 			return decisionTarget{}, "", err
 		}
+		if !targetScope.allowsPost(post.ID) {
+			return decisionTarget{}, "目标不在该 AI 的候选范围内", nil
+		}
 		if skip, err := s.checkTargetAuthor(ctx, q, post.AuthorID, behavior); err != nil || skip != "" {
 			return decisionTarget{}, skip, err
 		}
@@ -487,11 +526,15 @@ func (s *Service) validateDecisionTarget(
 			}
 			return decisionTarget{}, "", err
 		}
-		if _, err := social.LoadVisiblePost(ctx, q, viewer, comment.PostID); err != nil {
+		post, err := social.LoadVisiblePost(ctx, q, viewer, comment.PostID)
+		if err != nil {
 			if isNotFound(err) {
 				return decisionTarget{}, "回复目标所在内容不是公开内容", nil
 			}
 			return decisionTarget{}, "", err
+		}
+		if !targetScope.allowsPost(post.ID) {
+			return decisionTarget{}, "目标不在该 AI 的候选范围内", nil
 		}
 		if skip, err := s.checkTargetAuthor(ctx, q, comment.AuthorID, behavior); err != nil || skip != "" {
 			return decisionTarget{}, skip, err
@@ -528,6 +571,10 @@ func (s *Service) validateDecisionTarget(
 					return decisionTarget{}, "目标内容不存在或不是公开内容", nil
 				}
 				return decisionTarget{}, "", err
+			}
+			// 取消点赞的目标由“当前已点赞关系”授权，不再受本次候选范围限制。
+			if decision.Action != actionUnlike && !targetScope.allowsPost(post.ID) {
+				return decisionTarget{}, "目标不在该 AI 的候选范围内", nil
 			}
 			if skip, err := s.checkTargetAuthor(ctx, q, post.AuthorID, behavior); err != nil || skip != "" {
 				return decisionTarget{}, skip, err
@@ -569,6 +616,9 @@ func (s *Service) validateDecisionTarget(
 				}
 				return decisionTarget{}, "", err
 			}
+			if !targetScope.allowsPost(post.ID) {
+				return decisionTarget{}, "目标不在该 AI 的候选范围内", nil
+			}
 			if skip, err := s.checkTargetAuthor(ctx, q, post.AuthorID, behavior); err != nil || skip != "" {
 				return decisionTarget{}, skip, err
 			}
@@ -603,6 +653,9 @@ func (s *Service) validateDecisionTarget(
 		}
 		if target.IsAI && !behavior.AllowAIToAI {
 			return decisionTarget{}, "AI 间互动未开启", nil
+		}
+		if decision.Action == actionFollow && !targetScope.allowsUser(target.ID) {
+			return decisionTarget{}, "目标用户不在该 AI 的候选范围内", nil
 		}
 		if decision.Action == actionUnfollow {
 			// 取关只允许作用于自己当前生效的关注关系（待审批申请不算）。

@@ -270,6 +270,9 @@ func TestAIAdminIntegration(t *testing.T) {
 	if got := checkJSONPath(t, checkDecode(t, w), "ai", "behavior", "candidate_scope_type").(string); got != "tags" {
 		t.Fatalf("行为设置未保存: %s", w.Body.String())
 	}
+	if got := checkJSONPath(t, checkDecode(t, w), "ai", "behavior", "allow_web_search").(bool); got {
+		t.Fatalf("联网搜索应默认关闭: %s", w.Body.String())
+	}
 	if got := checkJSONPath(t, checkDecode(t, w), "ai", "model", "generation_params", "max_tokens").(float64); got != 256 {
 		t.Fatalf("生成参数未保存: %s", w.Body.String())
 	}
@@ -360,7 +363,7 @@ func TestAIAdminIntegration(t *testing.T) {
 	}
 
 	w = checkCall(t, service.UpdateAIBehavior, "POST", "/x", map[string]any{
-		"allow_like": true, "allow_ai_to_ai": true, "cooldown_seconds": 60,
+		"allow_like": true, "allow_ai_to_ai": true, "allow_web_search": true, "cooldown_seconds": 60,
 		"rate_limits":            map[string]any{"daily_like": 5, "daily_total": 10},
 		"candidate_scope_type":   "authors",
 		"candidate_scope_params": map[string]any{"usernames": []string{"alice"}},
@@ -370,6 +373,9 @@ func TestAIAdminIntegration(t *testing.T) {
 	}
 	if got := checkJSONPath(t, checkDecode(t, w), "behavior", "cooldown_seconds").(float64); got != 60 {
 		t.Fatalf("行为设置不符: %s", w.Body.String())
+	}
+	if got := checkJSONPath(t, checkDecode(t, w), "behavior", "allow_web_search").(bool); !got {
+		t.Fatalf("联网搜索开关未保存: %s", w.Body.String())
 	}
 	if w := checkCall(t, service.UpdateAIBehavior, "POST", "/x", map[string]any{"rate_limits": map[string]any{"daily_unknown": 1}}, adminID,
 		gin.Params{{Key: "id", Value: aiID}}); w.Code != http.StatusBadRequest {
@@ -533,7 +539,8 @@ func TestAIAdminIntegration(t *testing.T) {
 		t.Fatalf("Runtime 预设不符: %+v", rt.Provider)
 	}
 	if rt.Model != "mock-2" || rt.Timeout != 30*time.Second || !rt.Behavior.AllowLike ||
-		rt.Behavior.DailyLimit("like") != 5 || rt.Behavior.CandidateScopeType != "authors" {
+		!rt.Behavior.AllowWebSearch || rt.Behavior.DailyLimit("like") != 5 ||
+		rt.Behavior.CandidateScopeType != "authors" {
 		t.Fatalf("Runtime 参数不符: %+v", rt)
 	}
 	// 创建时 is_enabled=false，此时资料快照仍应是关闭状态。

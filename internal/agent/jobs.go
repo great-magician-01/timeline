@@ -249,7 +249,7 @@ func (s *Service) runTask(ctx context.Context, task aiTask) (taskResult, error) 
 	}
 
 	systemPrompt, userPrompt := assemblePrompts(rt, prompt)
-	resp, err := s.callModel(ctx, rt, callRecord{
+	resp, err := s.callDecisionModel(ctx, rt, callRecord{
 		TaskID:  &task.ID,
 		AID:     rt.AIID,
 		Attempt: task.Attempts,
@@ -312,7 +312,11 @@ func (s *Service) runTask(ctx context.Context, task aiTask) (taskResult, error) 
 		return result, nil
 	}
 
-	target, skip, err := s.validateDecisionTarget(ctx, pool, rt.AIID, rt.Behavior, decision)
+	var targetScope *proactiveTargetScope
+	if task.TriggerType == triggerProactive {
+		targetScope = buildProactiveTargetScope(prompt.Candidates)
+	}
+	target, skip, err := s.validateDecisionTarget(ctx, pool, rt.AIID, rt.Behavior, decision, targetScope)
 	if err != nil {
 		return taskResult{}, err
 	}

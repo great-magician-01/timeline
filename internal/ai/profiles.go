@@ -72,6 +72,7 @@ type behaviorInput struct {
 	AllowRepost          *bool           `json:"allow_repost"`
 	AllowQuote           *bool           `json:"allow_quote"`
 	AllowAIToAI          *bool           `json:"allow_ai_to_ai"`
+	AllowWebSearch       *bool           `json:"allow_web_search"`
 	CandidateScopeType   *string         `json:"candidate_scope_type"`
 	CandidateScopeParams json.RawMessage `json:"candidate_scope_params"`
 	RateLimits           json.RawMessage `json:"rate_limits"`
@@ -163,6 +164,7 @@ type aiBehaviorResponse struct {
 	AllowRepost          bool            `json:"allow_repost"`
 	AllowQuote           bool            `json:"allow_quote"`
 	AllowAIToAI          bool            `json:"allow_ai_to_ai"`
+	AllowWebSearch       bool            `json:"allow_web_search"`
 	CandidateScopeType   string          `json:"candidate_scope_type"`
 	CandidateScopeParams json.RawMessage `json:"candidate_scope_params"`
 	RateLimits           json.RawMessage `json:"rate_limits"`
@@ -251,6 +253,7 @@ func behaviorResponseFrom(settings BehaviorSettings, updatedAt time.Time) aiBeha
 		AllowRepost:          settings.AllowRepost,
 		AllowQuote:           settings.AllowQuote,
 		AllowAIToAI:          settings.AllowAIToAI,
+		AllowWebSearch:       settings.AllowWebSearch,
 		CandidateScopeType:   settings.CandidateScopeType,
 		CandidateScopeParams: jsonOrEmpty(settings.CandidateScopeParams),
 		RateLimits:           jsonOrEmpty(settings.RateLimits),
@@ -472,6 +475,9 @@ func applyBehaviorPatch(base BehaviorSettings, in behaviorInput) BehaviorSetting
 	if in.AllowAIToAI != nil {
 		out.AllowAIToAI = *in.AllowAIToAI
 	}
+	if in.AllowWebSearch != nil {
+		out.AllowWebSearch = *in.AllowWebSearch
+	}
 	if in.CandidateScopeType != nil {
 		out.CandidateScopeType = strings.TrimSpace(*in.CandidateScopeType)
 	}
@@ -678,13 +684,13 @@ func loadAIBehavior(ctx context.Context, q access.Querier, aiID int64) (Behavior
 		       allow_follow, allow_unfollow, allow_repost, allow_quote,
 		       candidate_scope_type, candidate_scope_params, allow_ai_to_ai, rate_limits,
 		       cooldown_seconds, active_hours_start, active_hours_end, schedule,
-		       max_reply_depth, updated_at
+		       max_reply_depth, allow_web_search, updated_at
 		FROM ai_behavior_settings WHERE ai_id = $1`, aiID,
 	).Scan(&settings.AllowOriginalPost, &settings.AllowActiveComment, &settings.AllowPassiveReply,
 		&settings.AllowLike, &settings.AllowFollow, &settings.AllowUnfollow, &settings.AllowRepost,
 		&settings.AllowQuote, &settings.CandidateScopeType, &scopeParams, &settings.AllowAIToAI,
 		&rateLimits, &settings.CooldownSeconds, &settings.ActiveHoursStart, &settings.ActiveHoursEnd,
-		&schedule, &settings.MaxReplyDepth, &updatedAt)
+		&schedule, &settings.MaxReplyDepth, &settings.AllowWebSearch, &updatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return defaultBehaviorSettings(), time.Time{}, nil
 	}
@@ -1075,14 +1081,14 @@ func (s *Service) CreateAI(c *gin.Context) {
 			ai_id, allow_original_post, allow_active_comment, allow_passive_reply, allow_like,
 			allow_follow, allow_unfollow, allow_repost, allow_quote, candidate_scope_type,
 			candidate_scope_params, allow_ai_to_ai, rate_limits, cooldown_seconds,
-			active_hours_start, active_hours_end, schedule, max_reply_depth
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+			active_hours_start, active_hours_end, schedule, max_reply_depth, allow_web_search
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
 		aiID, behavior.AllowOriginalPost, behavior.AllowActiveComment, behavior.AllowPassiveReply,
 		behavior.AllowLike, behavior.AllowFollow, behavior.AllowUnfollow, behavior.AllowRepost,
 		behavior.AllowQuote, behavior.CandidateScopeType, jsonOrEmpty(behavior.CandidateScopeParams),
 		behavior.AllowAIToAI, jsonOrEmpty(behavior.RateLimits), behavior.CooldownSeconds,
 		behavior.ActiveHoursStart, behavior.ActiveHoursEnd, jsonOrEmpty(behavior.Schedule),
-		behavior.MaxReplyDepth,
+		behavior.MaxReplyDepth, behavior.AllowWebSearch,
 	); err != nil {
 		s.internalError(c, "创建 AI 行为设置失败", err)
 		return
@@ -1452,8 +1458,8 @@ func (s *Service) UpdateAIBehavior(c *gin.Context) {
 			ai_id, allow_original_post, allow_active_comment, allow_passive_reply, allow_like,
 			allow_follow, allow_unfollow, allow_repost, allow_quote, candidate_scope_type,
 			candidate_scope_params, allow_ai_to_ai, rate_limits, cooldown_seconds,
-			active_hours_start, active_hours_end, schedule, max_reply_depth
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+			active_hours_start, active_hours_end, schedule, max_reply_depth, allow_web_search
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		ON CONFLICT (ai_id) DO UPDATE SET
 			allow_original_post = EXCLUDED.allow_original_post,
 			allow_active_comment = EXCLUDED.allow_active_comment,
@@ -1472,18 +1478,19 @@ func (s *Service) UpdateAIBehavior(c *gin.Context) {
 			active_hours_end = EXCLUDED.active_hours_end,
 			schedule = EXCLUDED.schedule,
 			max_reply_depth = EXCLUDED.max_reply_depth,
+			allow_web_search = EXCLUDED.allow_web_search,
 			updated_at = now()`,
 		aiID, final.AllowOriginalPost, final.AllowActiveComment, final.AllowPassiveReply,
 		final.AllowLike, final.AllowFollow, final.AllowUnfollow, final.AllowRepost, final.AllowQuote,
 		final.CandidateScopeType, jsonOrEmpty(final.CandidateScopeParams), final.AllowAIToAI,
 		jsonOrEmpty(final.RateLimits), final.CooldownSeconds, final.ActiveHoursStart,
-		final.ActiveHoursEnd, jsonOrEmpty(final.Schedule), final.MaxReplyDepth,
+		final.ActiveHoursEnd, jsonOrEmpty(final.Schedule), final.MaxReplyDepth, final.AllowWebSearch,
 	); err != nil {
 		s.internalError(c, "更新 AI 行为设置失败", err)
 		return
 	}
 	if err = s.writeAudit(ctx, tx, adminUser.ID, audit.ActionAIBehaviorUpdate, targetAI, &aiID,
-		gin.H{"candidate_scope_type": final.CandidateScopeType}); err != nil {
+		gin.H{"candidate_scope_type": final.CandidateScopeType, "allow_web_search": final.AllowWebSearch}); err != nil {
 		s.internalError(c, "写入 AI 行为更新审计失败", err)
 		return
 	}

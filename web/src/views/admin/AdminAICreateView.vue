@@ -43,6 +43,7 @@ const behavior = reactive({
   allow_follow: false,
   allow_repost: false,
   allow_quote: false,
+  allow_web_search: false,
   candidate_scope_type: 'global_public' as ScopeType,
   scope_tags: '',
   scope_usernames: '',
@@ -135,6 +136,7 @@ async function onSubmit(): Promise<void> {
     allow_follow: behavior.allow_follow,
     allow_repost: behavior.allow_repost,
     allow_quote: behavior.allow_quote,
+    allow_web_search: behavior.allow_web_search,
     candidate_scope_type: behavior.candidate_scope_type,
     candidate_scope_params: scopeParams,
   }
@@ -449,7 +451,14 @@ async function onSubmit(): Promise<void> {
             <input v-model="behavior.allow_quote" :class="ui.switchInput" type="checkbox" :disabled="submitting" />
             <span>允许引用</span>
           </label>
+          <label :class="ui.switch">
+            <input v-model="behavior.allow_web_search" :class="ui.switchInput" type="checkbox" :disabled="submitting" />
+            <span>允许联网搜索</span>
+          </label>
         </div>
+        <p :class="[ui.muted, 'm-0 mt-3']">
+          联网搜索使用系统设置中的全局独立密钥，与模型接口预设无关；所用模型需支持工具调用，默认关闭，可在创建后继续调整。
+        </p>
 
         <div :class="ui.form">
           <FormField label="候选范围" input-id="ai-candidate-scope" hint="未配置有效目标时不会主动扫描全站">

@@ -15,6 +15,10 @@
 //	invalid_json   返回无法解析的正文，用于验证 rejected 状态
 //	error          返回 500，用于验证 failed 与重试
 //	timeout        挂起 30 秒，用于验证超时
+//	search            首次工具轮返回 web_search 调用，Search 接口返回 mock 结果
+//	search_twice      连续两轮工具调用，用于验证搜索轮次上限
+//	search_error      Search 接口返回 404，用于验证搜索失败降级
+//	search_auth_error Search 接口返回 401，用于验证搜索鉴权失败降级
 //
 // 该二进制只用于本地验收，不属于生产部署。
 package main
@@ -36,9 +40,16 @@ const (
 )
 
 type chatRequest struct {
-	Model          string          `json:"model"`
-	Messages       []chatMessage   `json:"messages"`
-	ResponseFormat *responseFormat `json:"response_format"`
+	Model          string           `json:"model"`
+	Messages       []chatMessage    `json:"messages"`
+	ResponseFormat *responseFormat  `json:"response_format"`
+	Tools          []toolDefinition `json:"tools"`
+}
+
+type toolDefinition struct {
+	Function struct {
+		Name string `json:"name"`
+	} `json:"function"`
 }
 
 type chatMessage struct {
@@ -66,6 +77,9 @@ func main() {
 	})
 	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
 		handleCompletion(w, r, mode)
+	})
+	mux.HandleFunc("/v1/tools/search", func(w http.ResponseWriter, r *http.Request) {
+		handleSearch(w, r, mode)
 	})
 
 	log.Printf("mock-llm 启动：addr=%s mode=%s（base_url 请填写 http://%s/v1）", addr, mode, addr)
@@ -99,7 +113,25 @@ func handleCompletion(w http.ResponseWriter, r *http.Request, mode string) {
 		schemaName = req.ResponseFormat.JSONSchema.Name
 	}
 
+	if isSearchMode(mode) && hasWebSearchTool(req.Tools) {
+		toolRounds := countToolMessages(req.Messages)
+		limit := 1
+		if mode == "search_twice" {
+			limit = 2
+		}
+		if toolRounds < limit {
+			writeToolCallCompletion(w, fmt.Sprintf("call_mock_search_%d", toolRounds+1))
+			return
+		}
+		writeChatCompletion(w, `{"action":"noop","reason":"mock 搜索已完成，本次不执行动作"}`)
+		return
+	}
+
 	content := buildContent(mode, schemaName, lastUserMessage(req.Messages))
+	writeChatCompletion(w, content)
+}
+
+func writeChatCompletion(w http.ResponseWriter, content string) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":      "chatcmpl-mock",
 		"object":  "chat.completion",
@@ -114,6 +146,95 @@ func handleCompletion(w http.ResponseWriter, r *http.Request, mode string) {
 			"prompt_tokens":     128,
 			"completion_tokens": 64,
 			"total_tokens":      192,
+		},
+	})
+}
+
+func hasWebSearchTool(tools []toolDefinition) bool {
+	for _, tool := range tools {
+		if tool.Function.Name == "web_search" {
+			return true
+		}
+	}
+	return false
+}
+
+func countToolMessages(messages []chatMessage) int {
+	count := 0
+	for _, message := range messages {
+		if message.Role == "tool" {
+			count++
+		}
+	}
+	return count
+}
+
+func writeToolCallCompletion(w http.ResponseWriter, callID string) {
+	arguments := mustJSON(map[string]string{"query": "mock 公开科技新闻"})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":      "chatcmpl-mock-tool",
+		"object":  "chat.completion",
+		"created": time.Now().Unix(),
+		"model":   mockModelName,
+		"choices": []map[string]any{{
+			"index": 0,
+			"message": map[string]any{
+				"role":    "assistant",
+				"content": nil,
+				"tool_calls": []map[string]any{{
+					"id":   callID,
+					"type": "function",
+					"function": map[string]any{
+						"name":      "web_search",
+						"arguments": arguments,
+					},
+				}},
+			},
+			"finish_reason": "tool_calls",
+		}},
+		"usage": map[string]any{"prompt_tokens": 128, "completion_tokens": 32, "total_tokens": 160},
+	})
+}
+
+func isSearchMode(mode string) bool {
+	return mode == "search" || mode == "search_twice" || mode == "search_error" || mode == "search_auth_error"
+}
+
+func handleSearch(w http.ResponseWriter, r *http.Request, mode string) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{
+			"error": map[string]any{"message": "只支持 POST", "type": "invalid_request_error"},
+		})
+		return
+	}
+	switch mode {
+	case "search_error":
+		writeJSON(w, http.StatusNotFound, map[string]any{
+			"error": map[string]any{"message": "mock 搜索接口不可用", "type": "not_found"},
+		})
+		return
+	case "search_auth_error":
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error": map[string]any{"message": "mock 搜索鉴权失败", "type": "authentication_error"},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results": []map[string]any{
+			{
+				"title":     "mock 搜索新闻",
+				"url":       "https://example.com/mock-news",
+				"summary":   "这是 mock 搜索接口返回的公开摘要，用于验证工具调用与结果回传。",
+				"site_name": "Mock",
+				"date":      "2026-10-18T00:00:00Z",
+			},
+			{
+				"title":     "第二条 mock 结果",
+				"url":       "https://example.com/mock-news-2",
+				"summary":   "第二条公开摘要，验证多条结果裁剪。",
+				"site_name": "Mock",
+				"date":      "2026-10-18T00:00:00Z",
+			},
 		},
 	})
 }

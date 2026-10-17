@@ -69,3 +69,27 @@ export function getAdminSettings(): Promise<AdminSettings> {
 export function updateAdminSettings(payload: Partial<AdminSettings>): Promise<AdminSettings> {
   return apiRequest<AdminSettings>('/admin/settings', { method: 'POST', body: payload })
 }
+
+/** 全局网页搜索配置；api_key 只在保存请求中出现，永不回显 */
+export interface WebSearchSettings {
+  base_url: string
+  configured: boolean
+  usable: boolean
+  api_key_masked: string
+}
+
+export interface WebSearchSettingsInput {
+  base_url?: string
+  api_key?: string
+  clear_api_key?: boolean
+}
+
+/** GET /admin/settings/web-search：读取全局网页搜索配置 */
+export function getWebSearchSettings(): Promise<WebSearchSettings> {
+  return apiRequest<WebSearchSettings>('/admin/settings/web-search')
+}
+
+/** POST /admin/settings/web-search：保存 Base URL 或独立搜索密钥 */
+export function updateWebSearchSettings(payload: WebSearchSettingsInput): Promise<WebSearchSettings> {
+  return apiRequest<WebSearchSettings>('/admin/settings/web-search', { method: 'POST', body: payload })
+}

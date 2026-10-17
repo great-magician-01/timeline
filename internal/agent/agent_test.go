@@ -699,3 +699,20 @@ func TestActionAllowedForTrigger(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildProactiveTargetScope(t *testing.T) {
+	scope := buildProactiveTargetScope([]candidatePost{
+		{ID: 101, AuthorID: 201},
+		{ID: 102, AuthorID: 202},
+	})
+	if !scope.allowsPost(101) || !scope.allowsPost(102) || scope.allowsPost(999) {
+		t.Fatalf("帖子范围校验不符: %+v", scope.posts)
+	}
+	if !scope.allowsUser(201) || !scope.allowsUser(202) || scope.allowsUser(999) {
+		t.Fatalf("作者范围校验不符: %+v", scope.users)
+	}
+	var absent *proactiveTargetScope
+	if !absent.allowsPost(999) || !absent.allowsUser(999) {
+		t.Fatal("非主动任务不应受候选范围限制")
+	}
+}

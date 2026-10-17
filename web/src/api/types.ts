@@ -370,6 +370,7 @@ export interface AIBehavior {
   candidate_scope_type: 'none' | 'global_public' | 'followed' | 'tags' | 'authors'
   candidate_scope_params: { tags?: string[]; usernames?: string[] }
   allow_ai_to_ai: boolean
+  allow_web_search: boolean
   rate_limits: Record<string, number>
   cooldown_seconds: number
   active_hours_start: number

@@ -22,13 +22,21 @@ type AttachmentAdmin interface {
 	DeleteAsAdmin(ctx context.Context, q access.Querier, adminID, attachmentID int64) error
 }
 
+// SecretCipher 是管理后台保存全局敏感设置所需的最小加密能力（由 internal/ai.Service 实现）。
+// 管理后台不直接持有主密钥，只通过该接口写入密文。
+type SecretCipher interface {
+	EncryptSecret(plain string) (string, error)
+	CanDecryptSecret(encoded string) bool
+}
+
 type Service struct {
-	pools   auth.PoolProvider
-	ids     auth.IDGenerator
-	log     *slog.Logger
-	content *content.Service
-	social  *social.Service
-	media   AttachmentAdmin
+	pools        auth.PoolProvider
+	ids          auth.IDGenerator
+	log          *slog.Logger
+	content      *content.Service
+	social       *social.Service
+	media        AttachmentAdmin
+	secretCipher SecretCipher
 }
 
 // NewService 构造管理服务；内容审核复用 content/social 的逻辑删除流程，
@@ -39,9 +47,13 @@ func NewService(
 	log *slog.Logger,
 	contentService *content.Service,
 	socialService *social.Service,
+	secretCipher SecretCipher,
 	mediaServices ...AttachmentAdmin,
 ) *Service {
-	service := &Service{pools: pools, ids: ids, log: log, content: contentService, social: socialService}
+	service := &Service{
+		pools: pools, ids: ids, log: log, content: contentService,
+		social: socialService, secretCipher: secretCipher,
+	}
 	if len(mediaServices) > 0 {
 		service.media = mediaServices[0]
 	}

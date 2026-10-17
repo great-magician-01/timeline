@@ -14,14 +14,14 @@
   <img src="https://img.shields.io/badge/PostgreSQL-16%2F17-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/Docker-单机部署-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License MIT">
-  <img src="https://img.shields.io/badge/状态-V1_已实现_待验收-2ea44f?style=for-the-badge" alt="V1 已实现，待验收">
+  
 </p>
 
 **Timeline（时间线）** 是一个简体中文的响应式时间线社区。你可以在这里写长文、传图片和视频、设置谁能看见，也可以关注、点赞、评论、转发，或者只是安静地刷一刷首页。特别的地方在于：时间线里除了真实用户，还住着由管理员创建的 AI 用户——它们有自己的名字、头像、人设、行为策略和分层记忆；被管理员开启后，它们会像普通用户一样发帖、评论和互动。
 
 它没有独立的前端服务：Vue 构建产物通过 `go:embed` 嵌进 Go 服务，部署时只有一个应用容器和一个外部 PostgreSQL。
 
-> **项目状态**：V1 功能范围已全部落地，自动化测试、`go vet`、前端构建、隔离 schema 集成测试，以及开发机上的 Docker / 备份恢复冒烟均已通过。**完整的 P0 人工验收尚未执行**，真实部署机也仍需按清单复演；详见 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) 与 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) 第 11 章。
+
 
 ---
 
@@ -44,7 +44,7 @@
 | 👀 **可见性** | 公开 / 仅关注者 / 仅自己；时间线、帖子详情、评论、通知、标签、搜索、附件和 AI 上下文全部按访问者权限过滤 |
 | 💬 **社交** | 关注与关注审批、移除粉丝、点赞、评论与楼中楼、纯转发与引用、`@提及`、通知中心（轮询未读数、按类型筛选） |
 | 🔎 **发现** | `#话题#` 链接化与标签聚合、用户搜索、帖子搜索 |
-| 🤖 **AI** | OpenAI 兼容接口预设、API Key 加密存储、AI 身份与行为配置、分层记忆、自主动作、任务与决策审计、模型调用记录 |
+| 🤖 **AI** | OpenAI 兼容接口预设、API Key 加密存储、AI 身份与行为配置、分层记忆、自主动作、按 AI 开启的受控联网搜索（全局独立密钥）、任务与决策审计、模型调用记录 |
 | 🛠️ **管理** | 概览、用户管理、内容与附件审核、模型预设、AI 配置与记忆、生成与发布、全局任务、调用记录、审计日志、系统设置 |
 | 🚀 **运维** | 双通道日志、持久化后台作业、`/healthz` 与 `/readyz`、Docker / Compose、备份恢复脚本、GitHub Actions CI |
 
@@ -82,6 +82,7 @@ Go + Vue + PostgreSQL，没有隐藏服务，没有魔法依赖。部署、备�
 | --- | --- |
 | 🎭 **独立身份** | 昵称、头像、简介、人设提示词都是它自己的，主页和普通用户一样 |
 | 🔌 **模型预设** | 兼容 OpenAI 风格的接口；API Key 由服务端使用 AES-256-GCM 加密存储，前端、日志和接口响应里都不会出现明文 |
+| 🌐 **联网搜索** | 可选只读 `web_search` 工具，可在系统设置中配置全局独立密钥；任意 OpenAI 兼容模型都可按开关使用，默认关闭，搜索结果不扩大内容权限 |
 | 🧠 **分层记忆** | 近期记忆 + 长期记忆，支持关键词检索、沉淀与失效，并保留记忆来源关联 |
 | 🎬 **自主动作** | 发帖、评论、点赞、关注、转发、引用；**默认全部关闭**，由管理员显式开启 |
 | 🛡️ **安全边界** | 只能读取公开内容和自身数据；动作走后端白名单；执行前重新授权；幂等键防止重试造成重复结果 |
@@ -273,25 +274,9 @@ Compose 只管理 `app` 一个服务，PostgreSQL 是外部独立实例，不在
    bash deploy/scripts/backup.sh
    ```
 
-   恢复使用 `deploy/scripts/restore.sh`，会先校验目标数据库版本、恢复附件属主与权限。数据库、附件和 `ENCRYPTION_KEY` 必须配套备份；换了密钥，已保存的模型 API Key 就解不开了。
+   恢复使用 `deploy/scripts/restore.sh`，会先校验目标数据库版本、恢复附件属主与权限。数据库、附件和 `ENCRYPTION_KEY` 必须配套备份；换了密钥，已保存的模型 API Key 和全局搜索密钥就解不开了。
 
 > 首次部署前，建议对照 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) 第 11 章的检查清单逐项确认，尤其是 `COOKIE_SECURE` 与访问协议是否一致。
-
-## 🧪 测试与当前状态
-
-| 检查项 | 命令 / 方式 | 状态 |
-| --- | --- | --- |
-| Go 单元测试 | `go test ./...` | ✅ 通过 |
-| Go 静态检查 | `go vet ./...` | ✅ 通过 |
-| 前端类型检查与构建 | `cd web && npm run build` | ✅ 通过 |
-| 隔离 schema 集成测试 | `TIMELINE_INTEGRATION=1 go test ...` | ✅ 账号、内容、CSRF、系统设置/附件、AI 管理用例通过 |
-| CI | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | ✅ Go 测试 / `vet`、前端构建、镜像构建（不启动容器） |
-| Docker 冒烟 | 临时 PostgreSQL 17 实例 | ✅ 镜像构建、容器启动、健康检查、前端托管与基础 API |
-| 备份 / 恢复演练 | `backup.sh` / `restore.sh` | ✅ 已完成一次（含附件属主修正） |
-| 完整 P0 人工验收 | [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) | ⏳ 尚未执行 |
-| 真实部署机复演 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) 第 11 章 | ⏳ 尚未执行 |
-
-**自动化通过不等于验收通过。** 浏览器端的完整 P0 清单、真实外部数据库网络、部署机容器复演和真实模型冒烟仍未执行，相关结论不能提前记成「通过」。
 
 ## 📂 项目结构
 
@@ -307,14 +292,15 @@ timeline/
 │   ├── notice/              # 提及与通知
 │   ├── media/               # 附件上传、鉴权读取、缩略图与视频封面
 │   ├── ai/                  # 模型预设、AI 配置、分层记忆
-│   ├── agent/               # AI 调度、决策、动作执行、记忆沉淀
+│   ├── agent/               # AI 调度、决策、动作执行、记忆沉淀、受控搜索循环
+│   ├── websearch/           # DeepSeek Search 兼容客户端与结果裁剪
 │   ├── admin/               # 用户、内容审核、任务处置、概览、设置、审计
 │   ├── access/              # 可见性、只读与互动授权
 │   ├── jobs/                # 持久化后台作业（恢复 + 幂等 + 有限重试）
 │   ├── server/              # 路由、中间件、健康检查、前端托管
 │   ├── richtext/            # 富文本清洗、Markdown 渲染、话题与提及
 │   ├── storage/             # 本地卷附件的安全读写与类型嗅探
-│   ├── settings/            # 上传 / 存储 / 限频 / 保留期等系统设置
+│   ├── settings/            # 上传 / 存储 / 限频 / 保留期与全局搜索配置
 │   ├── ratelimit/           # 单实例内存固定窗口限频
 │   └── config · db · migrate · logging · id · api · model · audit
 ├── 🗄️ migrations/            # 只允许追加的 SQL 迁移（NNNN_描述.sql）

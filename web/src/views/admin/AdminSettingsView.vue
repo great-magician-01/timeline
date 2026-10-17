@@ -1,9 +1,14 @@
 <script setup lang="ts">
-// A-18 系统设置：注册开关、上传/请求大小、存储配额、发帖/上传限频、
-// 临时附件保留期与调用记录截断/保留期；保存后立即读取后端返回值刷新表单。
+// A-18 系统设置：注册开关、全局网页搜索、上传/请求大小、存储配额、
+// 发帖/上传限频、临时附件保留期与调用记录截断/保留期；保存后立即刷新表单。
 import { computed, onMounted, reactive, ref } from 'vue'
-import { getAdminSettings, updateAdminSettings } from '../../api/admin'
-import type { AdminSettings } from '../../api/admin'
+import {
+  getAdminSettings,
+  getWebSearchSettings,
+  updateAdminSettings,
+  updateWebSearchSettings,
+} from '../../api/admin'
+import type { AdminSettings, WebSearchSettings, WebSearchSettingsInput } from '../../api/admin'
 import { setGlobalAI } from '../../api/aiAdmin'
 import { errorMessage, fieldErrors } from '../../api/client'
 import AlertNote from '../../components/AlertNote.vue'
@@ -76,6 +81,105 @@ async function load(): Promise<void> {
     loadError.value = errorMessage(error)
   } finally {
     loading.value = false
+  }
+}
+
+// ---------- 全局网页搜索（独立密钥） ----------
+const webSearchForm = reactive({
+  base_url: 'https://api.deepseek.com',
+  api_key: '',
+})
+const webSearchState = ref<WebSearchSettings | null>(null)
+const webSearchLoading = ref(true)
+const webSearchLoadError = ref('')
+const webSearchSaving = ref(false)
+const webSearchSaved = ref(false)
+const webSearchError = ref('')
+const webSearchFieldErrors = ref<Record<string, string>>({})
+
+async function loadWebSearch(): Promise<void> {
+  webSearchLoading.value = true
+  webSearchLoadError.value = ''
+  try {
+    const data = await getWebSearchSettings()
+    webSearchState.value = data
+    webSearchForm.base_url = data.base_url
+    webSearchForm.api_key = ''
+  } catch (error) {
+    webSearchLoadError.value = errorMessage(error)
+  } finally {
+    webSearchLoading.value = false
+  }
+}
+
+function validateWebSearchBaseURL(value: string): string {
+  if (!value) return '请输入搜索 Base URL'
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return '搜索 Base URL 只支持 http 或 https'
+    }
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+      return '搜索 Base URL 不能包含凭据、查询参数或片段'
+    }
+  } catch {
+    return '请输入有效的绝对地址'
+  }
+  return ''
+}
+
+async function saveWebSearch(): Promise<void> {
+  webSearchError.value = ''
+  webSearchSaved.value = false
+  const details: Record<string, string> = {}
+  const baseURL = webSearchForm.base_url.trim()
+  const baseError = validateWebSearchBaseURL(baseURL)
+  if (baseError) details.base_url = baseError
+  webSearchFieldErrors.value = details
+  if (Object.keys(details).length > 0) return
+
+  const payload: WebSearchSettingsInput = { base_url: baseURL }
+  const apiKey = webSearchForm.api_key.trim()
+  if (apiKey) payload.api_key = apiKey
+
+  webSearchSaving.value = true
+  try {
+    const data = await updateWebSearchSettings(payload)
+    webSearchState.value = data
+    webSearchForm.base_url = data.base_url
+    webSearchForm.api_key = ''
+    webSearchSaved.value = true
+  } catch (error) {
+    const fields = fieldErrors(error)
+    if (fields.settings) {
+      webSearchError.value = fields.settings
+      delete fields.settings
+    }
+    if (Object.keys(fields).length > 0) webSearchFieldErrors.value = fields
+    else if (!webSearchError.value) webSearchError.value = errorMessage(error)
+  } finally {
+    webSearchSaving.value = false
+  }
+}
+
+async function clearWebSearchKey(): Promise<void> {
+  if (!webSearchState.value?.configured) return
+  if (!window.confirm('确认清除全局网页搜索密钥？所有开启联网搜索的 AI 将立即降级为普通决策。')) return
+  webSearchSaving.value = true
+  webSearchError.value = ''
+  webSearchSaved.value = false
+  webSearchFieldErrors.value = {}
+  try {
+    const data = await updateWebSearchSettings({ clear_api_key: true })
+    webSearchState.value = data
+    // 清除密钥不应覆盖用户尚未保存的 Base URL 编辑。
+    if (!webSearchForm.base_url.trim()) webSearchForm.base_url = data.base_url
+    webSearchForm.api_key = ''
+    webSearchSaved.value = true
+  } catch (error) {
+    webSearchError.value = errorMessage(error)
+  } finally {
+    webSearchSaving.value = false
   }
 }
 
@@ -220,7 +324,10 @@ function windowHint(seconds: number): string {
   return Number.isFinite(value) && value > 0 ? `单位：秒（约 ${(value / 60).toFixed(1)} 分钟）` : '单位：秒'
 }
 
-onMounted(() => void load())
+onMounted(() => {
+  void load()
+  void loadWebSearch()
+})
 </script>
 
 <template>
@@ -487,6 +594,97 @@ onMounted(() => void load())
         </p>
 
         <p :class="[ui.muted, 'm-0 mt-3']">切换立即生效并写入审计日志；全局停止会取消所有待执行的 AI 任务。</p>
+      </section>
+
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">网页搜索（全局）</h2>
+        <p :class="ui.pageDesc">
+          这里维护所有 AI 共用的独立搜索密钥，与各 AI 的模型接口预设无关。任意 OpenAI 兼容厂商的模型只要支持工具调用并在行为策略中开启联网搜索，都会使用此配置。
+        </p>
+
+        <p v-if="webSearchLoading" :class="ui.loadingRow">
+          <span :class="ui.spinner" aria-hidden="true"></span> 加载搜索配置…
+        </p>
+
+        <template v-else-if="webSearchLoadError">
+          <AlertNote kind="error">{{ webSearchLoadError }}</AlertNote>
+          <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="loadWebSearch">
+            重试
+          </button>
+        </template>
+
+        <form v-else :class="ui.form" novalidate @submit.prevent="saveWebSearch">
+          <AlertNote v-if="webSearchState && webSearchState.configured && !webSearchState.usable" kind="warning">
+            搜索密钥已保存但当前不可用：请检查 Base URL 是否为空，或 ENCRYPTION_KEY 是否已更换。
+          </AlertNote>
+          <AlertNote v-else-if="webSearchState && !webSearchState.configured" kind="warning">
+            尚未配置独立搜索密钥；即使 AI 开启联网搜索，也会降级为普通决策。
+          </AlertNote>
+          <AlertNote v-if="webSearchSaved" kind="success">网页搜索设置已保存并即时生效。</AlertNote>
+          <AlertNote v-if="webSearchError" kind="error">{{ webSearchError }}</AlertNote>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <span :class="[ui.badge, webSearchState?.usable ? '' : ui.badgeDanger]">
+              {{ webSearchState?.usable ? `可用 ${webSearchState.api_key_masked}` : (webSearchState?.configured ? '已保存但不可用' : '未配置密钥') }}
+            </span>
+            <span :class="[ui.muted, 'm-0']">密钥使用 ENCRYPTION_KEY 加密保存，保存后不会回显。</span>
+          </div>
+
+          <FormField
+            label="搜索 Base URL"
+            input-id="settings-web-search-base"
+            :error="webSearchFieldErrors.base_url"
+            hint="默认 https://api.deepseek.com；可填写兼容 DeepSeek Search 的网关地址，服务器需能访问"
+          >
+            <input
+              id="settings-web-search-base"
+              v-model.trim="webSearchForm.base_url"
+              :class="ui.input"
+              type="url"
+              name="web_search_base_url"
+              placeholder="https://api.deepseek.com"
+              :disabled="webSearchSaving"
+            />
+          </FormField>
+
+          <FormField
+            label="独立搜索 API Key"
+            input-id="settings-web-search-key"
+            :error="webSearchFieldErrors.api_key"
+            :hint="webSearchState?.usable ? '留空表示保持当前密钥不变' : '请输入 DeepSeek 或其他兼容搜索服务的 API Key'"
+          >
+            <input
+              id="settings-web-search-key"
+              v-model="webSearchForm.api_key"
+              :class="ui.input"
+              type="password"
+              name="web_search_api_key"
+              autocomplete="new-password"
+              :placeholder="webSearchState?.usable ? '留空保持不变' : '输入新的搜索密钥'"
+              :disabled="webSearchSaving"
+            />
+          </FormField>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="webSearchSaving">
+              <span v-if="webSearchSaving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
+              {{ webSearchSaving ? '保存中…' : '保存搜索设置' }}
+            </button>
+            <button
+              v-if="webSearchState?.configured"
+              :class="[ui.button, ui.buttonSecondary]"
+              type="button"
+              :disabled="webSearchSaving"
+              @click="clearWebSearchKey"
+            >
+              清除已保存密钥
+            </button>
+          </div>
+
+          <p :class="[ui.muted, 'm-0']">
+            搜索接口只读，不开放 Fetch 或任意 URL；搜索结果会被标记为不可信资料，不能改变动作权限或社区规则。
+          </p>
+        </form>
       </section>
     </template>
   </div>
