@@ -30,6 +30,15 @@ export function me(): Promise<AuthResponse> {
   return apiRequest<AuthResponse>('/auth/me')
 }
 
+/** 公开注册配置（GET /auth/config）；未登录也可访问 */
+export interface AuthConfig {
+  registration_enabled: boolean
+}
+
+export function getAuthConfig(): Promise<AuthConfig> {
+  return apiRequest<AuthConfig>('/auth/config')
+}
+
 /** POST /auth/password：修改密码，成功返回 204 */
 export function changePassword(old_password: string, new_password: string): Promise<void> {
   return apiRequest<void>('/auth/password', { method: 'POST', body: { old_password, new_password } })

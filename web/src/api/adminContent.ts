@@ -1,6 +1,6 @@
 // 管理后台：内容审核（帖子、评论、附件）与审计日志（docs/API.md §12.1、§12.2）
 import { apiRequest } from './client'
-import type { AdminComment, AdminPost, CursorPage } from './types'
+import type { AdminAttachment, AdminComment, AdminPost, CursorPage, UserBrief } from './types'
 import type { PageParams } from './posts'
 
 export interface AuditLog {
@@ -19,10 +19,38 @@ export function listAdminPosts(
   return apiRequest('/admin/posts', { query: { ...params } })
 }
 
+export interface AdminPostVersion {
+  id: string
+  version_number: number
+  visibility: string
+  created_at: string
+  content_html: string
+}
+
+export interface AdminPostAttachment {
+  id: string
+  kind: string
+  original_filename: string
+  status: string
+  media_type?: string
+  size_bytes?: number
+}
+
+export interface AdminPostComment {
+  id: string
+  author: UserBrief
+  content_html: string
+  status: 'published' | 'deleted'
+  created_at: string
+}
+
+/** A-06 后台帖子详情：草稿正文、历史版本正文、评论上下文与附件 */
 export interface AdminPostDetail {
   post: AdminPost
-  versions: { id: string; version_number: number; visibility: string; created_at: string }[]
-  attachments: { id: string; kind: string; original_filename: string; status: string }[]
+  versions: AdminPostVersion[]
+  attachments: AdminPostAttachment[]
+  comments: AdminPostComment[]
+  comment_count: number
 }
 
 export function getAdminPost(id: string): Promise<AdminPostDetail> {
@@ -41,6 +69,26 @@ export function listAdminComments(
 
 export function deleteAdminComment(id: string): Promise<void> {
   return apiRequest(`/admin/comments/${id}/delete`, { method: 'POST' })
+}
+
+export interface AdminAttachmentFilters {
+  uploader_id?: string
+  post_id?: string
+  purpose?: string
+  status?: string
+  q?: string
+}
+
+/** GET /admin/attachments：管理端附件列表（按上传者、帖子、用途、状态与关键词筛选） */
+export function listAdminAttachments(
+  params: PageParams & AdminAttachmentFilters = {},
+): Promise<CursorPage<AdminAttachment>> {
+  return apiRequest('/admin/attachments', { query: { ...params } })
+}
+
+/** POST /admin/attachments/:id/delete：逻辑删除并写审计 */
+export function deleteAdminAttachment(id: string): Promise<void> {
+  return apiRequest(`/admin/attachments/${id}/delete`, { method: 'POST' })
 }
 
 export function listAuditLogs(

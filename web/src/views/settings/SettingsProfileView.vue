@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
+import { me } from '../../api/auth'
 import { errorMessage, fieldErrors } from '../../api/client'
+import { updateAvatar } from '../../api/media'
 import { updateProfile } from '../../api/users'
 import AlertNote from '../../components/AlertNote.vue'
 import FormField from '../../components/FormField.vue'
@@ -18,6 +20,42 @@ const saved = ref(false)
 const formError = ref('')
 const errors = ref<Record<string, string>>({})
 const suspended = computed(() => authState.user?.status === 'suspended')
+
+// ---------- 头像上传：purpose=avatar，成功后重新拉取当前用户 ----------
+const avatarInput = ref<HTMLInputElement | null>(null)
+const avatarUploading = ref(false)
+const avatarError = ref('')
+const avatarNotice = ref('')
+
+function pickAvatar(): void {
+  if (avatarUploading.value || suspended.value) return
+  avatarInput.value?.click()
+}
+
+async function onAvatarSelected(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  avatarError.value = ''
+  avatarNotice.value = ''
+  if (!file.type.startsWith('image/')) {
+    avatarError.value = '请选择图片文件作为头像。'
+    return
+  }
+  avatarUploading.value = true
+  try {
+    await updateAvatar(file)
+    // 后端在头像附件落库后写回 avatar_url；重新读取当前用户以同步全站头像
+    const data = await me()
+    setCurrentUser(data.user)
+    avatarNotice.value = '头像已更新。'
+  } catch (error) {
+    avatarError.value = errorMessage(error)
+  } finally {
+    avatarUploading.value = false
+  }
+}
 
 async function onSubmit(): Promise<void> {
   errors.value = {}
@@ -55,7 +93,30 @@ async function onSubmit(): Promise<void> {
     <h2 class="page-title">头像</h2>
     <div class="avatar-row">
       <UserAvatar v-if="user" :user="user" size="lg" />
-      <p class="muted">头像上传功能尚未开放，当前使用昵称首字母生成的默认头像。</p>
+      <div class="avatar-actions">
+        <input
+          ref="avatarInput"
+          class="visually-hidden"
+          type="file"
+          accept="image/*"
+          aria-label="选择头像图片"
+          :disabled="avatarUploading || suspended"
+          @change="onAvatarSelected"
+        />
+        <button
+          class="btn btn--secondary btn--sm"
+          type="button"
+          :disabled="avatarUploading || suspended"
+          @click="pickAvatar"
+        >
+          <span v-if="avatarUploading" class="spinner" aria-hidden="true"></span>
+          {{ avatarUploading ? '上传中…' : '更换头像' }}
+        </button>
+        <p class="muted">支持常见图片格式；未设置头像时使用昵称首字母生成的默认头像。</p>
+        <AlertNote v-if="avatarNotice" kind="success">{{ avatarNotice }}</AlertNote>
+        <AlertNote v-if="avatarError" kind="error">{{ avatarError }}</AlertNote>
+        <p v-if="suspended" class="muted">账号已被停用，暂时无法更换头像。</p>
+      </div>
     </div>
   </section>
 
@@ -109,5 +170,21 @@ async function onSubmit(): Promise<void> {
 }
 .avatar-row .muted {
   margin: 0;
+}
+.avatar-actions {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>

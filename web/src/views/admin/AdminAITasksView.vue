@@ -74,6 +74,17 @@ function setStatus(value: string): void {
   void reload()
 }
 
+/** 结果引用仅在帖子/用户等已知资源类型时提供管理端跳转 */
+function resultLink(task: AITask): string {
+  if (task.result_ref_type === 'post' && task.result_ref_id) {
+    return `/admin/content/posts/${task.result_ref_id}`
+  }
+  if (task.result_ref_type === 'user' && task.result_ref_id) {
+    return `/admin/users/${task.result_ref_id}`
+  }
+  return ''
+}
+
 const busyId = ref<string | null>(null)
 const actionError = ref('')
 const actionNotice = ref('')
@@ -189,6 +200,8 @@ async function onCancel(task: AITask): Promise<void> {
                 <th>动作</th>
                 <th>决策摘要</th>
                 <th>目标</th>
+                <th>注入记忆</th>
+                <th>结果引用</th>
                 <th>模型</th>
                 <th>尝试</th>
                 <th>时间</th>
@@ -210,6 +223,28 @@ async function onCancel(task: AITask): Promise<void> {
                     {{ task.target_type }}<template v-if="task.target_id"> · {{ task.target_id }}</template>
                   </template>
                   <template v-else>—</template>
+                </td>
+                <td class="col-memories">
+                  <ul v-if="task.memories && task.memories.length > 0" class="memory-list">
+                    <li v-for="memory in task.memories" :key="memory.id" :title="memory.content">
+                      <span class="badge badge--muted">{{ memory.category || memory.type }}</span>
+                      <span class="memory-text">{{ memory.content }}</span>
+                    </li>
+                  </ul>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td class="col-result mono">
+                  <template v-if="task.result_ref_type">
+                    <RouterLink
+                      v-if="resultLink(task)"
+                      :to="resultLink(task)"
+                      class="result-link"
+                    >
+                      {{ task.result_ref_type }} · {{ task.result_ref_id }}
+                    </RouterLink>
+                    <template v-else>{{ task.result_ref_type }} · {{ task.result_ref_id ?? '—' }}</template>
+                  </template>
+                  <span v-else class="muted">—</span>
                 </td>
                 <td class="mono nowrap">{{ task.model || '—' }}</td>
                 <td class="mono">{{ task.attempts }}</td>
@@ -235,7 +270,12 @@ async function onCancel(task: AITask): Promise<void> {
                     >
                       {{ busyId === task.id ? '处理中…' : '取消' }}
                     </button>
-                    <span v-if="task.status !== 'failed' && task.status !== 'pending'" class="muted">—</span>
+                    <RouterLink
+                      class="btn btn--secondary btn--sm"
+                      :to="`/admin/ai-calls?task_id=${task.id}`"
+                    >
+                      调用记录
+                    </RouterLink>
                   </div>
                 </td>
               </tr>
@@ -321,6 +361,40 @@ async function onCancel(task: AITask): Promise<void> {
 .col-target {
   max-width: 170px;
   word-break: break-all;
+}
+.col-memories {
+  min-width: 200px;
+  max-width: 300px;
+}
+.memory-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.memory-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.memory-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-word;
+}
+.col-result {
+  max-width: 200px;
+  font-size: 12px;
+  word-break: break-all;
+}
+.result-link {
+  color: var(--primary);
 }
 .col-time {
   font-size: 12.5px;

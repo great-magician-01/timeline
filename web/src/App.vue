@@ -8,6 +8,7 @@ import type { IconName } from './components/icons'
 import { useTheme } from './composables/theme'
 import { authState } from './stores/auth'
 import { notificationState, startNotificationPolling, stopNotificationPolling } from './stores/notifications'
+import { siteState } from './stores/site'
 
 interface NavEntry {
   label: string
@@ -52,7 +53,10 @@ const mainNav = computed<NavEntry[]>(() => {
     )
   } else {
     items.push({ label: '登录', to: '/login', icon: 'user' })
-    items.push({ label: '注册', to: '/register', icon: 'user-plus' })
+    // 注册关闭时隐藏入口；仍保留登录（docs/PAGES_AND_PERMISSIONS.md §3.1）
+    if (siteState.registrationEnabled) {
+      items.push({ label: '注册', to: '/register', icon: 'user-plus' })
+    }
   }
   return items
 })
@@ -63,6 +67,7 @@ const adminNav = computed<NavEntry[]>(() =>
         { label: '管理概览', to: '/admin/overview', icon: 'gauge' },
         { label: '用户管理', to: '/admin/users', icon: 'users' },
         { label: '内容审核', to: '/admin/content/posts', icon: 'file-text' },
+        { label: '附件管理', to: '/admin/content/attachments', icon: 'image' },
         { label: '模型预设', to: '/admin/providers', icon: 'key' },
         { label: 'AI 管理', to: '/admin/ai', icon: 'sparkles' },
         { label: '全局任务', to: '/admin/tasks', icon: 'list' },
@@ -149,7 +154,11 @@ function isActive(to: string): boolean {
             <AppIcon name="chevron-right" :size="17" class="me-arrow" />
           </RouterLink>
           <p v-else class="side-note">
-            帖子、评论与 AI 功能尚未开放；现在可以注册账号、管理资料与账号安全。
+            {{
+              siteState.registrationEnabled
+                ? '帖子、评论与 AI 功能需要登录后使用；现在可以注册账号、管理资料与账号安全。'
+                : '注册暂时关闭；已有账号可以直接登录，浏览公开内容无需登录。'
+            }}
           </p>
         </div>
       </aside>

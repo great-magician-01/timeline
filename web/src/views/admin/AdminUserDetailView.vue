@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { getUserDetail, resetUserPassword, suspendUser, unsuspendUser } from '../../api/admin'
 import { ApiError, errorMessage, fieldErrors } from '../../api/client'
-import type { CurrentUser } from '../../api/types'
+import type { AdminUserStats, CurrentUser } from '../../api/types'
 import AlertNote from '../../components/AlertNote.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import FormField from '../../components/FormField.vue'
@@ -19,6 +19,17 @@ const notFound = ref(false)
 const loadError = ref('')
 const user = ref<CurrentUser | null>(null)
 const activeSessions = ref(0)
+const stats = ref<AdminUserStats | null>(null)
+
+const STAT_FIELDS: { key: keyof AdminUserStats; label: string }[] = [
+  { key: 'posts', label: '帖子' },
+  { key: 'comments', label: '评论' },
+  { key: 'followers', label: '粉丝' },
+  { key: 'following', label: '关注' },
+  { key: 'likes_given', label: '发出点赞' },
+  { key: 'likes_received', label: '收到点赞' },
+  { key: 'reposts', label: '转发' },
+]
 
 const isSuspended = computed(() => user.value?.status === 'suspended' || user.value?.is_suspended === true)
 
@@ -31,11 +42,13 @@ async function load(): Promise<void> {
   notFound.value = false
   loadError.value = ''
   user.value = null
+  stats.value = null
   try {
     const data = await getUserDetail(userId.value)
     if (current !== loadSequence) return
     user.value = data.user
     activeSessions.value = data.active_sessions
+    stats.value = data.stats ?? null
   } catch (error) {
     if (current !== loadSequence) return
     if (error instanceof ApiError && error.status === 404) {
@@ -202,6 +215,17 @@ async function confirmReset(): Promise<void> {
         </dl>
       </section>
 
+      <section v-if="stats" class="card card--pad">
+        <h2 class="page-title">内容与关系概览</h2>
+        <p class="page-desc">用于管理审核统计；数据来自当前账号的帖子、评论与关注关系。</p>
+        <ul class="stat-grid">
+          <li v-for="field in STAT_FIELDS" :key="field.key" class="stat-item">
+            <strong>{{ stats[field.key] }}</strong>
+            <span>{{ field.label }}</span>
+          </li>
+        </ul>
+      </section>
+
       <section class="card card--pad">
         <h2 class="page-title">账号状态</h2>
         <p class="page-desc">停用后该用户的所有会话立即失效；恢复后可以重新登录。</p>
@@ -337,5 +361,29 @@ async function confirmReset(): Promise<void> {
 }
 .confirm-panel {
   margin-top: 4px;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.stat-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+.stat-item strong {
+  display: block;
+  font-size: 18px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.stat-item span {
+  font-size: 12.5px;
+  color: var(--ink-3);
 }
 </style>

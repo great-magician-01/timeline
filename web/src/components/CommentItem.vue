@@ -48,6 +48,8 @@ const busy = ref(false)
 const notice = ref('')
 const deleted = computed(() => props.comment.status === 'deleted')
 const canDelete = computed(() => props.comment.can_delete)
+/** 停用账号的评论只读：隐藏点赞、回复与删除入口（docs/PAGES_AND_PERMISSIONS.md E-03） */
+const authorSuspended = computed(() => props.comment.author.is_suspended)
 
 function requireLogin(): boolean {
   if (my.value) return true
@@ -56,7 +58,7 @@ function requireLogin(): boolean {
 }
 
 async function toggleLike(): Promise<void> {
-  if (deleted.value || !requireLogin() || busy.value) return
+  if (deleted.value || authorSuspended.value || !requireLogin() || busy.value) return
   busy.value = true
   notice.value = ''
   try {
@@ -108,7 +110,7 @@ async function remove(): Promise<void> {
       </p>
       <div v-else class="content" v-html="comment.content_html"></div>
 
-      <div v-if="!deleted" class="acts">
+      <div v-if="!deleted && !authorSuspended" class="acts">
         <button
           type="button"
           class="act"
@@ -129,6 +131,10 @@ async function remove(): Promise<void> {
           <span>删除</span>
         </button>
       </div>
+      <p v-else-if="!deleted && authorSuspended" class="readonly-note">
+        <AppIcon name="lock" :size="14" />
+        作者已停用，互动入口已关闭
+      </p>
 
       <p v-if="notice" class="alert alert--warning">{{ notice }}</p>
 
@@ -235,6 +241,14 @@ async function remove(): Promise<void> {
 }
 .act.danger:hover:not(:disabled) {
   color: var(--red);
+}
+.readonly-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-3);
 }
 .replies {
   margin: 0;

@@ -17,6 +17,7 @@ const tabs: NavItem[] = [
   { label: '用户管理', to: '/admin/users', icon: 'users' },
   { label: '帖子审核', to: '/admin/content/posts', icon: 'file-text' },
   { label: '评论审核', to: '/admin/content/comments', icon: 'message' },
+  { label: '附件管理', to: '/admin/content/attachments', icon: 'image' },
   { label: '模型预设', to: '/admin/providers', icon: 'key' },
   { label: 'AI 管理', to: '/admin/ai', icon: 'sparkles' },
   { label: '全局任务', to: '/admin/tasks', icon: 'list' },

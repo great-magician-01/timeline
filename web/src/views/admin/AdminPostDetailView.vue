@@ -2,8 +2,8 @@
 // A-06 后台帖子详情：正文、历史版本、附件与逻辑删除
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { deleteAdminPost, getAdminPost } from '../../api/adminContent'
-import type { AdminPostDetail } from '../../api/adminContent'
+import { deleteAdminAttachment, deleteAdminPost, getAdminPost } from '../../api/adminContent'
+import type { AdminPostAttachment, AdminPostDetail, AdminPostVersion } from '../../api/adminContent'
 import { ApiError, errorMessage } from '../../api/client'
 import AlertNote from '../../components/AlertNote.vue'
 import AppIcon from '../../components/AppIcon.vue'
@@ -108,6 +108,42 @@ async function onDelete(): Promise<void> {
     deleting.value = false
   }
 }
+
+// ---------- 附件处置 ----------
+
+const deletingAttachmentId = ref('')
+const attachmentError = ref('')
+const attachmentNotice = ref('')
+
+async function onDeleteAttachment(attachment: AdminPostAttachment): Promise<void> {
+  if (
+    !window.confirm(
+      `确认逻辑删除附件「${attachment.original_filename}」？附件记录与文件会保留，只标记为失效，操作会写入审计日志。`,
+    )
+  ) {
+    return
+  }
+  deletingAttachmentId.value = attachment.id
+  attachmentError.value = ''
+  attachmentNotice.value = ''
+  try {
+    await deleteAdminAttachment(attachment.id)
+    attachmentNotice.value = '附件已逻辑删除。'
+    await load()
+  } catch (error) {
+    attachmentError.value = errorMessage(error)
+  } finally {
+    deletingAttachmentId.value = ''
+  }
+}
+
+// ---------- 历史版本正文 ----------
+
+const expandedVersionId = ref('')
+
+function toggleVersion(version: AdminPostVersion): void {
+  expandedVersionId.value = expandedVersionId.value === version.id ? '' : version.id
+}
 </script>
 
 <template>
@@ -166,7 +202,7 @@ async function onDelete(): Promise<void> {
           </dd>
         </dl>
 
-        <h2 class="section-title">正文</h2>
+        <h2 class="section-title">正文（含草稿正文）</h2>
         <!-- content_html 由后端转换并清洗，禁止在前端拼装 HTML -->
         <div v-if="detail.post.content_html" class="post-body" v-html="detail.post.content_html"></div>
         <p v-else class="muted">（无正文）</p>
@@ -174,12 +210,22 @@ async function onDelete(): Promise<void> {
 
       <section class="card card--pad">
         <h2 class="page-title">历史版本</h2>
-        <p class="page-desc">已发布帖子的每次编辑都会追加版本，不覆盖旧历史。</p>
+        <p class="page-desc">已发布帖子的每次编辑都会追加版本；展开可查看该版本完整正文。</p>
         <ul v-if="detail.versions.length > 0" class="plain-list">
-          <li v-for="version in detail.versions" :key="version.id" class="plain-row">
-            <span class="row-main">第 {{ version.version_number }} 版</span>
-            <span class="badge badge--muted">{{ visibilityLabel(version.visibility) }}</span>
-            <span class="row-time mono">{{ formatDateTime(version.created_at) }}</span>
+          <li v-for="version in detail.versions" :key="version.id" class="version-item">
+            <div class="plain-row">
+              <span class="row-main">第 {{ version.version_number }} 版</span>
+              <span class="badge badge--muted">{{ visibilityLabel(version.visibility) }}</span>
+              <span class="row-time mono">{{ formatDateTime(version.created_at) }}</span>
+              <button class="btn btn--secondary btn--sm" type="button" @click="toggleVersion(version)">
+                {{ expandedVersionId === version.id ? '收起正文' : '查看正文' }}
+              </button>
+            </div>
+            <div
+              v-if="expandedVersionId === version.id"
+              class="version-body"
+              v-html="version.content_html || '<p>（该版本无正文）</p>'"
+            ></div>
           </li>
         </ul>
         <p v-else class="muted">暂无历史版本。</p>
@@ -187,17 +233,51 @@ async function onDelete(): Promise<void> {
 
       <section class="card card--pad">
         <h2 class="page-title">附件</h2>
-        <p class="page-desc">附件与衍生文件只标记状态，不做物理删除。</p>
+        <p class="page-desc">附件与衍生文件只标记状态，不做物理删除；删除会写入审计日志。</p>
+
+        <AlertNote v-if="attachmentNotice" kind="success">{{ attachmentNotice }}</AlertNote>
+        <AlertNote v-if="attachmentError" kind="error">{{ attachmentError }}</AlertNote>
+
         <ul v-if="detail.attachments.length > 0" class="plain-list">
           <li v-for="attachment in detail.attachments" :key="attachment.id" class="plain-row">
             <span class="row-main">{{ attachment.original_filename }}</span>
             <span class="badge badge--muted">{{ kindLabel(attachment.kind) }}</span>
             <span class="badge" :class="attachment.status === 'deleted' ? 'badge--danger' : ''">
-              {{ attachment.status === 'deleted' ? '已删除' : '可用' }}
+              {{ attachment.status === 'deleted' ? '已删除' : attachment.status === 'processing' ? '处理中' : '可用' }}
             </span>
+            <button
+              v-if="attachment.status !== 'deleted'"
+              class="btn btn--danger btn--sm attach-delete"
+              type="button"
+              :disabled="deletingAttachmentId === attachment.id"
+              @click="onDeleteAttachment(attachment)"
+            >
+              {{ deletingAttachmentId === attachment.id ? '删除中…' : '删除附件' }}
+            </button>
           </li>
         </ul>
         <p v-else class="muted">该帖子没有附件。</p>
+      </section>
+
+      <section class="card card--pad">
+        <h2 class="page-title">评论上下文（{{ detail.comment_count }}）</h2>
+        <p class="page-desc">供审核判断评论语境；删除评论请前往评论审核页面。</p>
+        <ul v-if="detail.comments.length > 0" class="comment-context">
+          <li v-for="comment in detail.comments" :key="comment.id" class="comment-row">
+            <div class="comment-head">
+              <UserAvatar :user="comment.author" size="sm" />
+              <span class="comment-author">{{ comment.author.nickname || comment.author.username }}</span>
+              <span class="muted">@{{ comment.author.username }}</span>
+              <span class="badge" :class="comment.status === 'deleted' ? 'badge--danger' : 'badge--muted'">
+                {{ comment.status === 'deleted' ? '已删除' : '正常' }}
+              </span>
+              <span class="row-time mono">{{ formatDateTime(comment.created_at) }}</span>
+            </div>
+            <div v-if="comment.status === 'deleted'" class="muted">评论已删除，内容不展示。</div>
+            <div v-else class="comment-body" v-html="comment.content_html"></div>
+          </li>
+        </ul>
+        <p v-else class="muted">该帖子暂无评论。</p>
       </section>
 
       <section class="card card--pad">
@@ -310,5 +390,58 @@ async function onDelete(): Promise<void> {
   font-size: 12.5px;
   color: var(--ink-3);
   white-space: nowrap;
+}
+.version-item {
+  padding: 0;
+}
+.version-body {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  font-size: 13.5px;
+  line-height: 1.8;
+  word-break: break-word;
+}
+.version-body :deep(img) {
+  max-width: 100%;
+  height: auto;
+}
+.attach-delete {
+  margin-left: auto;
+}
+.comment-context {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.comment-row {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+.comment-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.comment-author {
+  font-weight: 700;
+}
+.comment-body {
+  margin-top: 6px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+.comment-body :deep(img) {
+  max-width: 100%;
+  height: auto;
 }
 </style>

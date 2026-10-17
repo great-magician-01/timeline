@@ -8,6 +8,7 @@ import type {
   FollowState,
   LikeState,
   Notification,
+  NotificationType,
   PublicUser,
   RepostState,
 } from './types'
@@ -110,7 +111,7 @@ export function unrepostPost(id: string): Promise<RepostState> {
 
 export function listNotifications(
   filter: 'all' | 'unread',
-  params: PageParams = {},
+  params: PageParams & { type?: NotificationType } = {},
 ): Promise<CursorPage<Notification>> {
   return apiRequest('/notifications', { query: { filter, ...params } })
 }

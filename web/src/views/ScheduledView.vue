@@ -8,14 +8,14 @@ import AppIcon from '../components/AppIcon.vue'
 import EmptyState from '../components/EmptyState.vue'
 import { errorMessage } from '../api/client'
 import { cancelSchedule, deletePost, listMyScheduled, publishPost } from '../api/posts'
-import type { PostDetail, PostStatus, Visibility } from '../api/types'
+import type { DraftSummary, Visibility } from '../api/types'
 import { useCursorList } from '../composables/useCursorList'
-import { absoluteTime, plainSummary } from '../utils/format'
+import { absoluteTime } from '../utils/format'
 
 const router = useRouter()
 
 const { items, loading, loadingMore, hasMore, error, loadMore, reload } = useCursorList<
-  PostDetail,
+  DraftSummary,
   Record<string, never>
 >({
   fetch: (params) => listMyScheduled(params),
@@ -33,14 +33,22 @@ function visibilityLabel(visibility: Visibility): string {
   return '仅自己'
 }
 
-function statusLabel(status: PostStatus): string {
-  if (status === 'scheduled') return '定时中'
-  if (status === 'published') return '已发布'
-  if (status === 'draft') return '已转为草稿'
-  return '已删除'
+/** 定时列表项状态：定时中 / 发布失败 / 已暂停（作业暂停或取消后回到草稿）/ 已发布 */
+function statusLabel(item: DraftSummary): string {
+  if (item.status === 'failed' || item.publish_failed) return '发布失败'
+  if (item.status === 'paused') return '已暂停'
+  if (item.status === 'scheduled') return '定时中'
+  if (item.status === 'published') return '已发布'
+  return '已暂停'
 }
 
-async function cancel(item: PostDetail): Promise<void> {
+function statusClass(item: DraftSummary): string {
+  if (item.status === 'failed' || item.publish_failed) return 'badge--danger'
+  if (item.status === 'draft' || item.status === 'paused') return 'badge--muted'
+  return ''
+}
+
+async function cancel(item: DraftSummary): Promise<void> {
   if (busyId.value) return
   busyId.value = item.id
   notice.value = ''
@@ -56,7 +64,7 @@ async function cancel(item: PostDetail): Promise<void> {
   }
 }
 
-async function publishNow(item: PostDetail): Promise<void> {
+async function publishNow(item: DraftSummary): Promise<void> {
   if (busyId.value) return
   busyId.value = item.id
   notice.value = ''
@@ -71,7 +79,7 @@ async function publishNow(item: PostDetail): Promise<void> {
   }
 }
 
-async function removeItem(item: PostDetail): Promise<void> {
+async function removeItem(item: DraftSummary): Promise<void> {
   if (busyId.value) return
   if (!window.confirm('删除后帖子不再出现在列表中，未执行的定时发布任务会同时取消。确认删除？')) return
   busyId.value = item.id
@@ -128,16 +136,23 @@ async function removeItem(item: PostDetail): Promise<void> {
                 <AppIcon name="calendar" :size="15" />
                 发布时间 {{ absoluteTime(item.scheduled_at) || '未设置' }}
               </p>
-              <p class="scheduled-summary">{{ plainSummary(item.content_html) || '（暂无正文）' }}</p>
+              <p class="scheduled-summary">{{ item.plain_text || '（暂无正文）' }}</p>
               <p class="scheduled-meta">
-                <span class="badge" :class="{ 'badge--muted': item.status !== 'scheduled' }">
-                  {{ statusLabel(item.status) }}
+                <span class="badge" :class="statusClass(item)">
+                  {{ statusLabel(item) }}
                 </span>
                 <span class="badge" :class="{ 'badge--muted': item.visibility !== 'public' }">
                   {{ visibilityLabel(item.visibility) }}
                 </span>
-                <span v-if="item.attachments.length > 0" class="muted">{{ item.attachments.length }} 个附件</span>
+                <span v-if="item.attachment_count > 0" class="muted">{{ item.attachment_count }} 个附件</span>
+                <span class="muted">更新于 {{ absoluteTime(item.updated_at) }}</span>
               </p>
+              <AlertNote v-if="item.publish_failed || item.publish_error" kind="error" class="publish-error">
+                定时发布失败：{{ item.publish_error || '原因未知，可重试发布或取消定时。' }}
+              </AlertNote>
+              <AlertNote v-else-if="item.status === 'paused'" kind="warning" class="publish-error">
+                定时任务已暂停（可能因服务重启或重试次数耗尽），可立即发布或取消定时。
+              </AlertNote>
             </div>
 
             <div class="scheduled-actions">
@@ -148,6 +163,7 @@ async function removeItem(item: PostDetail): Promise<void> {
                 <AppIcon name="pencil" :size="15" /> 编辑
               </RouterLink>
               <button
+                v-if="item.status === 'scheduled' || item.status === 'failed' || item.status === 'paused'"
                 class="btn btn--secondary btn--sm"
                 type="button"
                 :disabled="busyId !== ''"
@@ -157,6 +173,17 @@ async function removeItem(item: PostDetail): Promise<void> {
                 {{ busyId === item.id ? '处理中…' : '取消定时' }}
               </button>
               <button
+                v-if="item.publish_failed || item.status === 'failed'"
+                class="btn btn--primary btn--sm"
+                type="button"
+                :disabled="busyId !== ''"
+                @click="publishNow(item)"
+              >
+                <AppIcon name="refresh" :size="15" />
+                {{ busyId === item.id ? '发布中…' : '重试发布' }}
+              </button>
+              <button
+                v-else-if="item.status === 'scheduled' || item.status === 'paused'"
                 class="btn btn--primary btn--sm"
                 type="button"
                 :disabled="busyId !== ''"
@@ -245,6 +272,9 @@ async function removeItem(item: PostDetail): Promise<void> {
 }
 .scheduled-meta .muted {
   font-size: 12.5px;
+}
+.publish-error {
+  margin-top: 8px;
 }
 .scheduled-actions {
   display: flex;

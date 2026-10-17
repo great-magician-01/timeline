@@ -20,7 +20,9 @@ const RATE_LIMIT_FIELDS: RateLimitField[] = [
   { key: 'daily_original_post', label: '原创发帖' },
   { key: 'daily_comment', label: '评论' },
   { key: 'daily_like', label: '点赞' },
+  { key: 'daily_unlike', label: '取消点赞' },
   { key: 'daily_follow', label: '关注' },
+  { key: 'daily_unfollow', label: '取关' },
   { key: 'daily_repost', label: '转发' },
   { key: 'daily_quote', label: '引用' },
   { key: 'daily_total', label: '每日总动作' },
@@ -46,9 +48,20 @@ const form = reactive({
   active_hours_start: null as number | null,
   active_hours_end: null as number | null,
   max_reply_depth: null as number | null,
+  /** 定时策略：单位为分钟，0 表示关闭（保存在 behavior.schedule JSON 中） */
+  post_interval_minutes: 0 as number | null,
+  proactive_interval_minutes: 0 as number | null,
 })
 
 const rateLimits = reactive<Record<string, number | null>>({})
+
+/** 读取时保留 schedule 中的其他自定义字段，保存时原样写回 */
+const loadedSchedule = ref<Record<string, unknown>>({})
+
+function scheduleNumber(schedule: Record<string, unknown>, key: string): number | null {
+  const value = schedule[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
 
 const loading = ref(true)
 const loadError = ref('')
@@ -84,6 +97,9 @@ async function load(): Promise<void> {
     form.active_hours_start = behavior.active_hours_start ?? 0
     form.active_hours_end = behavior.active_hours_end ?? 23
     form.max_reply_depth = behavior.max_reply_depth ?? 0
+    loadedSchedule.value = { ...(behavior.schedule ?? {}) }
+    form.post_interval_minutes = scheduleNumber(loadedSchedule.value, 'post_interval_minutes') ?? 0
+    form.proactive_interval_minutes = scheduleNumber(loadedSchedule.value, 'proactive_interval_minutes') ?? 0
     for (const field of RATE_LIMIT_FIELDS) {
       const value = behavior.rate_limits[field.key]
       rateLimits[field.key] = typeof value === 'number' ? value : null
@@ -123,6 +139,12 @@ async function onSubmit(): Promise<void> {
   const end = optionalNumber(form.active_hours_end)
   if (start !== undefined && (start < 0 || start > 23)) next.active_hours_start = '活跃开始时间需在 0-23 之间'
   if (end !== undefined && (end < 0 || end > 23)) next.active_hours_end = '活跃结束时间需在 0-23 之间'
+  const postInterval = optionalNumber(form.post_interval_minutes)
+  const proactiveInterval = optionalNumber(form.proactive_interval_minutes)
+  if (postInterval !== undefined && postInterval < 0) next.post_interval_minutes = '发帖间隔不能为负数'
+  if (proactiveInterval !== undefined && proactiveInterval < 0) {
+    next.proactive_interval_minutes = '主动互动间隔不能为负数'
+  }
   fieldErrorsMap.value = next
   saveError.value = ''
   saveNotice.value = ''
@@ -137,6 +159,11 @@ async function onSubmit(): Promise<void> {
     const value = optionalNumber(rateLimits[field.key] ?? null)
     if (value !== undefined) limits[field.key] = value
   }
+
+  // 只覆盖两个间隔字段，保留 schedule 中的其他 JSON 字段
+  const schedule: Record<string, unknown> = { ...loadedSchedule.value }
+  schedule.post_interval_minutes = postInterval ?? 0
+  schedule.proactive_interval_minutes = proactiveInterval ?? 0
 
   const payload: Partial<AIBehavior> = {
     allow_original_post: form.allow_original_post,
@@ -155,6 +182,7 @@ async function onSubmit(): Promise<void> {
     active_hours_start: start ?? 0,
     active_hours_end: end ?? 23,
     max_reply_depth: optionalNumber(form.max_reply_depth) ?? 0,
+    schedule,
   }
 
   saving.value = true
@@ -220,6 +248,47 @@ async function onSubmit(): Promise<void> {
               <input v-model="form.allow_quote" type="checkbox" :disabled="saving" />
               <span>引用</span>
             </label>
+          </div>
+
+          <h3 class="sub-title">定时策略</h3>
+          <p class="muted hint">按分钟配置 AI 的自主节奏，0 表示关闭对应策略；修改后保存立即生效。</p>
+
+          <div class="grid-three">
+            <FormField
+              label="发帖间隔（分钟）"
+              input-id="behavior-post-interval"
+              :error="fieldErrorsMap.post_interval_minutes"
+              hint="两次自主原创发帖之间的最小间隔；0 关闭"
+            >
+              <input
+                id="behavior-post-interval"
+                v-model.number="form.post_interval_minutes"
+                class="input"
+                type="number"
+                min="0"
+                step="1"
+                name="post_interval_minutes"
+                :disabled="saving"
+              />
+            </FormField>
+
+            <FormField
+              label="主动互动间隔（分钟）"
+              input-id="behavior-proactive-interval"
+              :error="fieldErrorsMap.proactive_interval_minutes"
+              hint="评论、点赞、关注等主动动作的最小间隔；0 关闭"
+            >
+              <input
+                id="behavior-proactive-interval"
+                v-model.number="form.proactive_interval_minutes"
+                class="input"
+                type="number"
+                min="0"
+                step="1"
+                name="proactive_interval_minutes"
+                :disabled="saving"
+              />
+            </FormField>
           </div>
 
           <h3 class="sub-title">候选范围</h3>

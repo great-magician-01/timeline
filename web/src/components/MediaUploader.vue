@@ -29,7 +29,14 @@ interface UploadTask {
 const tasks = ref<UploadTask[]>([])
 const dragging = ref(false)
 const input = ref<HTMLInputElement | null>(null)
+const previewFailed = ref<Record<string, boolean>>({})
 let counter = 0
+
+function statusLabel(attachment: Attachment): string {
+  if (attachment.status === 'processing') return '处理中'
+  if (attachment.status === 'failed') return '处理失败'
+  return ''
+}
 
 function pick(): void {
   if (props.disabled) return
@@ -109,9 +116,15 @@ function previewURL(attachment: Attachment): string {
 
     <ul v-if="attachments.length > 0" class="list">
       <li v-for="item in attachments" :key="item.id">
-        <img v-if="item.kind === 'image'" :src="previewURL(item)" :alt="item.original_filename" />
+        <img
+          v-if="item.kind === 'image' && !previewFailed[item.id]"
+          :src="previewURL(item)"
+          :alt="item.original_filename"
+          @error="previewFailed[item.id] = true"
+        />
         <AppIcon v-else :name="item.kind === 'video' ? 'image' : 'file-text'" :size="18" />
         <span class="name">{{ item.original_filename }}</span>
+        <span v-if="statusLabel(item)" class="status">{{ statusLabel(item) }}</span>
         <span class="muted">{{ formatBytes(item.size_bytes) }}</span>
         <button type="button" class="icon-btn" aria-label="移除附件" :disabled="disabled" @click="remove(item)">
           <AppIcon name="x" :size="15" />
@@ -203,6 +216,15 @@ function previewURL(attachment: Attachment): string {
 .err {
   color: var(--red);
   font-size: 12px;
+}
+.status {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 .icon-btn {
   display: flex;

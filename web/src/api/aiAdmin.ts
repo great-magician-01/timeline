@@ -165,12 +165,23 @@ export function clearMemories(aiId: string, type: 'recent' | 'long_term'): Promi
 
 // ---------- 生成与发布 ----------
 
-export function generateDraft(aiId: string, prompt?: string): Promise<{ task_id: string }> {
-  return apiRequest(`/admin/ai/${aiId}/generate`, { method: 'POST', body: { mode: 'draft', prompt } })
+/** 生成参数：scheduled_at 为 RFC3339；设置后生成完进入定时发布队列 */
+export interface GenerationInput {
+  scheduled_at?: string
 }
 
-export function generateAndPublish(aiId: string, prompt?: string): Promise<{ task_id: string }> {
-  return apiRequest(`/admin/ai/${aiId}/publish-direct`, { method: 'POST', body: { prompt } })
+export function generateDraft(aiId: string, input: GenerationInput = {}): Promise<{ task_id: string }> {
+  return apiRequest(`/admin/ai/${aiId}/generate`, {
+    method: 'POST',
+    body: { mode: 'draft', scheduled_at: input.scheduled_at },
+  })
+}
+
+export function generateAndPublish(aiId: string, input: GenerationInput = {}): Promise<{ task_id: string }> {
+  return apiRequest(`/admin/ai/${aiId}/publish-direct`, {
+    method: 'POST',
+    body: { scheduled_at: input.scheduled_at },
+  })
 }
 
 export function listAIDrafts(aiId: string, params: PageParams = {}): Promise<CursorPage<AIDraft>> {
@@ -229,6 +240,7 @@ export function cancelAITask(id: string): Promise<{ task: AITask }> {
 export function listAICalls(
   params: PageParams & {
     ai_id?: string
+    task_id?: string
     provider_id?: string
     status?: 'success' | 'error'
     error_type?: string

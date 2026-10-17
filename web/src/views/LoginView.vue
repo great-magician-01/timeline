@@ -5,6 +5,7 @@ import { errorMessage, fieldErrors } from '../api/client'
 import AlertNote from '../components/AlertNote.vue'
 import FormField from '../components/FormField.vue'
 import { login } from '../stores/auth'
+import { siteState } from '../stores/site'
 
 const route = useRoute()
 const router = useRouter()
@@ -103,7 +104,9 @@ async function onSubmit(): Promise<void> {
         </button>
       </form>
 
-      <p class="muted switch-link">还没有账号？<RouterLink to="/register">注册新账号</RouterLink></p>
+      <p v-if="siteState.registrationEnabled" class="muted switch-link">
+        还没有账号？<RouterLink to="/register">注册新账号</RouterLink>
+      </p>
     </section>
   </div>
 </template>

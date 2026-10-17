@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // A-19 AI 调用记录：每次模型调用的明细与请求/响应内容
 // 安全约定：接口不返回 API Key，页面也不显示任何密钥字段。
-import { computed, onMounted, reactive, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 import { getAICall, listAICalls, listAIs, listProviders } from '../../api/aiAdmin'
 import { errorMessage } from '../../api/client'
 import type { AICallLog, AICallLogDetail, AIProfile, ModelProvider } from '../../api/types'
@@ -14,6 +14,7 @@ import { fromDatetimeLocal } from '../../utils/format'
 
 type CallFilters = {
   ai_id?: string
+  task_id?: string
   provider_id?: string
   status?: 'success' | 'error'
   error_type?: string
@@ -21,8 +22,14 @@ type CallFilters = {
   to?: string
 }
 
+const route = useRoute()
+
+/** 任务页「调用记录」通过 ?task_id= 跳转，进入页面即按任务筛选 */
+const initialTaskId = typeof route.query.task_id === 'string' ? route.query.task_id : ''
+
 const filters = reactive({
   ai_id: '',
+  task_id: initialTaskId,
   provider_id: '',
   status: '' as '' | 'success' | 'error',
   error_type: '',
@@ -43,6 +50,7 @@ const {
   fetch: (params) => listAICalls(params),
   params: () => ({
     ai_id: filters.ai_id || undefined,
+    task_id: filters.task_id.trim() || undefined,
     provider_id: filters.provider_id || undefined,
     status: filters.status || undefined,
     error_type: filters.error_type.trim() || undefined,
@@ -52,6 +60,17 @@ const {
 })
 
 const initialLoading = computed(() => !loaded.value && !listError.value)
+
+// 从任务页连续跳转不同任务时复用同一路由组件，需要跟随 query 更新筛选
+watch(
+  () => route.query.task_id,
+  (value) => {
+    const next = typeof value === 'string' ? value : ''
+    if (filters.task_id === next) return
+    filters.task_id = next
+    void reload()
+  },
+)
 
 // ---------- 下拉选项 ----------
 const ais = ref<AIProfile[]>([])
@@ -87,6 +106,7 @@ function onFilter(): void {
 
 function resetFilters(): void {
   filters.ai_id = ''
+  filters.task_id = ''
   filters.provider_id = ''
   filters.status = ''
   filters.error_type = ''
@@ -161,6 +181,18 @@ function paramsJson(value: Record<string, unknown> | undefined): string {
               {{ provider.name }}
             </option>
           </select>
+        </label>
+
+        <label class="filter-field">
+          <span class="muted">任务 ID</span>
+          <input
+            v-model="filters.task_id"
+            class="input"
+            type="search"
+            name="task_id"
+            placeholder="按 AI 任务筛选"
+            aria-label="按任务 ID 筛选"
+          />
         </label>
 
         <label class="filter-field">

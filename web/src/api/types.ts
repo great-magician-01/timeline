@@ -76,7 +76,8 @@ export interface Attachment {
   content_url: string
   thumbnail_url?: string
   derivatives: Record<string, string>
-  status: 'available' | 'deleted'
+  /** 衍生文件处理中/失败时保留原文件并展示状态（docs/PAGES_AND_PERMISSIONS.md E-04） */
+  status: 'available' | 'processing' | 'failed' | 'deleted'
   created_at: string
 }
 
@@ -135,15 +136,23 @@ export interface PostVersion {
   attachments: Attachment[]
 }
 
+/** 列表展示状态：failed/paused 来自最新定时发布作业（后端 drafts.publishStateFor） */
+export type DraftStatus = 'draft' | 'scheduled' | 'published' | 'failed' | 'paused'
+
+/** 草稿与定时发布列表项（GET /me/drafts 与 GET /me/scheduled 共用） */
 export interface DraftSummary {
   id: string
   content_html: string
-  summary: string
+  plain_text: string
   visibility: Visibility
   revision: number
   updated_at: string
   scheduled_at?: string
   attachment_count: number
+  status: DraftStatus
+  /** 定时发布任务失败时由后端置为 true，并在 publish_error 给出原因 */
+  publish_failed?: boolean
+  publish_error?: string
 }
 
 export interface TimelineCommentItem {
@@ -260,6 +269,31 @@ export interface AdminComment {
   created_at: string
 }
 
+/** 管理端附件（GET /admin/attachments） */
+export interface AdminAttachment {
+  id: string
+  uploader: UserBrief | null
+  post_id: string | null
+  kind: 'image' | 'video' | 'file'
+  purpose: 'post' | 'avatar' | string
+  original_filename: string
+  media_type: string
+  size_bytes: number
+  status: string
+  created_at: string
+}
+
+/** 管理端用户的内容与关系统计（GET /admin/users/:id → stats） */
+export interface AdminUserStats {
+  posts: number
+  comments: number
+  followers: number
+  following: number
+  likes_given: number
+  likes_received: number
+  reposts: number
+}
+
 /** 模型接口预设 */
 export interface ModelProvider {
   id: string
@@ -371,6 +405,14 @@ export type AITaskStatus =
   | 'failed'
   | 'canceled'
 
+/** 任务执行时注入的上下文记忆（GET /admin/ai/:id/tasks） */
+export interface AITaskMemoryRef {
+  id: string
+  type: string
+  content: string
+  category: string
+}
+
 export interface AITask {
   id: string
   ai: UserBrief
@@ -389,6 +431,7 @@ export interface AITask {
   started_at: string | null
   finished_at: string | null
   created_at: string
+  memories?: AITaskMemoryRef[]
 }
 
 export interface BackgroundJob {

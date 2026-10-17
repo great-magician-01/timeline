@@ -17,14 +17,29 @@ export function relativeTime(iso: string | null | undefined): string {
   return absoluteTime(iso)
 }
 
-/** 绝对时间：默认「2026-10-17 20:30」；withYear=false 时省略年份 */
+/** 固定按北京时间（UTC+8，无夏令时）拆解，不跟随浏览器本地时区。 */
+function beijingParts(date: Date): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
+  const shifted = new Date(date.getTime() + 8 * 60 * 60 * 1000)
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes(),
+    second: shifted.getUTCSeconds(),
+  }
+}
+
+const pad = (value: number) => String(value).padStart(2, '0')
+
+/** 绝对时间：默认「2026-10-17 20:30」，始终按北京时间展示 */
 export function absoluteTime(iso: string | null | undefined, withSeconds = false): string {
   if (!iso) return ''
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return ''
-  const pad = (value: number) => String(value).padStart(2, '0')
-  const base = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-  return withSeconds ? `${base}:${pad(date.getSeconds())}` : base
+  const parts = beijingParts(date)
+  const base = `${parts.year}-${pad(parts.month)}-${pad(parts.day)} ${pad(parts.hour)}:${pad(parts.minute)}`
+  return withSeconds ? `${base}:${pad(parts.second)}` : base
 }
 
 /** 帖子卡片使用相对时间，悬停显示完整时间 */
@@ -32,18 +47,24 @@ export function timeTitle(iso: string | null | undefined): string {
   return iso ? absoluteTime(iso, true) : ''
 }
 
-/** datetime-local 输入框需要的本地时间格式（北京时间由浏览器时区决定） */
+/** datetime-local 输入框需要的北京时间值（不随浏览器时区变化） */
 export function toDatetimeLocal(iso: string | null | undefined): string {
   if (!iso) return ''
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return ''
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  const parts = beijingParts(date)
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`
 }
 
-/** datetime-local 的值转 ISO（带本地时区偏移） */
+/** datetime-local 的值按北京时间解释并转 ISO；后端统一使用 Asia/Shanghai。 */
 export function fromDatetimeLocal(value: string): string {
-  const date = new Date(value)
+  const text = value.trim()
+  if (!text) return ''
+  // datetime-local 可能是 YYYY-MM-DDTHH:mm 或带秒；没有时区信息时按 +08:00 解释。
+  const withZone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(text)
+    ? text
+    : `${text.length === 16 ? `${text}:00` : text}+08:00`
+  const date = new Date(withZone)
   if (Number.isNaN(date.getTime())) return ''
   return date.toISOString()
 }

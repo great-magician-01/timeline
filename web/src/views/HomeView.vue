@@ -7,14 +7,16 @@ import { errorMessage } from '../api/client'
 import { createPost, fetchTimeline } from '../api/posts'
 import type { TimelineFilter } from '../api/posts'
 import { listFollowRequests } from '../api/social'
-import type { PostBrief } from '../api/types'
+import type { Attachment, PostBrief, Visibility } from '../api/types'
 import AlertNote from '../components/AlertNote.vue'
 import AppIcon from '../components/AppIcon.vue'
 import EmptyState from '../components/EmptyState.vue'
+import MediaUploader from '../components/MediaUploader.vue'
 import PostCard from '../components/PostCard.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useCursorList } from '../composables/useCursorList'
 import { authState } from '../stores/auth'
+import { siteState } from '../stores/site'
 import { textToParagraphHTML } from '../utils/text'
 
 const user = computed(() => authState.user)
@@ -45,36 +47,55 @@ function removeItem(id: string): void {
   items.value = items.value.filter((item) => item.id !== id)
 }
 
-// ---------- 快速发布（纯文本按段落转换为富文本） ----------
+// ---------- 快速发布：纯文本按段落转换为富文本，支持附件、可见性与存草稿 ----------
 
 const draft = ref('')
-const posting = ref(false)
+const visibility = ref<Visibility>('public')
+const attachments = ref<Attachment[]>([])
+const postingMode = ref<'' | 'draft' | 'publish'>('')
 const postError = ref('')
+const draftNotice = ref('')
 
-async function submitQuickPost(): Promise<void> {
+const posting = computed(() => postingMode.value !== '')
+
+async function submitQuickPost(action: 'draft' | 'publish'): Promise<void> {
   const value = draft.value.trim()
   if (!value) {
-    postError.value = '请输入内容后再发布。'
+    postError.value = '请输入内容后再提交。'
     return
   }
   if (posting.value) return
-  posting.value = true
+  postingMode.value = action
   postError.value = ''
+  draftNotice.value = ''
   try {
     const result = await createPost({
       content_format: 'richtext',
       content_source: textToParagraphHTML(value),
-      visibility: 'public',
-      attachment_ids: [],
-      action: 'publish',
+      visibility: visibility.value,
+      attachment_ids: attachments.value.map((item) => item.id),
+      action,
     })
-    items.value = [result.post, ...items.value]
     draft.value = ''
+    attachments.value = []
+    if (action === 'publish') {
+      items.value = [result.post, ...items.value]
+    } else {
+      draftNotice.value = result.post.status === 'scheduled' ? '已保存为定时帖。' : '草稿已保存。'
+    }
   } catch (err) {
     postError.value = errorMessage(err)
   } finally {
-    posting.value = false
+    postingMode.value = ''
   }
+}
+
+function onQuickAttachmentAdded(attachment: Attachment): void {
+  attachments.value = [...attachments.value, attachment]
+}
+
+function onQuickAttachmentRemoved(id: string): void {
+  attachments.value = attachments.value.filter((item) => item.id !== id)
 }
 
 // ---------- 待处理的关注申请提示 ----------
@@ -118,14 +139,16 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
         </p>
         <div class="hero-actions">
           <RouterLink class="btn btn--primary" to="/login">登录</RouterLink>
-          <RouterLink class="btn btn--secondary" to="/register">注册新账号</RouterLink>
+          <RouterLink v-if="siteState.registrationEnabled" class="btn btn--secondary" to="/register">
+            注册新账号
+          </RouterLink>
         </div>
       </section>
 
       <section v-else class="card card--pad composer">
         <div class="composer-head">
           <UserAvatar :user="user" size="sm" />
-          <p class="muted">以 @{{ user.username }} 的身份公开发布</p>
+          <p class="muted">以 @{{ user.username }} 的身份发布</p>
         </div>
         <textarea
           v-model="draft"
@@ -133,14 +156,54 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
           rows="3"
           placeholder="分享点什么…（纯文本，将按段落发布）"
           aria-label="快速发布内容"
+          :disabled="posting"
         ></textarea>
+
+        <div class="quick-options">
+          <label class="quick-visibility">
+            <span class="muted">可见性</span>
+            <select v-model="visibility" class="input" :disabled="posting" aria-label="快速发布可见性">
+              <option value="public">公开</option>
+              <option value="followers">仅关注者</option>
+              <option value="private">仅自己</option>
+            </select>
+          </label>
+        </div>
+
+        <MediaUploader
+          :attachments="attachments"
+          :disabled="posting"
+          @added="onQuickAttachmentAdded"
+          @removed="onQuickAttachmentRemoved"
+        />
+
         <div class="composer-foot">
           <RouterLink class="muted" to="/compose">去完整编辑器</RouterLink>
-          <button class="btn btn--primary btn--sm" type="button" :disabled="posting" @click="submitQuickPost">
-            <span v-if="posting" class="spinner" aria-hidden="true"></span>
-            {{ posting ? '发布中…' : '发布' }}
-          </button>
+          <div class="quick-actions">
+            <button
+              class="btn btn--secondary btn--sm"
+              type="button"
+              :disabled="posting"
+              @click="submitQuickPost('draft')"
+            >
+              <AppIcon name="file-text" :size="15" />
+              {{ postingMode === 'draft' ? '保存中…' : '存草稿' }}
+            </button>
+            <button
+              class="btn btn--primary btn--sm"
+              type="button"
+              :disabled="posting"
+              @click="submitQuickPost('publish')"
+            >
+              <span v-if="postingMode === 'publish'" class="spinner" aria-hidden="true"></span>
+              {{ postingMode === 'publish' ? '发布中…' : '发布' }}
+            </button>
+          </div>
         </div>
+        <AlertNote v-if="draftNotice" kind="success">
+          {{ draftNotice }}
+          <RouterLink to="/drafts">前往草稿列表继续编辑</RouterLink>
+        </AlertNote>
         <AlertNote v-if="postError" kind="error">{{ postError }}</AlertNote>
       </section>
 
@@ -239,6 +302,29 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;
+}
+.quick-options {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.quick-visibility {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.quick-visibility .input {
+  width: auto;
+  min-width: 130px;
+}
+.quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 .composer-foot .muted:hover {
   color: var(--ink);

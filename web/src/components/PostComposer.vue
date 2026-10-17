@@ -57,9 +57,12 @@ const isPublished = computed(() => status.value?.status === 'published')
 const isDraftLike = computed(() => !status.value || status.value.status === 'draft' || status.value.status === 'scheduled')
 const isScheduled = computed(() => status.value?.status === 'scheduled')
 const hasContent = computed(() => content.value.trim().length > 0)
-const canSubmit = computed(() => hasContent.value && !busy.value)
+/** 首次有效编辑会自动创建草稿；创建期间禁用提交，避免重复新建 */
+const creatingDraft = ref(false)
+const canSubmit = computed(() => hasContent.value && !busy.value && !creatingDraft.value)
 
 let autosaveTimer: number | null = null
+let autoCreateTimer: number | null = null
 let dirty = false
 /** 正在把服务端返回的结果写回编辑器：此时 content 变化不应把「已保存」重新标为未保存 */
 let applyingServer = false
@@ -84,10 +87,52 @@ function markDirty(): void {
   if (applyingServer) return
   dirty = true
   if (saveState.value === 'saved') saveState.value = ''
+  scheduleInitialDraft()
 }
 
 content.value = ''
 watch(content, markDirty)
+
+/** 新建编辑器：首次有效编辑后自动创建草稿，随后由 20 秒自动保存延续同一草稿 */
+function scheduleInitialDraft(): void {
+  if (status.value || creatingDraft.value || !hasContent.value) return
+  if (autoCreateTimer !== null) window.clearTimeout(autoCreateTimer)
+  autoCreateTimer = window.setTimeout(() => {
+    autoCreateTimer = null
+    void createInitialDraft()
+  }, 1200)
+}
+
+async function createInitialDraft(): Promise<void> {
+  if (status.value || creatingDraft.value || busy.value || !hasContent.value) return
+  if (conflict.value) return
+  creatingDraft.value = true
+  busy.value = true
+  saveState.value = 'saving'
+  errorText.value = ''
+  fieldError.value = {}
+  try {
+    const result = await createPost({
+      content_format: 'richtext',
+      content_source: content.value,
+      visibility: visibility.value,
+      attachment_ids: attachments.value.map((item) => item.id),
+      quoted_post_id: quotedPostId.value ?? undefined,
+      action: 'draft',
+    })
+    await applyPost(result.post)
+    saveState.value = 'saved'
+    lastSavedAt.value = result.post.published_at ?? ''
+    // 切到草稿编辑路由，后续自动保存命中同一草稿，不会每 20 秒重复创建
+    void router.replace({ name: 'draft-edit', params: { draftId: result.post.id } })
+  } catch (err) {
+    saveState.value = 'failed'
+    handleConflict(err)
+  } finally {
+    creatingDraft.value = false
+    busy.value = false
+  }
+}
 
 async function load(): Promise<void> {
   if (!props.postId) {
@@ -110,6 +155,10 @@ async function load(): Promise<void> {
 }
 
 async function applyPost(post: PostDetail): Promise<void> {
+  if (autoCreateTimer !== null) {
+    window.clearTimeout(autoCreateTimer)
+    autoCreateTimer = null
+  }
   status.value = post
   revision.value = post.revision ?? null
   visibility.value = post.visibility
@@ -125,16 +174,22 @@ onMounted(() => {
   void load()
   // 草稿与定时帖每 20 秒自动保存一次；已发布帖不自动保存，避免静默生成版本
   autosaveTimer = window.setInterval(() => {
-    if (!dirty || busy.value || conflict.value) return
-    if (!isDraftLike.value || !status.value) return
+    if (!dirty || busy.value || creatingDraft.value || conflict.value) return
+    if (!isDraftLike.value) return
     // 空正文没有可保存的内容，跳过请求，避免周期性产生虚假的「保存失败」
     if (!hasContent.value) return
+    // 新建编辑器若首次自动创建尚未完成，继续创建草稿而不是每轮重复创建
+    if (!status.value) {
+      void createInitialDraft()
+      return
+    }
     void submit('autosave')
   }, 20_000)
 })
 
 onBeforeUnmount(() => {
   if (autosaveTimer !== null) window.clearInterval(autosaveTimer)
+  if (autoCreateTimer !== null) window.clearTimeout(autoCreateTimer)
 })
 
 interface SubmitOptions {
@@ -143,7 +198,7 @@ interface SubmitOptions {
 }
 
 async function submit(mode: SubmitOptions['mode']): Promise<void> {
-  if (busy.value) return
+  if (busy.value || creatingDraft.value) return
   busy.value = true
   if (mode === 'autosave') saveState.value = 'saving'
   errorText.value = ''

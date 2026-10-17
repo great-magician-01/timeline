@@ -30,21 +30,50 @@ const ACTION_TEXT: Record<NotificationType, string> = {
   mention: '在内容中提到了你',
 }
 
+/** 类型筛选下拉：全部 + 每种通知类型 */
+const TYPE_OPTIONS: { value: NotificationType; label: string }[] = [
+  { value: 'post_like', label: '帖子点赞' },
+  { value: 'comment_like', label: '评论点赞' },
+  { value: 'comment', label: '评论' },
+  { value: 'reply', label: '回复' },
+  { value: 'repost', label: '转发' },
+  { value: 'quote', label: '引用' },
+  { value: 'follow', label: '关注' },
+  { value: 'follow_request', label: '关注申请' },
+  { value: 'follow_approved', label: '关注通过' },
+  { value: 'mention', label: '提及' },
+]
+
 const router = useRouter()
 const filter = ref<NotificationFilter>('all')
+const typeFilter = ref<NotificationType | ''>('')
 
 const { items, loading, loadingMore, hasMore, error, loaded, reload, loadMore } = useCursorList<
   Notification,
-  { filter: NotificationFilter }
+  { filter: NotificationFilter; type: NotificationType | '' }
 >({
-  fetch: (params) => listNotifications(params.filter, { cursor: params.cursor }),
-  params: () => ({ filter: filter.value }),
+  fetch: (params) =>
+    listNotifications(params.filter, {
+      cursor: params.cursor,
+      type: params.type || undefined,
+    }),
+  params: () => ({ filter: filter.value, type: typeFilter.value }),
 })
 
 function setFilter(value: NotificationFilter): void {
   if (filter.value === value) return
   filter.value = value
   void reload()
+}
+
+function setType(value: NotificationType | ''): void {
+  if (typeFilter.value === value) return
+  typeFilter.value = value
+  void reload()
+}
+
+function onTypeChange(event: Event): void {
+  setType((event.target as HTMLSelectElement).value as NotificationType | '')
 }
 
 const busy = ref(false)
@@ -132,6 +161,16 @@ async function markAll(): Promise<void> {
             未读
           </button>
         </div>
+
+        <label class="type-filter">
+          <span class="muted">通知类型</span>
+          <select class="input" :value="typeFilter" aria-label="按通知类型筛选" @change="onTypeChange">
+            <option value="">全部类型</option>
+            <option v-for="option in TYPE_OPTIONS" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
       </section>
 
       <AlertNote v-if="notice" kind="error">{{ notice }}</AlertNote>
@@ -210,6 +249,17 @@ async function markAll(): Promise<void> {
 }
 .filter {
   margin-top: 14px;
+}
+.type-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+.type-filter .input {
+  width: auto;
+  min-width: 150px;
 }
 .notif-list {
   overflow: hidden;

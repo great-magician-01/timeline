@@ -68,7 +68,7 @@ export function listMyDrafts(params: PageParams = {}): Promise<CursorPage<DraftS
   return apiRequest('/me/drafts', { query: { ...params } })
 }
 
-export function listMyScheduled(params: PageParams = {}): Promise<CursorPage<PostDetail>> {
+export function listMyScheduled(params: PageParams = {}): Promise<CursorPage<DraftSummary>> {
   return apiRequest('/me/scheduled', { query: { ...params } })
 }
 

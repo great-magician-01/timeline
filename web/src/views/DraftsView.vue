@@ -10,7 +10,7 @@ import { errorMessage } from '../api/client'
 import { deletePost, listMyDrafts } from '../api/posts'
 import type { DraftSummary, Visibility } from '../api/types'
 import { useCursorList } from '../composables/useCursorList'
-import { plainSummary, relativeTime } from '../utils/format'
+import { relativeTime } from '../utils/format'
 
 const { items, loading, loadingMore, hasMore, error, loadMore, reload } = useCursorList<
   DraftSummary,
@@ -80,8 +80,9 @@ async function removeDraft(draft: DraftSummary): Promise<void> {
         <section class="card draft-list">
           <article v-for="draft in items" :key="draft.id" class="draft">
             <div class="draft-main">
-              <p class="draft-summary">{{ plainSummary(draft.summary || draft.content_html) || '（暂无正文）' }}</p>
+              <p class="draft-summary">{{ draft.plain_text || '（暂无正文）' }}</p>
               <p class="draft-meta">
+                <span class="badge badge--muted">草稿</span>
                 <span class="badge" :class="{ 'badge--muted': draft.visibility !== 'public' }">
                   {{ visibilityLabel(draft.visibility) }}
                 </span>

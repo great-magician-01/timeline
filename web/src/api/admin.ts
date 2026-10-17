@@ -1,14 +1,27 @@
 // 管理后台接口（docs/API.md §8，仅 role=admin 可访问；后端会再次校验权限）
 import { apiRequest } from './client'
-import type { CurrentUser, CursorPage, UserListParams } from './types'
+import type { AdminUserStats, CurrentUser, CursorPage, UserListParams } from './types'
 
 export interface UserDetailResponse {
   user: CurrentUser
   active_sessions: number
+  stats: AdminUserStats
 }
 
+/** 系统设置（GET/POST /admin/settings，字段后端契约见 internal/settings.ToMap） */
 export interface AdminSettings {
   registration_enabled: boolean
+  ai_global_enabled: boolean
+  max_upload_bytes: number
+  max_request_bytes: number
+  storage_quota_bytes: number
+  post_rate_limit: number
+  post_rate_window_seconds: number
+  upload_rate_limit: number
+  upload_rate_window_seconds: number
+  temp_attachment_retention_hours: number
+  call_log_max_bytes: number
+  call_log_retention_days: number
 }
 
 /** GET /admin/users：游标分页的用户列表 */
@@ -52,7 +65,7 @@ export function getAdminSettings(): Promise<AdminSettings> {
   return apiRequest<AdminSettings>('/admin/settings')
 }
 
-/** POST /admin/settings */
-export function updateAdminSettings(payload: AdminSettings): Promise<AdminSettings> {
+/** POST /admin/settings：支持部分更新；全局 AI 开关仍建议走 global-start/stop 以触发任务取消 */
+export function updateAdminSettings(payload: Partial<AdminSettings>): Promise<AdminSettings> {
   return apiRequest<AdminSettings>('/admin/settings', { method: 'POST', body: payload })
 }

@@ -191,6 +191,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '评论审核' },
       },
       {
+        path: 'content/attachments',
+        name: 'admin-attachments',
+        component: () => import('../views/admin/AdminAttachmentsView.vue'),
+        meta: { title: '附件管理' },
+      },
+      {
         path: 'providers',
         name: 'admin-providers',
         component: () => import('../views/admin/AdminProvidersView.vue'),

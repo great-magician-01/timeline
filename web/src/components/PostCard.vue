@@ -65,7 +65,9 @@ const notice = ref('')
 /** 转发项：作者是转发者，正文与互动计数属于被转发的原帖 */
 const target = computed<PostBrief>(() => (props.post.kind === 'repost' && props.post.repost_of ? props.post.repost_of : props.post))
 const isOwner = computed(() => Boolean(my.value && my.value.id === target.value.author.id))
-const canInteract = computed(() => Boolean(my.value) && !my.value?.is_ai)
+/** 停用账号的内容只读：隐藏点赞、评论、转发等互动入口（docs/PAGES_AND_PERMISSIONS.md E-03） */
+const authorSuspended = computed(() => target.value.author.is_suspended)
+const canInteract = computed(() => Boolean(my.value) && !my.value?.is_ai && !authorSuspended.value)
 
 function requireLogin(): boolean {
   if (my.value) return true
@@ -204,7 +206,7 @@ const menuOpen = ref(false)
 
     <p v-if="notice" class="alert alert--warning">{{ notice }}</p>
 
-    <footer v-if="actions" class="actions">
+    <footer v-if="actions && !authorSuspended" class="actions">
       <button type="button" class="act" :disabled="busy" @click="openDetail">
         <AppIcon name="message" :size="17" />
         <span>{{ target.comment_count }}</span>
@@ -232,6 +234,10 @@ const menuOpen = ref(false)
         <span>{{ likeCount }}</span>
       </button>
     </footer>
+    <p v-else-if="actions && authorSuspended" class="readonly-note">
+      <AppIcon name="lock" :size="14" />
+      作者已停用，互动入口已关闭
+    </p>
   </article>
 </template>
 
@@ -416,5 +422,15 @@ const menuOpen = ref(false)
 .act:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+.readonly-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--ink-3);
 }
 </style>

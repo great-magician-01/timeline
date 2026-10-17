@@ -65,10 +65,15 @@ const visibilityClass = computed(() =>
 )
 
 const isAuthor = computed(() => Boolean(my.value && target.value && my.value.id === target.value.author.id))
-const canShare = computed(() => Boolean(my.value) && target.value?.visibility === 'public')
+/** 停用账号内容只读：隐藏点赞、评论、转发、引用入口（docs/PAGES_AND_PERMISSIONS.md E-03） */
+const authorSuspended = computed(() => target.value?.author.is_suspended === true)
+const canShare = computed(
+  () => Boolean(my.value) && !authorSuspended.value && target.value?.visibility === 'public',
+)
 
 const shareHint = computed(() => {
   if (!my.value) return '登录后可以转发或引用'
+  if (authorSuspended.value) return '作者已停用，互动入口已关闭'
   if (target.value?.visibility !== 'public') return '仅公开帖子可以转发或引用'
   return ''
 })
@@ -178,7 +183,7 @@ async function loadPost(): Promise<void> {
 
 async function toggleLike(): Promise<void> {
   const current = target.value
-  if (!current || busy.value) return
+  if (!current || busy.value || authorSuspended.value) return
   if (!my.value) {
     void router.push({ name: 'login', query: { redirect: route.fullPath } })
     return
@@ -363,6 +368,10 @@ watch(postId, () => void loadPost(), { immediate: true })
             <span v-if="target.edited" class="muted">已编辑</span>
           </p>
 
+          <AlertNote v-if="authorSuspended" kind="warning">
+            该内容作者已停用，正文与评论只读展示，点赞、评论、转发与引用入口已关闭。
+          </AlertNote>
+
           <div v-if="canManage" class="manage">
             <RouterLink
               v-if="post.can_edit"
@@ -406,7 +415,7 @@ watch(postId, () => void loadPost(), { immediate: true })
 
           <AlertNote v-if="actionNotice" kind="warning">{{ actionNotice }}</AlertNote>
 
-          <footer class="actions">
+          <footer v-if="!authorSuspended" class="actions">
             <button
               type="button"
               class="act"
@@ -440,12 +449,20 @@ watch(postId, () => void loadPost(), { immediate: true })
               <span>引用</span>
             </button>
           </footer>
+          <p v-else class="readonly-note">
+            <AppIcon name="lock" :size="15" />
+            作者已停用，互动入口已关闭
+          </p>
         </article>
 
         <section class="card card--pad comments">
           <h2 class="page-head page-title">评论（{{ target.comment_count }}）</h2>
 
-          <template v-if="my">
+          <p v-if="authorSuspended" class="readonly-note">
+            <AppIcon name="lock" :size="15" />
+            作者已停用，评论区只读展示，不再接受新的评论或回复。
+          </p>
+          <template v-else-if="my">
             <div v-if="replyTarget" class="reply-banner">
               <span>回复 @{{ replyTarget.author.username }}</span>
               <button type="button" class="cancel" @click="replyTarget = null">
@@ -656,6 +673,18 @@ watch(postId, () => void loadPost(), { immediate: true })
 .act:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+.readonly-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--soft);
+  font-size: 13px;
+  color: var(--ink-3);
 }
 .comments {
   display: grid;
