@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/great-magician-01/timeline/internal/access"
 	"github.com/great-magician-01/timeline/internal/api"
 	"github.com/great-magician-01/timeline/internal/auth"
 )
@@ -134,5 +136,51 @@ func (s *Service) GetUser(c *gin.Context) {
 		s.internalError(c, "统计用户会话失败", err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"user": auth.PrivateUser(u), "active_sessions": activeSessions})
+	stats, err := userStats(c.Request.Context(), pool, id)
+	if err != nil {
+		s.internalError(c, "统计用户内容与关系失败", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"user":            auth.PrivateUser(u),
+		"active_sessions": activeSessions,
+		"stats":           stats,
+	})
+}
+
+// userStatsResponse 是用户详情页的内容与关系统计；只计入未删除/仍有效的数据。
+type userStatsResponse struct {
+	Posts         int64 `json:"posts"`
+	Comments      int64 `json:"comments"`
+	Followers     int64 `json:"followers"`
+	Following     int64 `json:"following"`
+	LikesGiven    int64 `json:"likes_given"`
+	LikesReceived int64 `json:"likes_received"`
+	Reposts       int64 `json:"reposts"`
+}
+
+// userStats 统计某个用户的内容与关系：帖子（未删除）、评论（published）、
+// 生效关注关系、有效点赞（送出/收到）与有效转发。
+func userStats(ctx context.Context, q access.Querier, userID int64) (userStatsResponse, error) {
+	var stats userStatsResponse
+	err := q.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM posts WHERE author_id = $1 AND status <> 'deleted'),
+			(SELECT COUNT(*) FROM comments WHERE author_id = $1 AND status = 'published'),
+			(SELECT COUNT(*) FROM follows WHERE followee_id = $1 AND is_active),
+			(SELECT COUNT(*) FROM follows WHERE follower_id = $1 AND is_active),
+			(SELECT COUNT(*) FROM likes WHERE user_id = $1 AND is_active),
+			(SELECT COUNT(*) FROM likes l WHERE l.is_active AND (
+				(l.target_type = 'post' AND EXISTS (
+					SELECT 1 FROM posts p WHERE p.id = l.target_id AND p.author_id = $1
+				))
+				OR (l.target_type = 'comment' AND EXISTS (
+					SELECT 1 FROM comments c WHERE c.id = l.target_id AND c.author_id = $1
+				))
+			)),
+			(SELECT COUNT(*) FROM reposts WHERE user_id = $1 AND is_active)`,
+		userID,
+	).Scan(&stats.Posts, &stats.Comments, &stats.Followers, &stats.Following,
+		&stats.LikesGiven, &stats.LikesReceived, &stats.Reposts)
+	return stats, err
 }

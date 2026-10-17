@@ -195,6 +195,16 @@ func (s *Service) GetPost(c *gin.Context) {
 			return
 		}
 	}
+	// 草稿与定时帖尚未生成 current_version，正文保存在草稿工作区。
+	if contentHTML == "" &&
+		(post.Status == model.PostStatusDraft || post.Status == model.PostStatusScheduled) {
+		if err := pool.QueryRow(ctx,
+			`SELECT content_html FROM post_drafts WHERE post_id = $1`, id,
+		).Scan(&contentHTML); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			s.internalError(c, "读取帖子草稿正文失败", err)
+			return
+		}
+	}
 
 	versions, err := s.postVersions(ctx, id)
 	if err != nil {
@@ -204,6 +214,11 @@ func (s *Service) GetPost(c *gin.Context) {
 	attachments, err := s.postAttachments(ctx, id)
 	if err != nil {
 		s.internalError(c, "读取帖子附件失败", err)
+		return
+	}
+	comments, commentCount, err := s.postCommentContext(ctx, id)
+	if err != nil {
+		s.internalError(c, "读取帖子评论上下文失败", err)
 		return
 	}
 
@@ -216,7 +231,7 @@ func (s *Service) GetPost(c *gin.Context) {
 		"created_at":    api.FormatTime(post.CreatedAt),
 		"updated_at":    api.FormatTime(post.UpdatedAt),
 		"like_count":    post.LikeCount,
-		"comment_count": post.CommentCount,
+		"comment_count": commentCount,
 		"repost_count":  post.RepostCount,
 	}
 	if post.PublishedAt != nil {
@@ -228,13 +243,71 @@ func (s *Service) GetPost(c *gin.Context) {
 	if post.DeletedAt != nil {
 		detail["deleted_at"] = api.FormatTime(*post.DeletedAt)
 	}
-	c.JSON(http.StatusOK, gin.H{"post": detail, "versions": versions, "attachments": attachments})
+	c.JSON(http.StatusOK, gin.H{
+		"post":          detail,
+		"versions":      versions,
+		"attachments":   attachments,
+		"comments":      comments,
+		"comment_count": commentCount,
+	})
+}
+
+// postCommentContext 返回帖子顶层评论（最多 50 条）与已发布评论总数，
+// 供管理员在处置前查看讨论上下文。
+func (s *Service) postCommentContext(ctx context.Context, postID int64) ([]gin.H, int64, error) {
+	const maxContextComments = 50
+	pool := s.pools.Pool()
+	var commentCount int64
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM comments WHERE post_id = $1 AND status = 'published'`,
+		postID).Scan(&commentCount); err != nil {
+		return nil, 0, err
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT c.id, c.content_html, c.status, c.created_at,
+		       u.id, u.username, u.nickname, u.avatar_url, u.is_ai, u.status
+		FROM comments AS c
+		JOIN users AS u ON u.id = c.author_id
+		WHERE c.post_id = $1 AND c.parent_comment_id IS NULL
+		ORDER BY c.id ASC
+		LIMIT $2`, postID, maxContextComments)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items := make([]gin.H, 0, maxContextComments)
+	for rows.Next() {
+		var (
+			id          int64
+			contentHTML string
+			status      string
+			createdAt   time.Time
+			author      model.UserBriefResponse
+			authorID    int64
+			authorState string
+		)
+		if err := rows.Scan(&id, &contentHTML, &status, &createdAt,
+			&authorID, &author.Username, &author.Nickname, &author.AvatarURL,
+			&author.IsAI, &authorState); err != nil {
+			return nil, 0, err
+		}
+		author.ID = api.FormatID(authorID)
+		author.IsSuspended = authorState != auth.StatusActive
+		items = append(items, gin.H{
+			"id":           api.FormatID(id),
+			"author":       author,
+			"content_html": contentHTML,
+			"status":       status,
+			"created_at":   api.FormatTime(createdAt),
+		})
+	}
+	return items, commentCount, rows.Err()
 }
 
 func (s *Service) postVersions(ctx context.Context, postID int64) ([]gin.H, error) {
 	pool := s.pools.Pool()
 	rows, err := pool.Query(ctx, `
-		SELECT id, version_number, visibility, created_at, restored_from_version_id
+		SELECT id, version_number, visibility, created_at, restored_from_version_id, content_html
 		FROM post_versions WHERE post_id = $1 ORDER BY version_number DESC`, postID)
 	if err != nil {
 		return nil, err
@@ -247,13 +320,15 @@ func (s *Service) postVersions(ctx context.Context, postID int64) ([]gin.H, erro
 		var visibility string
 		var createdAt time.Time
 		var restoredFrom *int64
-		if err := rows.Scan(&id, &number, &visibility, &createdAt, &restoredFrom); err != nil {
+		var contentHTML string
+		if err := rows.Scan(&id, &number, &visibility, &createdAt, &restoredFrom, &contentHTML); err != nil {
 			return nil, err
 		}
 		entry := gin.H{
 			"id":             api.FormatID(id),
 			"version_number": number,
 			"visibility":     visibility,
+			"content_html":   contentHTML,
 			"created_at":     api.FormatTime(createdAt),
 		}
 		if restoredFrom != nil {

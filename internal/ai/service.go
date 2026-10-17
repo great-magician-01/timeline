@@ -9,7 +9,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -19,6 +22,7 @@ import (
 	"github.com/great-magician-01/timeline/internal/access"
 	"github.com/great-magician-01/timeline/internal/api"
 	"github.com/great-magician-01/timeline/internal/audit"
+	"github.com/great-magician-01/timeline/internal/ratelimit"
 )
 
 // PoolProvider 与 auth.PoolProvider 同形，避免包之间相互依赖。
@@ -38,10 +42,42 @@ type Service struct {
 	log   *slog.Logger
 	// secretKey 是 32 字节对称密钥，来自 config.Config.SecretKey。
 	secretKey []byte
+	// providerTestLimiter 限制管理员的预设连接测试频率（会真实出站请求）。
+	providerTestLimiter *ratelimit.Limiter
 }
 
 func NewService(pools PoolProvider, ids IDGenerator, log *slog.Logger, secretKey []byte) *Service {
-	return &Service{pools: pools, ids: ids, log: log, secretKey: secretKey}
+	return &Service{
+		pools:     pools,
+		ids:       ids,
+		log:       log,
+		secretKey: secretKey,
+
+		providerTestLimiter: ratelimit.New(providerTestRateLimit, providerTestRateWindow),
+	}
+}
+
+// 预设连接测试的限频阈值：单个管理员每分钟最多 10 次。
+const (
+	providerTestRateLimit  = 10
+	providerTestRateWindow = time.Minute
+)
+
+// consumeProviderTestQuota 消耗一次连接测试额度，超限时写回 429 与 Retry-After。
+func (s *Service) consumeProviderTestQuota(c *gin.Context, adminID int64) bool {
+	allowed, retryAfter := s.providerTestLimiter.Consume("admin:" + api.FormatID(adminID))
+	if allowed {
+		return true
+	}
+	seconds := int(math.Ceil(retryAfter.Seconds()))
+	if seconds < 1 {
+		seconds = 1
+	}
+	c.Header("Retry-After", strconv.Itoa(seconds))
+	if !api.Respond(c, api.ErrRateLimited()) {
+		s.internalError(c, "连接测试限频响应失败", errors.New("rate limited"))
+	}
+	return false
 }
 
 func (s *Service) pool(c *gin.Context) (*pgxpool.Pool, bool) {

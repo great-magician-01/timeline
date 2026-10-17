@@ -105,7 +105,7 @@ func New(
 	mediaService := media.NewService(state, ids, log, store, runner)
 	aiService := ai.NewService(state, ids, log, cfg.SecretKey)
 	agentService := agent.NewService(state, ids, log, aiService, contentService, socialService, runner)
-	adminService := admin.NewService(state, ids, log, contentService, socialService)
+	adminService := admin.NewService(state, ids, log, contentService, socialService, mediaService)
 
 	s.registerBackgroundJobs(runner, contentService, mediaService, agentService)
 	s.registerAPI(authService, contentService, socialService, noticeService, mediaService, aiService, agentService, adminService)
@@ -180,6 +180,7 @@ func (s *Server) registerAPI(
 
 func (s *Server) registerAuthRoutes(v1, secured *gin.RouterGroup, services apiServices, csrf gin.HandlerFunc) {
 	v1.GET("/auth/csrf", services.auth.CSRF)
+	v1.GET("/auth/config", services.auth.Config)
 	v1.POST("/auth/register", services.auth.GuestCSRF, services.auth.Register)
 	v1.POST("/auth/login", services.auth.GuestCSRF, services.auth.Login)
 
@@ -278,6 +279,8 @@ func (s *Server) registerAdminRoutes(v1 *gin.RouterGroup, services apiServices, 
 	adminRoutes.POST("/posts/:id/delete", csrf, services.admin.DeletePost)
 	adminRoutes.GET("/comments", services.admin.ListComments)
 	adminRoutes.POST("/comments/:id/delete", csrf, services.admin.DeleteComment)
+	adminRoutes.GET("/attachments", services.admin.ListAttachments)
+	adminRoutes.POST("/attachments/:id/delete", csrf, services.admin.DeleteAttachment)
 
 	// 模型接口预设
 	adminRoutes.GET("/providers", services.ai.ListProviders)

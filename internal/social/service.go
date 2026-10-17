@@ -8,7 +8,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -98,13 +100,24 @@ func viewerForRead(c *gin.Context) model.Viewer {
 	return model.GuestViewer()
 }
 
-// allowAction 执行用户维度限频；超限时写回 429 并返回 false。
-func (s *Service) allowAction(c *gin.Context, limiter *ratelimit.Limiter, userID int64) bool {
-	if allowed, _ := limiter.Consume("user:" + api.FormatID(userID)); !allowed {
-		api.Respond(c, api.ErrRateLimited())
-		return false
+// retryAfterSeconds 把限频窗口剩余时间换算为 Retry-After 秒数（至少 1 秒）。
+func retryAfterSeconds(retryAfter time.Duration) int {
+	seconds := int(math.Ceil(retryAfter.Seconds()))
+	if seconds < 1 {
+		return 1
 	}
-	return true
+	return seconds
+}
+
+// allowAction 执行用户维度限频；超限时写回 429（带 Retry-After）并返回 false。
+func (s *Service) allowAction(c *gin.Context, limiter *ratelimit.Limiter, userID int64) bool {
+	allowed, retryAfter := limiter.Consume("user:" + api.FormatID(userID))
+	if allowed {
+		return true
+	}
+	c.Header("Retry-After", strconv.Itoa(retryAfterSeconds(retryAfter)))
+	api.Respond(c, api.ErrRateLimited())
+	return false
 }
 
 // beginTx 开启事务，失败的写操作由调用方回滚。

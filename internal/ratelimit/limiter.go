@@ -55,18 +55,35 @@ func (l *Limiter) Check(key string) (allowed bool, retryAfter time.Duration) {
 
 // Consume 在允许时消耗一个额度；用于注册等每次尝试都需要计数的接口。
 func (l *Limiter) Consume(key string) (allowed bool, retryAfter time.Duration) {
+	return l.consume(key, l.limit, l.window)
+}
+
+// ConsumeLimit 使用调用方提供的阈值与窗口消耗一个额度。
+// 限频参数来自系统设置时使用该入口，保证管理后台修改后即时生效；
+// 已存在的窗口会按新窗口重新判断是否过期。
+func (l *Limiter) ConsumeLimit(key string, limit int, window time.Duration) (allowed bool, retryAfter time.Duration) {
+	if limit < 1 {
+		limit = 1
+	}
+	if window <= 0 {
+		window = time.Second
+	}
+	return l.consume(key, limit, window)
+}
+
+func (l *Limiter) consume(key string, limit int, window time.Duration) (allowed bool, retryAfter time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	now := l.now()
 	l.cleanupLocked(now)
 	b, ok := l.buckets[key]
-	if !ok || now.Sub(b.startedAt) >= l.window {
+	if !ok || now.Sub(b.startedAt) >= window {
 		l.buckets[key] = bucket{startedAt: now, count: 1}
 		return true, 0
 	}
-	if b.count >= l.limit {
-		return false, l.window - now.Sub(b.startedAt)
+	if b.count >= limit {
+		return false, window - now.Sub(b.startedAt)
 	}
 	b.count++
 	l.buckets[key] = b

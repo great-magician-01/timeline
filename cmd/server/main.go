@@ -33,10 +33,12 @@ import (
 )
 
 const (
-	appVersion = "0.2.0-auth"
 	// listenAddr 容器内固定监听端口（宿主机映射见 .env 的 APP_PORT）。
 	listenAddr = ":5070"
 )
+
+// appVersion 由构建参数注入（Dockerfile: -ldflags "-X main.appVersion=..."）。
+var appVersion = "dev"
 
 func main() {
 	os.Exit(run())

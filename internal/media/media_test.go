@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/great-magician-01/timeline/internal/model"
+	"github.com/great-magician-01/timeline/internal/settings"
 	"github.com/great-magician-01/timeline/internal/storage"
 )
 
@@ -235,24 +236,88 @@ func TestContentDisposition(t *testing.T) {
 	}
 }
 
-// TestCleanupTimeComparison 验证清理任务的时间比较判定。
+// TestCleanupTimeComparison 验证清理任务的时间比较判定与保留期来源。
 func TestCleanupTimeComparison(t *testing.T) {
 	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.Local)
+	retention := cleanupRetention(settings.Values{})
+	if retention != settings.DefaultTempRetention {
+		t.Fatalf("空设置应回退默认保留期，得到 %s", retention)
+	}
+	custom := cleanupRetention(settings.Values{TempAttachmentRetention: 48 * time.Hour})
+	if custom != 48*time.Hour {
+		t.Fatalf("应使用设置中的保留期，得到 %s", custom)
+	}
 
-	if got := unattachedCutoff(now); !got.Equal(now.Add(-7 * 24 * time.Hour)) {
+	if got := cleanupCutoff(now, retention); !got.Equal(now.Add(-7 * 24 * time.Hour)) {
 		t.Fatalf("截止时间 = %s，期望 7 天前", got)
 	}
-	if !expiredUnattached(now.Add(-8*24*time.Hour), now) {
+	if !expiredUnattached(now.Add(-8*24*time.Hour), now, retention) {
 		t.Fatal("8 天前的临时附件应当过期")
 	}
-	if expiredUnattached(now.Add(-6*24*time.Hour), now) {
+	if expiredUnattached(now.Add(-6*24*time.Hour), now, retention) {
 		t.Fatal("6 天前的临时附件不应过期")
 	}
-	if expiredUnattached(now.Add(-7*24*time.Hour), now) {
+	if expiredUnattached(now.Add(-7*24*time.Hour), now, retention) {
 		t.Fatal("恰好 7 天的临时附件按“早于截止时间”判定不应过期")
 	}
-	if !expiredUnattached(now.Add(-7*24*time.Hour-time.Second), now) {
+	if !expiredUnattached(now.Add(-7*24*time.Hour-time.Second), now, retention) {
 		t.Fatal("超过 7 天的临时附件应当过期")
+	}
+	if !expiredUnattached(now.Add(-49*time.Hour), now, custom) {
+		t.Fatal("48 小时保留期下 49 小时前应当过期")
+	}
+	if expiredUnattached(now.Add(-47*time.Hour), now, custom) {
+		t.Fatal("48 小时保留期下 47 小时前不应过期")
+	}
+}
+
+// TestCleanupSQLGuards 验证清理 SQL 的引用保护：只清理帖子用途、未被草稿关联、
+// 未被头像引用的临时附件，并且不执行物理删除。
+func TestCleanupSQLGuards(t *testing.T) {
+	guards := []string{
+		"post_id IS NULL",
+		"status = 'available'",
+		"purpose = 'post'",
+		"post_draft_attachments",
+		"da.is_active",
+		"users",
+		"avatar_url",
+	}
+	for _, guard := range guards {
+		if !strings.Contains(cleanupAttachmentsSQL, guard) {
+			t.Errorf("清理 SQL 缺少保护条件 %q", guard)
+		}
+	}
+	lower := strings.ToLower(cleanupAttachmentsSQL)
+	if strings.Contains(lower, "delete from") {
+		t.Fatal("清理任务不得物理删除记录")
+	}
+	if !strings.Contains(cleanupAttachmentsSQL, "SET status = 'deleted'") {
+		t.Fatal("清理任务应只做逻辑失效")
+	}
+}
+
+// TestExceedsStorageQuota 验证存储配额边界：包含逻辑删除记录的总和不得超过配额。
+func TestExceedsStorageQuota(t *testing.T) {
+	cases := []struct {
+		name             string
+		used, incoming   int64
+		quota            int64
+		wantExceedsQuota bool
+	}{
+		{name: "远低于配额", used: 100, incoming: 50, quota: 1000},
+		{name: "恰好等于配额", used: 950, incoming: 50, quota: 1000},
+		{name: "超过配额", used: 960, incoming: 50, quota: 1000, wantExceedsQuota: true},
+		{name: "已用空间占满", used: 1000, incoming: 0, quota: 1000},
+		{name: "已用空间超出", used: 1200, incoming: 0, quota: 1000, wantExceedsQuota: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := exceedsStorageQuota(tc.used, tc.incoming, tc.quota); got != tc.wantExceedsQuota {
+				t.Fatalf("exceedsStorageQuota(%d,%d,%d) = %v，期望 %v",
+					tc.used, tc.incoming, tc.quota, got, tc.wantExceedsQuota)
+			}
+		})
 	}
 }
 

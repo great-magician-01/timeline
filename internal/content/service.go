@@ -27,6 +27,7 @@ import (
 	"github.com/great-magician-01/timeline/internal/model"
 	"github.com/great-magician-01/timeline/internal/ratelimit"
 	"github.com/great-magician-01/timeline/internal/richtext"
+	"github.com/great-magician-01/timeline/internal/settings"
 )
 
 // PoolProvider 与 auth、jobs 等包保持同形，便于主代理统一装配。
@@ -135,8 +136,16 @@ func viewerOf(c *gin.Context) model.Viewer {
 }
 
 // consumePostQuota 消耗一次发帖/编辑额度，超限时按 429 写回响应。
+// 限频阈值与窗口来自系统设置，每次调用即时读取，管理后台修改后立即生效。
 func (s *Service) consumePostQuota(c *gin.Context, userID int64) bool {
-	allowed, retryAfter := s.postLimiter.Consume("user:" + api.FormatID(userID))
+	pool := s.pools.Pool()
+	if pool == nil {
+		api.Error(c, http.StatusServiceUnavailable, "service_unavailable", "服务尚未就绪，请稍后重试")
+		return false
+	}
+	values := settings.LoadOrDefaults(c.Request.Context(), pool)
+	allowed, retryAfter := s.postLimiter.ConsumeLimit(
+		"user:"+api.FormatID(userID), values.PostRateLimit, values.PostRateWindow)
 	if allowed {
 		return true
 	}
@@ -339,6 +348,26 @@ func normalizeFormat(raw string) (string, error) {
 	return format, nil
 }
 
+// validateFutureScheduledAt 校验 Actor 创建路径的定时发布时间必须晚于当前时间。
+// AI 生成任务从接收请求到真正执行之间可能已经过了一段时间，因此这里只要求“未来”，
+// 不套用用户接口“至少 1 分钟”的输入提示；已到期的时间会由作业运行器立即执行。
+func validateFutureScheduledAt(at, now time.Time) error {
+	if !at.After(now) {
+		return api.ErrValidation("定时发布时间必须晚于当前时间").
+			WithDetails(gin.H{"scheduled_at": "发布时间需要晚于当前时间"})
+	}
+	return nil
+}
+
+// validateScheduledAt 校验定时发布时间至少晚于当前时间 1 分钟（纯函数，便于单元测试）。
+func validateScheduledAt(at, now time.Time) error {
+	if at.Before(now.Add(minScheduleLead)) {
+		return api.ErrValidation("定时发布时间过早").
+			WithDetails(gin.H{"scheduled_at": "发布时间需要晚于当前时间至少 1 分钟"})
+	}
+	return nil
+}
+
 // parseScheduledAt 解析定时发布时间：必须是 RFC3339，且晚于当前时间至少 1 分钟。
 func parseScheduledAt(raw string, now time.Time) (time.Time, error) {
 	value := strings.TrimSpace(raw)
@@ -351,9 +380,8 @@ func parseScheduledAt(raw string, now time.Time) (time.Time, error) {
 		return time.Time{}, api.ErrValidation("定时发布时间格式无效").
 			WithDetails(gin.H{"scheduled_at": "时间需为 RFC3339 格式，例如 2026-10-17T20:30:00+08:00"})
 	}
-	if at.Before(now.Add(minScheduleLead)) {
-		return time.Time{}, api.ErrValidation("定时发布时间过早").
-			WithDetails(gin.H{"scheduled_at": "发布时间需要晚于当前时间至少 1 分钟"})
+	if err := validateScheduledAt(at, now); err != nil {
+		return time.Time{}, err
 	}
 	return at, nil
 }

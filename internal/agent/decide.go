@@ -153,10 +153,82 @@ func replyDepthAllowed(parentDepth, maxDepth int) bool {
 	return parentDepth < maxDepth
 }
 
-// isRetryableTaskStatus 判断任务状态是否允许（再次）执行。
-// 只有 pending（新任务）与 failed（可恢复失败）可以进入 running。
+// isRetryableTaskStatus 判断任务状态是否允许首次领取执行。
+// 只有 pending（新任务）与 failed（可恢复失败）可以直接进入 running；
+// running 的重新领取由 claimTask 按 started_at 超时窗口单独判定。
 func isRetryableTaskStatus(status string) bool {
 	return status == statusPending || status == statusFailed
+}
+
+// actionGateState 是“执行动作前二次校验”所需的开关状态快照。
+type actionGateState struct {
+	GlobalEnabled  bool
+	AIExists       bool
+	ProfileEnabled bool
+	ActorExists    bool
+	ActorActive    bool
+}
+
+// evaluateActionGate 判断执行动作前是否必须停止任务：
+// 返回非空状态与原因表示应终止（canceled），空串表示可以继续执行动作。
+// 全局开关优先于单个 AI 配置，便于把“紧急停止”记录为统一原因。
+func evaluateActionGate(state actionGateState) (status, reason string) {
+	switch {
+	case !state.GlobalEnabled:
+		return statusCanceled, "全局 AI 开关已关闭"
+	case !state.AIExists:
+		return statusCanceled, "AI 账号不存在"
+	case !state.ProfileEnabled:
+		return statusCanceled, "该 AI 已停用"
+	case !state.ActorExists:
+		return statusCanceled, "AI 账号不存在"
+	case !state.ActorActive:
+		return statusCanceled, "AI 账号已停用"
+	default:
+		return "", ""
+	}
+}
+
+// actionGate 在模型调用结束后重新读取开关与账号状态（不信任入队时的快照）。
+func (s *Service) actionGate(
+	ctx context.Context,
+	q access.Querier,
+	aiID int64,
+) (taskResult, bool, error) {
+	state := actionGateState{}
+	enabled, err := s.globalAIEnabled(ctx, q)
+	if err != nil {
+		return taskResult{}, false, err
+	}
+	state.GlobalEnabled = enabled
+
+	rt, err := s.ai.RuntimeByAI(ctx, q, aiID)
+	switch {
+	case isNotFound(err):
+		state.AIExists = false
+	case err != nil:
+		return taskResult{}, false, err
+	default:
+		state.AIExists = true
+		state.ProfileEnabled = rt.Profile.IsEnabled
+	}
+
+	actor, err := loadActor(ctx, q, aiID)
+	switch {
+	case isNotFound(err):
+		state.ActorExists = false
+	case err != nil:
+		return taskResult{}, false, err
+	default:
+		state.ActorExists = true
+		state.ActorActive = actor.Active
+	}
+
+	status, reason := evaluateActionGate(state)
+	if status == "" {
+		return taskResult{}, false, nil
+	}
+	return taskResult{Status: status, Decision: reason}, true, nil
 }
 
 // retryPending 判断一次失败后是否还应交给作业层重试。
@@ -269,8 +341,11 @@ func (s *Service) lastSuccessAt(
 	targetID *int64,
 ) (time.Time, error) {
 	actions := []string{action}
-	if action == actionUnlike {
+	switch action {
+	case actionUnlike:
 		actions = append(actions, actionLike)
+	case actionUnfollow:
+		actions = append(actions, actionFollow)
 	}
 	sql := `SELECT MAX(finished_at) FROM ai_tasks
 		WHERE ai_id = $1 AND action_type = ANY($2) AND status = 'succeeded'`

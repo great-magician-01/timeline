@@ -2,16 +2,13 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/great-magician-01/timeline/internal/settings"
 )
 
 // 调用记录的保留期与截断上限可通过系统设置覆盖（docs/WORKFLOWS.md 7.7.6）。
 const (
-	callLogRetentionKey     = "ai.call_log_retention_days"
-	defaultCallLogRetention = 90
 	callLogCleanupBatchSize = 5000
 	callLogCleanupMaxRounds = 20
 )
@@ -26,8 +23,8 @@ func (s *Service) RunCallLogCleanup(ctx context.Context) {
 	}
 	retentionDays, err := s.callLogRetentionDays(ctx)
 	if err != nil {
-		s.log.Warn("读取调用记录保留期失败，使用默认值", "err", err, "days", defaultCallLogRetention)
-		retentionDays = defaultCallLogRetention
+		s.log.Warn("读取调用记录保留期失败，使用默认值", "err", err, "days", settings.DefaultCallLogRetentionDays)
+		retentionDays = settings.DefaultCallLogRetentionDays
 	}
 	if retentionDays <= 0 {
 		// 0 或负值表示关闭自动清理，保留全部记录供管理员手工处理。
@@ -64,18 +61,8 @@ func (s *Service) RunCallLogCleanup(ctx context.Context) {
 func (s *Service) callLogRetentionDays(ctx context.Context) (int, error) {
 	pool := s.pools.Pool()
 	if pool == nil {
-		return defaultCallLogRetention, nil
+		return settings.DefaultCallLogRetentionDays, nil
 	}
-	var days int
-	err := pool.QueryRow(ctx, `SELECT value FROM system_settings WHERE key = $1`, callLogRetentionKey).Scan(&days)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return defaultCallLogRetention, nil
-	}
-	if err != nil {
-		return defaultCallLogRetention, err
-	}
-	if days < 0 {
-		return 0, nil
-	}
-	return days, nil
+	values := settings.LoadOrDefaults(ctx, pool)
+	return values.CallLogRetentionDays, nil
 }

@@ -50,7 +50,8 @@ func (s *Service) createGenerationTask(c *gin.Context, mode string) {
 		return
 	}
 	var in struct {
-		Mode string `json:"mode"`
+		Mode        string  `json:"mode"`
+		ScheduledAt *string `json:"scheduled_at"`
 	}
 	if err := api.DecodeJSON(c, &in); err != nil && !errors.Is(err, io.EOF) {
 		api.Error(c, http.StatusBadRequest, "invalid_request", "请求体必须是有效的 JSON 对象，且不能包含未知字段")
@@ -63,6 +64,19 @@ func (s *Service) createGenerationTask(c *gin.Context, mode string) {
 	}
 	ctx := c.Request.Context()
 	adminUser, _ := auth.CurrentUser(c)
+	if !s.consumeGenerationQuota(c, adminUser.ID, mode) {
+		return
+	}
+	var scheduledAt *time.Time
+	if in.ScheduledAt != nil && strings.TrimSpace(*in.ScheduledAt) != "" {
+		at, err := parseFutureScheduledAt(*in.ScheduledAt, time.Now())
+		if err != nil {
+			api.ErrorWithDetails(c, http.StatusBadRequest, "validation_failed", err.Error(),
+				gin.H{"scheduled_at": err.Error()})
+			return
+		}
+		scheduledAt = &at
+	}
 
 	tx, ok := s.beginTx(c, "开启 AI 生成任务事务失败")
 	if !ok {
@@ -84,6 +98,7 @@ func (s *Service) createGenerationTask(c *gin.Context, mode string) {
 		TriggerRefID:   &aiID,
 		ActionType:     actionOriginalPost,
 		IdempotencyKey: key,
+		ScheduledAt:    scheduledAt,
 	})
 	if err != nil {
 		s.internalError(c, "创建 AI 生成任务失败", err)
@@ -94,20 +109,44 @@ func (s *Service) createGenerationTask(c *gin.Context, mode string) {
 			gin.H{"reason": reason})
 		return
 	}
-	if err := s.writeAudit(ctx, tx, adminUser.ID, audit.ActionAIGenerate, targetAI, &aiID, gin.H{
+	auditDetail := gin.H{
 		"mode":    mode,
 		"task_id": api.FormatID(taskID),
-	}); err != nil {
+	}
+	if scheduledAt != nil {
+		auditDetail["scheduled_at"] = api.FormatTime(*scheduledAt)
+	}
+	if err := s.writeAudit(ctx, tx, adminUser.ID, audit.ActionAIGenerate, targetAI, &aiID, auditDetail); err != nil {
 		s.internalError(c, "写入 AI 生成审计失败", err)
 		return
 	}
 	if !s.commitTx(c, tx, "提交 AI 生成任务事务失败") {
 		return
 	}
-	c.JSON(http.StatusAccepted, gin.H{
+	response := gin.H{
 		"task_id": api.FormatID(taskID),
 		"status":  statusPending,
-	})
+	}
+	if scheduledAt != nil {
+		response["scheduled_at"] = api.FormatTime(*scheduledAt)
+	}
+	c.JSON(http.StatusAccepted, response)
+}
+
+// parseFutureScheduledAt 解析管理端提交的定时发布时间：必须是带时区的 RFC3339 且位于未来。
+func parseFutureScheduledAt(raw string, now time.Time) (time.Time, error) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return time.Time{}, errors.New("定时发布时间不能为空")
+	}
+	at, err := time.Parse(time.RFC3339, text)
+	if err != nil {
+		return time.Time{}, errors.New("定时发布时间必须是 RFC3339 格式")
+	}
+	if !at.After(now.Add(time.Minute)) {
+		return time.Time{}, errors.New("定时发布时间必须晚于当前时间至少 1 分钟")
+	}
+	return at, nil
 }
 
 // ListAIDrafts 处理 GET /api/v1/admin/ai/:id/drafts：AI 草稿列表（发布前仅管理员可见）。
@@ -390,7 +429,7 @@ func (s *Service) ListAITasks(c *gin.Context) {
 		SELECT id, ai_id, trigger_type, COALESCE(trigger_ref_type, ''), trigger_ref_id,
 		       action_type, status, decision_summary, COALESCE(target_type, ''), target_id,
 		       COALESCE(result_ref_type, ''), result_ref_id, provider_id, model, error,
-		       attempts, started_at, finished_at, created_at
+		       attempts, started_at, finished_at, created_at, scheduled_at
 		FROM ai_tasks
 		WHERE `+strings.Join(where, " AND ")+`
 		ORDER BY id DESC LIMIT $`+strconv.Itoa(len(args)), args...)
@@ -401,6 +440,7 @@ func (s *Service) ListAITasks(c *gin.Context) {
 	defer rows.Close()
 
 	items := make([]taskResponse, 0, limit+1)
+	taskIDs := make([]int64, 0, limit+1)
 	var lastID int64
 	for rows.Next() {
 		item, err := scanTaskResponse(rows)
@@ -410,6 +450,7 @@ func (s *Service) ListAITasks(c *gin.Context) {
 		}
 		lastID = item.taskID
 		items = append(items, item.response)
+		taskIDs = append(taskIDs, item.taskID)
 	}
 	if err := rows.Err(); err != nil {
 		s.internalError(c, "遍历 AI 任务失败", err)
@@ -418,8 +459,57 @@ func (s *Service) ListAITasks(c *gin.Context) {
 	hasMore := len(items) > limit
 	if hasMore {
 		items = items[:limit]
+		taskIDs = taskIDs[:limit]
+	}
+	// 任务列表附带本次决策注入的记忆（ai_task_memory_refs），便于后台追溯。
+	memories, err := s.taskMemories(c.Request.Context(), pool, taskIDs)
+	if err != nil {
+		s.internalError(c, "读取任务注入记忆失败", err)
+		return
+	}
+	for index := range items {
+		if refs, ok := memories[taskIDs[index]]; ok {
+			items[index].Memories = refs
+		}
 	}
 	c.JSON(http.StatusOK, api.ListResponse(items, lastID, hasMore))
+}
+
+// taskMemories 批量读取任务注入的记忆，避免列表接口 N+1 查询。
+func (s *Service) taskMemories(
+	ctx context.Context,
+	q access.Querier,
+	taskIDs []int64,
+) (map[int64][]taskMemoryResponse, error) {
+	result := make(map[int64][]taskMemoryResponse, len(taskIDs))
+	if len(taskIDs) == 0 {
+		return result, nil
+	}
+	rows, err := q.Query(ctx, `
+		SELECT r.task_id, m.id, m.memory_type, m.content, m.category
+		FROM ai_task_memory_refs AS r
+		JOIN ai_memories AS m ON m.id = r.memory_id
+		WHERE r.task_id = ANY($1)
+		ORDER BY r.task_id, m.id`, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			taskID  int64
+			memory  taskMemoryResponse
+			id      int64
+			rawType string
+		)
+		if err := rows.Scan(&taskID, &id, &rawType, &memory.Content, &memory.Category); err != nil {
+			return nil, err
+		}
+		memory.ID = api.FormatID(id)
+		memory.Type = rawType
+		result[taskID] = append(result[taskID], memory)
+	}
+	return result, rows.Err()
 }
 
 // RetryAITask 处理 POST /api/v1/admin/ai-tasks/:id/retry：重试失败任务。
@@ -503,7 +593,9 @@ func (s *Service) reopenTaskJob(ctx context.Context, q access.Querier, taskID in
 	return s.enqueueAIJob(ctx, q, taskID)
 }
 
-// CancelAITask 处理 POST /api/v1/admin/ai-tasks/:id/cancel：取消待执行或执行中的任务。
+// CancelAITask 处理 POST /api/v1/admin/ai-tasks/:id/cancel：取消待执行或失败待重试的任务。
+// 正在执行（running）的任务不在此处取消：动作可能已进入事务，只能由全局/单个 AI 停止
+// 或执行前的二次校验拦截（docs/WORKFLOWS.md 7.5.3）。
 func (s *Service) CancelAITask(c *gin.Context) {
 	if _, ok := s.pool(c); !ok {
 		return
@@ -530,8 +622,8 @@ func (s *Service) CancelAITask(c *gin.Context) {
 		s.internalError(c, "读取待取消任务失败", err)
 		return
 	}
-	if current != statusPending && current != statusRunning && current != statusFailed {
-		api.ErrorWithDetails(c, http.StatusBadRequest, "validation_failed", "该任务当前不能取消",
+	if current != statusPending && current != statusFailed {
+		api.ErrorWithDetails(c, http.StatusBadRequest, "validation_failed", "只有待执行或失败的任务可以取消",
 			gin.H{"status": "当前状态为 " + current})
 		return
 	}
@@ -573,10 +665,11 @@ func (s *Service) ListCallLogs(c *gin.Context) {
 		args = append(args, strings.TrimSpace(value))
 		where = append(where, column+" = $"+strconv.Itoa(len(args)))
 	}
-	// ai_id / provider_id 是 BIGINT 列：先校验再传参，非法输入返回 400 而不是 500。
+	// ai_id / provider_id / task_id 是 BIGINT 列：先校验再传参，非法输入返回 400 而不是 500。
 	for _, filter := range []struct{ column, query string }{
 		{"ai_id", "ai_id"},
 		{"provider_id", "provider_id"},
+		{"task_id", "task_id"},
 	} {
 		raw := strings.TrimSpace(c.Query(filter.query))
 		if raw == "" {
@@ -819,6 +912,17 @@ type taskResponse struct {
 	StartedAt       *string `json:"started_at"`
 	FinishedAt      *string `json:"finished_at"`
 	CreatedAt       string  `json:"created_at"`
+	ScheduledAt     *string `json:"scheduled_at,omitempty"`
+	// Memories 是本次决策注入过的记忆（ai_task_memory_refs）。
+	Memories []taskMemoryResponse `json:"memories"`
+}
+
+// taskMemoryResponse 是任务列表中的注入记忆摘要。
+type taskMemoryResponse struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Content  string `json:"content"`
+	Category string `json:"category"`
 }
 
 // taskResponseRow 附带原始任务 ID，便于生成游标。
@@ -839,11 +943,12 @@ func scanTaskResponse(row pgx.Row) (taskResponseRow, error) {
 		startedAt   *time.Time
 		finishedAt  *time.Time
 		createdAt   time.Time
+		scheduledAt *time.Time
 	)
 	if err := row.Scan(&id, &aiID, &item.TriggerType, &item.TriggerRefType, &triggerRef,
 		&item.ActionType, &item.Status, &item.DecisionSummary, &item.TargetType, &targetID,
 		&item.ResultRefType, &resultRefID, &providerID, &item.Model, &item.Error,
-		&item.Attempts, &startedAt, &finishedAt, &createdAt); err != nil {
+		&item.Attempts, &startedAt, &finishedAt, &createdAt, &scheduledAt); err != nil {
 		return taskResponseRow{}, err
 	}
 	item.ID = api.FormatID(id)
@@ -855,6 +960,8 @@ func scanTaskResponse(row pgx.Row) (taskResponseRow, error) {
 	item.StartedAt = formatOptionalTime(startedAt)
 	item.FinishedAt = formatOptionalTime(finishedAt)
 	item.CreatedAt = api.FormatTime(createdAt)
+	item.ScheduledAt = formatOptionalTime(scheduledAt)
+	item.Memories = []taskMemoryResponse{}
 	return taskResponseRow{taskID: id, response: item}, nil
 }
 

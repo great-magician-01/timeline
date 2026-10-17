@@ -2,17 +2,25 @@
 package admin
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/great-magician-01/timeline/internal/access"
 	"github.com/great-magician-01/timeline/internal/api"
 	"github.com/great-magician-01/timeline/internal/auth"
 	"github.com/great-magician-01/timeline/internal/content"
 	"github.com/great-magician-01/timeline/internal/social"
 )
+
+// AttachmentAdmin 是管理后台处置附件所需的最小能力（由 internal/media.Service 实现）。
+// 用接口而不是直接依赖 internal/media，避免 admin 与 media 之间形成循环依赖。
+type AttachmentAdmin interface {
+	DeleteAsAdmin(ctx context.Context, q access.Querier, adminID, attachmentID int64) error
+}
 
 type Service struct {
 	pools   auth.PoolProvider
@@ -20,18 +28,24 @@ type Service struct {
 	log     *slog.Logger
 	content *content.Service
 	social  *social.Service
+	media   AttachmentAdmin
 }
 
 // NewService 构造管理服务；内容审核复用 content/social 的逻辑删除流程，
-// 避免管理后台出现第二套删除实现。
+// 避免管理后台出现第二套删除实现。mediaServices 可选：传入后启用附件处置接口。
 func NewService(
 	pools auth.PoolProvider,
 	ids auth.IDGenerator,
 	log *slog.Logger,
 	contentService *content.Service,
 	socialService *social.Service,
+	mediaServices ...AttachmentAdmin,
 ) *Service {
-	return &Service{pools: pools, ids: ids, log: log, content: contentService, social: socialService}
+	service := &Service{pools: pools, ids: ids, log: log, content: contentService, social: socialService}
+	if len(mediaServices) > 0 {
+		service.media = mediaServices[0]
+	}
+	return service
 }
 
 func (s *Service) pool(c *gin.Context) (*pgxpool.Pool, bool) {

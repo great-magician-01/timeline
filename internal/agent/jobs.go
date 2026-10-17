@@ -51,8 +51,9 @@ func (s *Service) HandleAITaskJob(ctx context.Context, job jobs.Job) error {
 	if err != nil {
 		return err
 	}
-	if !isRetryableTaskStatus(task.Status) {
-		// succeeded / noop / rejected / canceled / running：不再重复执行。
+	if !taskClaimable(task.Status) {
+		// succeeded / noop / rejected / canceled：不再重复执行；
+		// running 是否可重新领取由 claimTask 按 started_at 是否超时决定。
 		return nil
 	}
 
@@ -118,11 +119,12 @@ func jobRefID(job jobs.Job, payloadKey string) (int64, bool) {
 }
 
 // claimTask 原子领取任务：只有 pending/failed（或超时未完成的 running）才能进入 running。
+// 重新领取 running 时刷新 started_at，避免同一超时窗口内被反复领取。
 func (s *Service) claimTask(ctx context.Context, q access.Querier, taskID int64) (int, bool, error) {
 	var attempts int
 	err := q.QueryRow(ctx, `
 		UPDATE ai_tasks
-		SET status = 'running', started_at = COALESCE(started_at, now()), attempts = attempts + 1
+		SET status = 'running', started_at = now(), attempts = attempts + 1
 		WHERE id = $1 AND (
 			status IN ('pending', 'failed')
 			OR (status = 'running' AND started_at < now() - interval '10 minutes')
@@ -135,6 +137,17 @@ func (s *Service) claimTask(ctx context.Context, q access.Querier, taskID int64)
 		return 0, false, err
 	}
 	return attempts, true, nil
+}
+
+// taskClaimable 判断任务状态是否值得尝试领取：
+// pending/failed 直接可领，running 交给 claimTask 按超时窗口判定（重启恢复路径）。
+func taskClaimable(status string) bool {
+	switch status {
+	case statusPending, statusFailed, statusRunning:
+		return true
+	default:
+		return false
+	}
 }
 
 // updateTaskResult 写回任务终态（决策摘要、目标、结果引用、模型与错误）。
@@ -251,6 +264,18 @@ func (s *Service) runTask(ctx context.Context, task aiTask) (taskResult, error) 
 		return result, nil
 	}
 
+	// 模型返回后、执行动作前再次读取全局开关、AI 启用状态与账号状态：
+	// 等待模型期间管理员可能已经全局停止或停用该 AI（docs/WORKFLOWS.md 7.5.3）。
+	gate, blocked, err := s.actionGate(ctx, pool, task.AID)
+	if err != nil {
+		return taskResult{}, err
+	}
+	if blocked {
+		gate.ProviderID = result.ProviderID
+		gate.Model = result.Model
+		return gate, nil
+	}
+
 	decision, err := parseDecision(responseText(resp))
 	if err != nil {
 		result.Status = statusRejected
@@ -336,6 +361,10 @@ func (s *Service) runTask(ctx context.Context, task aiTask) (taskResult, error) 
 	result.Status = statusSucceeded
 	result.ActionType = outcome.ActionType
 	result.Decision = firstNonEmpty(decision.Reason, outcome.Summary)
+	if task.ScheduledAt != nil {
+		// 定时发布时优先写清“计划发布时间”，避免摘要被模型理由淹没。
+		result.Decision = firstNonEmpty(outcome.Summary, decision.Reason)
+	}
 	if outcome.TargetType != "" {
 		result.TargetType = outcome.TargetType
 	}
@@ -376,9 +405,12 @@ func (s *Service) afterAction(ctx context.Context, task aiTask, result taskResul
 	}
 }
 
-// targetRefID 返回用于冷却判断的目标 ID；用户目标与原创帖不参与目标级冷却。
+// targetRefID 返回用于冷却判断的目标 ID：帖子、评论与用户都参与目标级冷却；
+// 原创帖等没有目标 ID 的动作返回 nil，只受动作级冷却约束。
 func targetRefID(target decisionTarget) *int64 {
-	if target.Type != targetPost && target.Type != targetComment {
+	switch target.Type {
+	case targetPost, targetComment, targetUser:
+	default:
 		return nil
 	}
 	if target.ID <= 0 {

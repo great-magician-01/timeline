@@ -66,6 +66,7 @@ func (s *Service) executeDecision(
 			Visibility:   model.VisibilityPublic,
 			QuotedPostID: quoted,
 			AsDraft:      asDraft,
+			ScheduledAt:  task.ScheduledAt,
 		})
 		if err != nil {
 			return actionOutcome{}, err
@@ -76,13 +77,19 @@ func (s *Service) executeDecision(
 		outcome.ResultRefID = &postID
 		outcome.SourceRefType = sourcePost
 		outcome.SourceRefID = &postID
-		if asDraft {
+		switch {
+		case task.ScheduledAt != nil:
+			outcome.Summary = fmt.Sprintf("已创建定时 AI 帖子 %s，计划于 %s 发布",
+				api.FormatID(postID), api.FormatTime(*task.ScheduledAt))
+			// 定时帖在真正发布前不属于已发布内容，不形成记忆。
+			outcome.MemoryNote = ""
+		case asDraft:
 			outcome.Summary = "生成 AI 草稿，等待管理员发布"
 			outcome.MemoryNote = ""
-		} else if decision.Action == actionQuote {
+		case decision.Action == actionQuote:
 			outcome.Summary = fmt.Sprintf("引用转发了帖子 %s", api.FormatID(postID))
 			outcome.MemoryNote = fmt.Sprintf("引用转发了一条公开帖子，并写道：%s", truncateRunes(decision.Content, 300))
-		} else {
+		default:
 			outcome.Summary = fmt.Sprintf("发布了原创帖 %s", api.FormatID(postID))
 			outcome.MemoryNote = fmt.Sprintf("发布了一条原创帖：%s", truncateRunes(decision.Content, 300))
 		}

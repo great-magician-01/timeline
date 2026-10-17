@@ -654,3 +654,67 @@ func TestCollectPagePropagatesError(t *testing.T) {
 		t.Fatalf("应原样返回查询错误，实际 %v", err)
 	}
 }
+
+func TestPublishStateFor(t *testing.T) {
+	cases := []struct {
+		name         string
+		postStatus   string
+		jobStatus    string
+		jobError     string
+		wantStatus   string
+		wantFailed   bool
+		wantErrorMsg string
+	}{
+		{name: "草稿没有作业", postStatus: model.PostStatusDraft, wantStatus: model.PostStatusDraft},
+		{name: "定时等待中", postStatus: model.PostStatusScheduled, jobStatus: "pending", wantStatus: model.PostStatusScheduled},
+		{name: "定时执行中", postStatus: model.PostStatusScheduled, jobStatus: "running", wantStatus: model.PostStatusScheduled},
+		{
+			name: "发布失败", postStatus: model.PostStatusScheduled, jobStatus: "failed", jobError: "模型调用失败",
+			wantStatus: "failed", wantFailed: true, wantErrorMsg: "模型调用失败",
+		},
+		{
+			name: "发布暂停", postStatus: model.PostStatusScheduled, jobStatus: "paused", jobError: "作者账号已停用",
+			wantStatus: "paused", wantFailed: false, wantErrorMsg: "",
+		},
+		{name: "无最新作业时沿用帖子状态", postStatus: model.PostStatusScheduled, jobStatus: "", wantStatus: model.PostStatusScheduled},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, failed, message := publishStateFor(tc.postStatus, tc.jobStatus, tc.jobError)
+			if status != tc.wantStatus || failed != tc.wantFailed || message != tc.wantErrorMsg {
+				t.Fatalf("publishStateFor(%q,%q,%q) = (%q,%v,%q)，期望 (%q,%v,%q)",
+					tc.postStatus, tc.jobStatus, tc.jobError,
+					status, failed, message, tc.wantStatus, tc.wantFailed, tc.wantErrorMsg)
+			}
+		})
+	}
+}
+
+func TestValidateFutureScheduledAt(t *testing.T) {
+	now := time.Date(2026, 10, 17, 20, 0, 0, 0, time.FixedZone("CST", 8*3600))
+	if err := validateFutureScheduledAt(now.Add(time.Second), now); err != nil {
+		t.Fatalf("未来时间应通过: %v", err)
+	}
+	if err := validateFutureScheduledAt(now, now); err == nil {
+		t.Fatal("当前时间应被拒绝")
+	}
+	if err := validateFutureScheduledAt(now.Add(-time.Minute), now); err == nil {
+		t.Fatal("过去时间应被拒绝")
+	}
+}
+
+func TestValidateScheduledAt(t *testing.T) {
+	now := time.Date(2026, 10, 17, 20, 0, 0, 0, time.FixedZone("CST", 8*3600))
+	if err := validateScheduledAt(now.Add(2*time.Minute), now); err != nil {
+		t.Fatalf("晚于当前时间 2 分钟应通过: %v", err)
+	}
+	if err := validateScheduledAt(now.Add(time.Minute), now); err != nil {
+		t.Fatalf("恰好晚于 1 分钟应通过: %v", err)
+	}
+	if err := validateScheduledAt(now.Add(30*time.Second), now); err == nil {
+		t.Fatal("不足 1 分钟应被拒绝")
+	}
+	if err := validateScheduledAt(now.Add(-time.Hour), now); err == nil {
+		t.Fatal("过去时间应被拒绝")
+	}
+}

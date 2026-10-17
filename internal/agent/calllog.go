@@ -12,14 +12,16 @@ import (
 	"github.com/great-magician-01/callable"
 
 	"github.com/great-magician-01/timeline/internal/ai"
+	"github.com/great-magician-01/timeline/internal/settings"
 )
 
 // 出站重试与超时约定与 internal/ai/client.go 保持一致（docs/WORKFLOWS.md 7.6）：
-// 出站重试与任务层有限重试合并计算，避免重试风暴。钩子需要在本包注入，
-// 因此这里自行按同一组参数构造 callable 客户端。
+// 出站重试与任务层有限重试合并计算，避免重试风暴。调用记录需要逐次成条，
+// 因此本包自行循环重试，并把 provider 的内置重试关闭。
 const (
 	outboundRetries          = 2
 	outboundRetryBackoffStep = 3 * time.Second
+	outboundRetryBackoffMax  = 9 * time.Second
 	// maxCallLogBytes 是请求/响应内容的单字段截断上限（默认 64KB）。
 	maxCallLogBytes = 64 * 1024
 	// callLogWriteTimeout 是调用记录写入的超时；写入失败只记日志。
@@ -34,11 +36,18 @@ type callRecord struct {
 	Model      string
 	Params     ai.GenerationParams
 	Attempt    int
+	// MaxLogBytes 是本次调用记录的单字段截断上限；为 0 时使用代码默认值。
+	MaxLogBytes int
 }
 
 // callModel 调用一次模型并写入调用记录。
 // 请求/响应内容通过 callable 的请求/响应钩子捕获；记录中绝不包含 API Key 或请求头。
 // 返回的 resp 可能为 nil（调用失败时）。
+//
+// 出站重试由本层自己执行（provider 的 WithRetries 固定为 0），而不是交给 callable：
+// callable 的钩子只在一次 Client.Create 前后触发，库内重试的中间失败无法逐次落库。
+// 外置循环后，每一次 HTTP 尝试都是一次 Client.Create，钩子因此能各写一条
+// ai_call_logs（attempt 为该次尝试的序号，docs/WORKFLOWS.md 7.7）。
 func (s *Service) callModel(
 	ctx context.Context,
 	rt ai.Runtime,
@@ -62,6 +71,12 @@ func (s *Service) callModel(
 	if rec.Attempt <= 0 {
 		rec.Attempt = 1
 	}
+	if rec.MaxLogBytes <= 0 {
+		rec.MaxLogBytes = maxCallLogBytes
+		if pool := s.pools.Pool(); pool != nil {
+			rec.MaxLogBytes = settings.LoadOrDefaults(ctx, pool).CallLogMaxBytes
+		}
+	}
 
 	timeout := rt.Timeout
 	if timeout <= 0 {
@@ -69,8 +84,7 @@ func (s *Service) callModel(
 	}
 	httpClient := &http.Client{Timeout: timeout}
 	provider := callable.NewOpenAIProvider(rt.Provider.APIKey, rt.Provider.BaseURL,
-		callable.WithRetries(outboundRetries),
-		callable.WithRetryBackoff(outboundRetryBackoffStep, 3*outboundRetryBackoffStep),
+		callable.WithRetries(0),
 		callable.WithHTTPClient(httpClient),
 	)
 	options := []callable.ClientOption{callable.WithModel(model)}
@@ -87,8 +101,12 @@ func (s *Service) callModel(
 		options = append(options, callable.WithStopSequences(rt.Params.Stop...))
 	}
 
-	var requestText string
-	started := time.Now()
+	// 钩子读取的“本次尝试”状态在每次 Client.Create 前重置；Create 是同步的，
+	// 因此不存在并发写同一个请求/响应记录的问题。
+	var (
+		requestText string
+		started     time.Time
+	)
 	options = append(options,
 		callable.WithRequestHook(func(_ context.Context, req *callable.Request) {
 			requestText = renderRequestContent(req)
@@ -107,9 +125,92 @@ func (s *Service) callModel(
 		request = request.WithResponseFormat(format)
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	return client.Create(callCtx, request)
+	return withOutboundRetry(ctx, outboundRetries, sleepContext,
+		func(attemptCtx context.Context, attempt int) (*callable.Response, error) {
+			rec.Attempt = attempt
+			requestText = ""
+			started = time.Now()
+			// 单次尝试使用独立超时：一次超时耗尽整体 context 会让后续重试直接失败。
+			attemptCtx, cancel := context.WithTimeout(attemptCtx, timeout)
+			defer cancel()
+			return client.Create(attemptCtx, request)
+		})
+}
+
+// callAttemptFunc 执行一次 HTTP 调用尝试；attempt 从 1 开始。
+type callAttemptFunc func(ctx context.Context, attempt int) (*callable.Response, error)
+
+// withOutboundRetry 在 agent 层执行有限出站重试：
+// 只有瞬态错误（429/5xx/网络）重试，4xx 立即返回；退避沿用 3s/9s。
+// 每次尝试都通过 call 回调传入序号，供调用记录逐次落库。
+func withOutboundRetry(
+	ctx context.Context,
+	retries int,
+	sleep func(context.Context, time.Duration) error,
+	call callAttemptFunc,
+) (*callable.Response, error) {
+	attempts := retries + 1
+	if attempts < 1 {
+		attempts = 1
+	}
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		resp, err := call(ctx, attempt)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if !retryableCallError(err) || attempt >= attempts {
+			break
+		}
+		if err := sleep(ctx, outboundRetryDelay(attempt)); err != nil {
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
+
+// retryableCallError 判断一次调用失败是否值得重试：
+// 传输层失败（StatusCode = 0）、429 与 5xx 属于瞬态错误；其余 4xx 与上下文取消失败不重试。
+func retryableCallError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *callable.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == 0 || apiErr.StatusCode == 429 || apiErr.StatusCode >= 500
+	}
+	return false
+}
+
+// outboundRetryDelay 返回第 attempt 次尝试失败后的退避时间：3s、9s，之后保持 9s。
+func outboundRetryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	delay := outboundRetryBackoffStep
+	for i := 1; i < attempt; i++ {
+		delay *= 3
+		if delay >= outboundRetryBackoffMax {
+			return outboundRetryBackoffMax
+		}
+	}
+	return delay
+}
+
+// sleepContext 在等待退避时不阻塞取消信号。
+func sleepContext(ctx context.Context, duration time.Duration) error {
+	if duration <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // errProviderUnavailable 表示该 AI 尚未配置可用的模型接口预设。
@@ -171,13 +272,13 @@ func (s *Service) writeCallLog(
 		}
 	}
 
-	requestStored, requestTruncated := truncateBytes(requestText, maxCallLogBytes)
+	requestStored, requestTruncated := truncateBytes(requestText, rec.MaxLogBytes)
 	responseText := ""
 	if resp != nil {
 		responseText = resp.Text
 	}
-	responseStored, responseTruncated := truncateBytes(responseText, maxCallLogBytes)
-	errorStored, _ := truncateBytes(errorMessage, maxCallLogBytes)
+	responseStored, responseTruncated := truncateBytes(responseText, rec.MaxLogBytes)
+	errorStored, _ := truncateBytes(errorMessage, rec.MaxLogBytes)
 
 	params := paramsSnapshot(rec)
 	var inputTokens, outputTokens, reasoningTokens *int

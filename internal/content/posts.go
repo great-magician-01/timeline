@@ -13,6 +13,7 @@ import (
 
 	"github.com/great-magician-01/timeline/internal/access"
 	"github.com/great-magician-01/timeline/internal/api"
+	"github.com/great-magician-01/timeline/internal/audit"
 	"github.com/great-magician-01/timeline/internal/auth"
 	"github.com/great-magician-01/timeline/internal/jobs"
 	"github.com/great-magician-01/timeline/internal/model"
@@ -97,7 +98,8 @@ func normalizePostInput(ctx context.Context, q access.Querier, authorID int64, i
 	return content, nil
 }
 
-// ensureQuotablePost 校验引用目标只能是公开的已发布帖子。
+// ensureQuotablePost 校验引用目标只能是公开的已发布帖子，且原帖作者未停用。
+// 公开帖子本身仍然可读，但停用账号不再接受新的引用互动。
 func ensureQuotablePost(ctx context.Context, q access.Querier, quotedID int64) error {
 	quoted, err := loadPost(ctx, q, quotedID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -109,6 +111,13 @@ func ensureQuotablePost(ctx context.Context, q access.Querier, quotedID int64) e
 	if quoted.Status != model.PostStatusPublished || quoted.Visibility != model.VisibilityPublic {
 		return api.ErrValidation("只能引用公开的已发布内容").
 			WithDetails(gin.H{"quoted_post_id": "只能引用公开的已发布内容"})
+	}
+	suspended, err := access.IsSuspended(ctx, q, quoted.AuthorID)
+	if err != nil {
+		return err
+	}
+	if suspended {
+		return api.ErrForbidden("原帖作者账号已停用，不能引用该内容")
 	}
 	return nil
 }
@@ -498,22 +507,23 @@ func (s *Service) CreatePost(c *gin.Context) {
 }
 
 // applyCreateAction 按创建动作推进帖子状态。
-func (s *Service) applyCreateAction(ctx context.Context, tx pgx.Tx, postID, authorID int64, action string, scheduledAt *time.Time) error {
+// q 可以是事务或连接池：传入事务时与调用方的其他写入保持原子。
+func (s *Service) applyCreateAction(ctx context.Context, q access.Querier, postID, authorID int64, action string, scheduledAt *time.Time) error {
 	switch action {
 	case actionDraft:
 		return nil
 	case actionPublish:
-		return s.publishLocked(ctx, tx, postID, authorID)
+		return s.publishLocked(ctx, q, postID, authorID)
 	case actionSchedule:
 		if scheduledAt == nil {
 			return api.ErrValidation("请填写定时发布时间")
 		}
-		if _, err := tx.Exec(ctx, `
+		if _, err := q.Exec(ctx, `
 			UPDATE posts SET status = 'scheduled', scheduled_at = $2, updated_at = now()
 			WHERE id = $1`, postID, *scheduledAt); err != nil {
 			return err
 		}
-		return s.enqueuePublishJob(ctx, tx, postID, *scheduledAt)
+		return s.enqueuePublishJob(ctx, q, postID, *scheduledAt)
 	default:
 		return api.ErrValidation("缺少或无效的操作类型")
 	}
@@ -987,6 +997,7 @@ func (s *Service) CancelSchedule(c *gin.Context) {
 }
 
 // DeletePost 逻辑删除帖子：作者或管理员。
+// 管理员通过本接口删除时写入管理审计，普通作者自行删除不写管理审计。
 func (s *Service) DeletePost(c *gin.Context) {
 	viewer := viewerOf(c)
 	if !viewer.Authenticated {
@@ -1005,7 +1016,17 @@ func (s *Service) DeletePost(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if _, err := s.DeletePostInternal(c.Request.Context(), viewer.ID, postID, viewer.IsAdmin, nil); err != nil {
+	var hook AuditHook
+	if viewer.IsAdmin {
+		adminID := viewer.ID
+		hook = func(ctx context.Context, tx pgx.Tx, deletedPostID, authorID int64) error {
+			return audit.Write(ctx, tx, s.ids, adminID, audit.ActionPostDelete, "post", &deletedPostID, gin.H{
+				"author_id": api.FormatID(authorID),
+				"source":    "post_delete",
+			})
+		}
+	}
+	if _, err := s.DeletePostInternal(c.Request.Context(), viewer.ID, postID, viewer.IsAdmin, hook); err != nil {
 		s.respond(c, "删除帖子失败", err)
 		return
 	}
@@ -1097,11 +1118,14 @@ type ActorPostInput struct {
 	Visibility    string // AI 作者只能是 public
 	AttachmentIDs []int64
 	QuotedPostID  *int64
-	AsDraft       bool // true → status=draft（AI 草稿仅管理员可见）；false → 直接发布
+	AsDraft       bool       // true → status=draft（AI 草稿仅管理员可见）；false → 直接发布
+	ScheduledAt   *time.Time // 非空时创建定时帖（优先于 AsDraft），必须晚于当前时间至少 1 分钟
 }
 
-// CreatePostForActor 在调用方的事务内创建帖子：草稿或直接发布（含版本、标签、搜索、提及）。
-// 作者账号停用时返回 api.ErrSuspended；引用的原帖必须公开且已发布。
+// CreatePostForActor 在调用方的事务内创建帖子：草稿、直接发布或定时发布
+// （含版本、标签、搜索、提及）。定时发布先创建草稿工作区，再复用 applyCreateAction
+// 置为 scheduled 并入队发布作业。作者账号停用时返回 api.ErrSuspended；
+// 引用的原帖必须公开、已发布且作者未停用。
 // 函数自身不开启事务：q 为事务时天然原子，为连接池时由调用方保证。
 func (s *Service) CreatePostForActor(ctx context.Context, q access.Querier, in ActorPostInput) (model.Post, error) {
 	if in.AuthorID <= 0 {
@@ -1117,6 +1141,18 @@ func (s *Service) CreatePostForActor(ctx context.Context, q access.Querier, in A
 	}
 	if authorStatus != auth.StatusActive {
 		return model.Post{}, api.ErrSuspended("账号已停用，不能创建内容")
+	}
+
+	// 定时发布优先于草稿/直接发布；时间校验必须在写入前完成，避免留下半成品。
+	action := actionPublish
+	if in.AsDraft {
+		action = actionDraft
+	}
+	if in.ScheduledAt != nil {
+		if err := validateFutureScheduledAt(*in.ScheduledAt, time.Now()); err != nil {
+			return model.Post{}, err
+		}
+		action = actionSchedule
 	}
 
 	content, err := normalizeActorContent(ctx, q, in)
@@ -1144,10 +1180,8 @@ func (s *Service) CreatePostForActor(ctx context.Context, q access.Querier, in A
 	if err := replaceDraftAttachments(ctx, q, postID, content.attachmentIDs); err != nil {
 		return model.Post{}, err
 	}
-	if !in.AsDraft {
-		if err := s.publishLocked(ctx, q, postID, in.AuthorID); err != nil {
-			return model.Post{}, err
-		}
+	if err := s.applyCreateAction(ctx, q, postID, in.AuthorID, action, in.ScheduledAt); err != nil {
+		return model.Post{}, err
 	}
 	return PostByID(ctx, q, postID)
 }

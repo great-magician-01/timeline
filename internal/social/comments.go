@@ -393,6 +393,12 @@ func (s *Service) CreateCommentFor(ctx context.Context, q access.Querier, in Com
 		if parent.Deleted() {
 			return model.Comment{}, api.ErrValidation("父评论已删除，不能回复")
 		}
+		// 父评论作者停用后公开内容仍可读，但不再接受新的回复互动。
+		if parent.AuthorID != in.ActorID {
+			if err := ensureAuthorActive(ctx, q, parent.AuthorID); err != nil {
+				return model.Comment{}, err
+			}
+		}
 		parentID, rootID = threadPosition(parent.ID, parent.RootCommentID)
 		parentAuthorID = parent.AuthorID
 	}

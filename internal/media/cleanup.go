@@ -12,40 +12,68 @@ import (
 	"github.com/great-magician-01/timeline/internal/audit"
 	"github.com/great-magician-01/timeline/internal/auth"
 	"github.com/great-magician-01/timeline/internal/model"
+	"github.com/great-magician-01/timeline/internal/settings"
 )
 
-// unattachedCutoff 返回临时附件的失效时间点：早于该时间且未关联帖子的附件应被标记失效
+// cleanupRetention 返回临时附件保留期。settings 已保证有效值大于零，
+// 这里的兜底只防御调用方手工构造的 Values。
+func cleanupRetention(values settings.Values) time.Duration {
+	if values.TempAttachmentRetention <= 0 {
+		return settings.DefaultTempRetention
+	}
+	return values.TempAttachmentRetention
+}
+
+// cleanupCutoff 返回临时附件的失效时间点：早于该时间且未关联帖子的附件应被标记失效
 // （纯函数，便于单元测试；SQL 条件与之保持一致）。
-func unattachedCutoff(now time.Time) time.Time {
-	return now.Add(-unattachedRetention)
+func cleanupCutoff(now time.Time, retention time.Duration) time.Time {
+	return now.Add(-retention)
 }
 
 // expiredUnattached 判断一个未关联帖子的附件是否已超过保留期。
-func expiredUnattached(createdAt, now time.Time) bool {
-	return createdAt.Before(unattachedCutoff(now))
+func expiredUnattached(createdAt, now time.Time, retention time.Duration) bool {
+	return createdAt.Before(cleanupCutoff(now, retention))
 }
 
+// cleanupAttachmentsSQL 标记过期临时附件为失效。只处理同时满足以下条件的记录：
+//   - 仍可用且用途为帖子（头像附件的用途是 avatar，不在此列）；
+//   - 尚未挂到任何帖子（post_id IS NULL）；
+//   - 不存在生效中的草稿关联（post_draft_attachments.is_active = TRUE），
+//     避免草稿已引用但尚未发布的附件被误清理；
+//   - users.avatar_url 未引用该附件（防御历史上的错误用途数据）。
+//
+// UPDATE 在写入时再次检查引用，避免与草稿保存、发布竞争导致误标；
+// 全流程只更新状态，不删除数据库记录与物理文件。
+const cleanupAttachmentsSQL = `
+	UPDATE attachments AS a
+	SET status = 'deleted', updated_at = now()
+	WHERE a.post_id IS NULL
+	  AND a.status = 'available'
+	  AND a.purpose = 'post'
+	  AND a.created_at < $1
+	  AND NOT EXISTS (
+		SELECT 1 FROM post_draft_attachments AS da
+		WHERE da.attachment_id = a.id AND da.is_active
+	  )
+	  AND NOT EXISTS (
+		SELECT 1 FROM users AS u
+		WHERE u.avatar_url = '/api/v1/attachments/' || a.id::text || '/content'
+	  )`
+
 // RunCleanup 是周期清理任务（由作业运行器每 6 小时调用一次，docs/WORKFLOWS.md 6.3）：
-//  1. 超过保留期且未关联任何帖子的临时附件标记为失效；
+//  1. 超过保留期且未被草稿或帖子引用的临时帖子附件标记为失效；
 //  2. 已失效附件上未完成的衍生文件标记为取消。
 //
-// 全程只更新状态，绝不删除数据库记录与物理文件；单条 UPDATE 语句在更新时再次检查引用，
-// 避免与草稿保存、历史恢复竞争导致误标。
+// 保留期来自系统设置（media.temp_attachment_retention_hours），每次执行即时读取。
+// 全程只更新状态，绝不删除数据库记录与物理文件。
 func (s *Service) RunCleanup(ctx context.Context) {
 	pool := s.pools.Pool()
 	if pool == nil {
 		return
 	}
-	// 只清理发布用途的临时上传：头像附件同样 post_id IS NULL，但它被 users.avatar_url
-	// 引用，属于有效内容引用，不得失效（docs/WORKFLOWS.md 6.3.4 只允许清理“未关联任何
-	// 草稿或帖子的临时上传”）。
-	expired, err := pool.Exec(ctx, `
-		UPDATE attachments
-		SET status = 'deleted', updated_at = now()
-		WHERE post_id IS NULL AND status = 'available' AND created_at < $1
-		  AND purpose = 'post'`,
-		unattachedCutoff(time.Now()),
-	)
+	values := settings.LoadOrDefaults(ctx, pool)
+	retention := cleanupRetention(values)
+	expired, err := pool.Exec(ctx, cleanupAttachmentsSQL, cleanupCutoff(time.Now(), retention))
 	if err != nil {
 		s.log.Error("清理过期临时附件失败", "err", err)
 		return
@@ -60,6 +88,7 @@ func (s *Service) RunCleanup(ctx context.Context) {
 		return
 	}
 	s.log.Info("附件清理完成",
+		"retention_hours", int(retention.Hours()),
 		"expired_attachments", expired.RowsAffected(),
 		"canceled_derivatives", canceled.RowsAffected())
 }

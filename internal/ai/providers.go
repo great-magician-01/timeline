@@ -422,6 +422,22 @@ func (s *Service) UpdateProvider(c *gin.Context) {
 	if in.IsEnabled != nil {
 		isEnabled = *in.IsEnabled
 	}
+	// 停用预设前检查关联 AI：与删除一致，仍有 AI 依赖时返回 409，避免后台任务
+	// 在配置缺失时反复失败（docs/REQUIREMENTS.md 12.2.7）。只影响停用方向，
+	// 启用与其他字段更新不受限制。
+	if current.IsEnabled && !isEnabled {
+		counts, err := providerAICounts(ctx, tx, []int64{providerID})
+		if err != nil {
+			s.internalError(c, "统计预设关联 AI 数量失败", err)
+			return
+		}
+		if aiCount, blocked := providerDisableConflict(current.IsEnabled, isEnabled, counts[providerID]); blocked {
+			api.ErrorWithDetails(c, http.StatusConflict, "duplicate",
+				fmt.Sprintf("仍有 %d 个 AI 关联该预设，请先解除关联或停用对应 AI", aiCount),
+				gin.H{"ai_count": aiCount})
+			return
+		}
+	}
 	if _, err = tx.Exec(ctx, `
 		UPDATE model_providers
 		SET name = $2, base_url = $3, api_key_cipher = $4, default_model = $5,
@@ -520,6 +536,10 @@ func (s *Service) TestProvider(c *gin.Context) {
 	if !ok {
 		return
 	}
+	adminUser, _ := auth.CurrentUser(c)
+	if !s.consumeProviderTestQuota(c, adminUser.ID) {
+		return
+	}
 	record, err := loadProvider(c.Request.Context(), pool, providerID)
 	if err != nil {
 		if !api.Respond(c, err) {
@@ -571,6 +591,15 @@ func (s *Service) TestProvider(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "latency_ms": latency, "models": names})
+}
+
+// providerDisableConflict 判断停用预设是否应被拒绝（纯函数，便于单元测试）：
+// 只有从启用改为停用且仍有 AI 关联时返回 (关联数量, true)。
+func providerDisableConflict(enabledBefore, enabledAfter bool, aiCount int) (int, bool) {
+	if enabledBefore && !enabledAfter && aiCount > 0 {
+		return aiCount, true
+	}
+	return 0, false
 }
 
 // providerTestErrorMessage 把底层错误映射为不含密钥的提示。

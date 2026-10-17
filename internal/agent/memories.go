@@ -196,6 +196,80 @@ func (s *Service) recordMemoryRefs(ctx context.Context, taskID int64, refs []mem
 	}
 }
 
+// ── 记忆来源 ──
+
+// memorySource 是长期记忆引用过的公开来源（帖子或评论）。
+type memorySource struct {
+	Type string
+	ID   int64
+}
+
+// collectMemorySources 从注入过的近期记忆中提取直接来源：
+// 只接受 post/comment 且 ID 有效，按出现顺序去重（ai_memory_sources 唯一索引兜底）。
+func collectMemorySources(memories []ai.Memory) []memorySource {
+	sources := make([]memorySource, 0, len(memories))
+	seen := make(map[memorySource]bool, len(memories))
+	for _, memory := range memories {
+		sourceType := strings.TrimSpace(memory.SourceRefType)
+		if sourceType != sourcePost && sourceType != sourceComment {
+			continue
+		}
+		if memory.SourceRefID == nil || *memory.SourceRefID <= 0 {
+			continue
+		}
+		source := memorySource{Type: sourceType, ID: *memory.SourceRefID}
+		if seen[source] {
+			continue
+		}
+		seen[source] = true
+		sources = append(sources, source)
+	}
+	return sources
+}
+
+// insertMemorySources 在同一事务内记录长期记忆的来源关联；重复关联静默忽略。
+func (s *Service) insertMemorySources(
+	ctx context.Context,
+	q access.Querier,
+	memoryID int64,
+	sources []memorySource,
+) error {
+	for _, source := range sources {
+		sourceID, err := s.ids.Next()
+		if err != nil {
+			return fmt.Errorf("生成记忆来源 ID 失败: %w", err)
+		}
+		if _, err := q.Exec(ctx, `
+			INSERT INTO ai_memory_sources (id, memory_id, source_type, source_id)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (memory_id, source_type, source_id) DO NOTHING`,
+			sourceID, memoryID, source.Type, source.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// invalidateMemoriesBySource 把通过 ai_memory_sources 关联到该来源的长期记忆置为失效。
+// 直接引用（source_ref_*）由 ai.InvalidateBySource 处理，两者合起来覆盖全部来源关系。
+func (s *Service) invalidateMemoriesBySource(
+	ctx context.Context,
+	q access.Querier,
+	aiID int64,
+	sourceType string,
+	sourceID int64,
+) error {
+	_, err := q.Exec(ctx, `
+		UPDATE ai_memories
+		SET status = 'invalidated', updated_at = now()
+		WHERE ai_id = $1 AND status = 'active'
+		  AND id IN (
+			SELECT memory_id FROM ai_memory_sources
+			WHERE source_type = $2 AND source_id = $3
+		  )`, aiID, sourceType, sourceID)
+	return err
+}
+
 // ── 近期记忆形成 ──
 
 // formRecentMemory 在动作成功后生成一条近期记忆。
@@ -397,7 +471,7 @@ func (s *Service) HandleMemoryJob(ctx context.Context, job jobs.Job) error {
 		s.log.Warn("记忆沉淀输出无法解析", "ai_id", aiID, "err", err)
 		return nil
 	}
-	written, superseded, err := s.applyConsolidation(ctx, aiID, draft)
+	written, superseded, err := s.applyConsolidation(ctx, aiID, draft, collectMemorySources(recent))
 	if err != nil {
 		return err
 	}
@@ -429,10 +503,12 @@ func renderConsolidationInput(recent, longTerm []ai.Memory) string {
 }
 
 // applyConsolidation 写入长期记忆并替代被覆盖的旧记忆。
+// sources 是本次沉淀所依据的近期记忆来源，写入 ai_memory_sources 供后续来源失效复核。
 func (s *Service) applyConsolidation(
 	ctx context.Context,
 	aiID int64,
 	draft ConsolidationDraft,
+	sources []memorySource,
 ) (int, int, error) {
 	pool := s.pools.Pool()
 	if pool == nil {
@@ -454,6 +530,10 @@ func (s *Service) applyConsolidation(
 		memoryID, err := s.insertMemory(ctx, tx, aiID, "long_term", candidate.memoryCandidate,
 			memorySourceConsolidation, "", nil)
 		if err != nil {
+			_ = tx.Rollback(ctx)
+			return written, superseded, err
+		}
+		if err := s.insertMemorySources(ctx, tx, memoryID, sources); err != nil {
 			_ = tx.Rollback(ctx)
 			return written, superseded, err
 		}
@@ -546,10 +626,17 @@ func (s *Service) recheckSourceMemoriesLimit(ctx context.Context, aiID int64, li
 		limit = memoryRefBatch
 	}
 	rows, err := pool.Query(ctx, `
-		SELECT DISTINCT source_ref_type, source_ref_id
-		FROM ai_memories
-		WHERE ai_id = $1 AND status = 'active'
-		  AND source_ref_type IN ('post', 'comment') AND source_ref_id IS NOT NULL
+		SELECT source_type, source_id FROM (
+			SELECT DISTINCT source_ref_type AS source_type, source_ref_id AS source_id
+			FROM ai_memories
+			WHERE ai_id = $1 AND status = 'active'
+			  AND source_ref_type IN ('post', 'comment') AND source_ref_id IS NOT NULL
+			UNION
+			SELECT DISTINCT s.source_type, s.source_id
+			FROM ai_memory_sources AS s
+			JOIN ai_memories AS m ON m.id = s.memory_id
+			WHERE m.ai_id = $1 AND m.status = 'active'
+		) AS sources
 		LIMIT $2`, aiID, limit)
 	if err != nil {
 		return err
@@ -580,7 +667,12 @@ func (s *Service) recheckSourceMemoriesLimit(ctx context.Context, aiID int64, li
 		if available {
 			continue
 		}
+		// 直接引用该来源的记忆（source_ref_*）与沉淀时记录过该来源的长期记忆
+		// （ai_memory_sources）都要失效；任一来源不可用即不再注入模型上下文。
 		if err := s.ai.InvalidateBySource(ctx, pool, aiID, pair.sourceType, pair.sourceID); err != nil {
+			return err
+		}
+		if err := s.invalidateMemoriesBySource(ctx, pool, aiID, pair.sourceType, pair.sourceID); err != nil {
 			return err
 		}
 		s.log.Info("来源已不可用，已停用相关记忆",

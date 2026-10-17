@@ -10,6 +10,7 @@ import (
 
 	"github.com/great-magician-01/timeline/internal/api"
 	"github.com/great-magician-01/timeline/internal/model"
+	"github.com/great-magician-01/timeline/internal/ratelimit"
 )
 
 func newTestContext(target string) *gin.Context {
@@ -305,5 +306,52 @@ func TestCommentResponseFor(t *testing.T) {
 	}
 	if deletedResp.LikeCount != comment.LikeCount {
 		t.Fatalf("已删除评论应保留点赞数，得到 %d", deletedResp.LikeCount)
+	}
+}
+
+func TestRetryAfterSeconds(t *testing.T) {
+	cases := []struct {
+		name  string
+		after time.Duration
+		want  int
+	}{
+		{name: "整秒", after: 42 * time.Second, want: 42},
+		{name: "小数秒向上取整", after: 1500 * time.Millisecond, want: 2},
+		{name: "零值兜底为 1", after: 0, want: 1},
+		{name: "负值兜底为 1", after: -time.Second, want: 1},
+		{name: "亚秒向上取整", after: 10 * time.Millisecond, want: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := retryAfterSeconds(tc.after); got != tc.want {
+				t.Fatalf("retryAfterSeconds(%s) = %d，期望 %d", tc.after, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAllowActionSetsRetryAfter 验证互动限频超限时返回 429 且带 Retry-After 头。
+func TestAllowActionSetsRetryAfter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &Service{}
+	limiter := ratelimit.New(1, time.Minute)
+
+	first, _ := gin.CreateTestContext(httptest.NewRecorder())
+	first.Request = httptest.NewRequest(http.MethodPost, "/x", nil)
+	if !service.allowAction(first, limiter, 42) {
+		t.Fatal("首次操作应放行")
+	}
+
+	recorder := httptest.NewRecorder()
+	second, _ := gin.CreateTestContext(recorder)
+	second.Request = httptest.NewRequest(http.MethodPost, "/x", nil)
+	if service.allowAction(second, limiter, 42) {
+		t.Fatal("超过阈值应被限频")
+	}
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("状态码 = %d，期望 429", recorder.Code)
+	}
+	if recorder.Header().Get("Retry-After") == "" {
+		t.Fatal("429 响应必须带 Retry-After")
 	}
 }

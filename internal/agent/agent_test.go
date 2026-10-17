@@ -586,8 +586,11 @@ func TestNormalizeTermsAndTargetRef(t *testing.T) {
 		t.Fatal("帖子目标应参与冷却判断")
 	}
 	user := decisionTarget{Type: targetUser, ID: 9}
-	if ref := targetRefID(user); ref != nil {
-		t.Fatal("用户目标不参与目标级冷却")
+	if ref := targetRefID(user); ref == nil || *ref != 9 {
+		t.Fatal("用户目标应参与目标级冷却")
+	}
+	if ref := targetRefID(decisionTarget{Type: targetUser, ID: 0}); ref != nil {
+		t.Fatal("无效用户目标不应参与冷却")
 	}
 }
 

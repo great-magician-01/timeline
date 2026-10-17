@@ -16,7 +16,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +33,7 @@ import (
 	"github.com/great-magician-01/timeline/internal/content"
 	"github.com/great-magician-01/timeline/internal/jobs"
 	"github.com/great-magician-01/timeline/internal/model"
+	"github.com/great-magician-01/timeline/internal/ratelimit"
 	"github.com/great-magician-01/timeline/internal/social"
 )
 
@@ -54,6 +57,9 @@ type Service struct {
 	content *content.Service
 	social  *social.Service
 	runner  *jobs.Runner
+
+	// generationLimiter 限制单个管理员触发 AI 生成/直接发布任务的频率。
+	generationLimiter *ratelimit.Limiter
 }
 
 // NewService 构造 AI 任务服务；aiService、contentService、socialService 必须非空，
@@ -75,7 +81,33 @@ func NewService(
 		content: contentService,
 		social:  socialService,
 		runner:  runner,
+
+		generationLimiter: ratelimit.New(generationRateLimit, generationRateWindow),
 	}
+}
+
+// 管理端 AI 生成接口的限频阈值：单个管理员每分钟最多触发 10 次。
+const (
+	generationRateLimit  = 10
+	generationRateWindow = time.Minute
+)
+
+// consumeGenerationQuota 消耗一次 AI 生成额度，超限时写回 429 与 Retry-After。
+func (s *Service) consumeGenerationQuota(c *gin.Context, adminID int64, mode string) bool {
+	allowed, retryAfter := s.generationLimiter.Consume(
+		"admin:" + api.FormatID(adminID) + ":" + mode)
+	if allowed {
+		return true
+	}
+	seconds := int(math.Ceil(retryAfter.Seconds()))
+	if seconds < 1 {
+		seconds = 1
+	}
+	c.Header("Retry-After", strconv.Itoa(seconds))
+	if !api.Respond(c, api.ErrRateLimited()) {
+		s.internalError(c, "AI 生成限频响应失败", fmt.Errorf("rate limited"))
+	}
+	return false
 }
 
 func (s *Service) pool(c *gin.Context) (*pgxpool.Pool, bool) {
@@ -263,15 +295,18 @@ type aiTask struct {
 	Status         string
 	Attempts       int
 	IdempotencyKey string
+	// ScheduledAt 是管理员手动生成时指定的未来发布时间；为空表示立即发布或生成草稿。
+	ScheduledAt *time.Time
 }
 
 const taskColumns = `id, ai_id, trigger_type, COALESCE(trigger_ref_type, ''), trigger_ref_id,
-	action_type, status, attempts, idempotency_key`
+	action_type, status, attempts, idempotency_key, scheduled_at`
 
 func scanTask(row model.Row) (aiTask, error) {
 	var task aiTask
 	err := row.Scan(&task.ID, &task.AID, &task.TriggerType, &task.TriggerRefType,
-		&task.TriggerRefID, &task.ActionType, &task.Status, &task.Attempts, &task.IdempotencyKey)
+		&task.TriggerRefID, &task.ActionType, &task.Status, &task.Attempts,
+		&task.IdempotencyKey, &task.ScheduledAt)
 	return task, err
 }
 
@@ -302,6 +337,8 @@ type EnqueueInput struct {
 	IdempotencyKey string
 	// Source 是触发事件的来源内容；提及与评论触发必须提供，用于执行前校验公开性。
 	Source *SourceRef
+	// ScheduledAt 是可选的目标发布时间（仅管理端手动生成使用，必须为未来时间）。
+	ScheduledAt *time.Time
 }
 
 // Enqueue 执行入队前检查并写入一条 pending 任务与对应后台作业。
@@ -334,12 +371,12 @@ func (s *Service) Enqueue(ctx context.Context, q access.Querier, in EnqueueInput
 	err = q.QueryRow(ctx, `
 		INSERT INTO ai_tasks (
 			id, ai_id, trigger_type, trigger_ref_type, trigger_ref_id,
-			action_type, status, idempotency_key
-		) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
+			action_type, status, idempotency_key, scheduled_at
+		) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)
 		ON CONFLICT (idempotency_key) DO NOTHING
 		RETURNING id`,
 		taskID, in.AID, in.TriggerType, nullString(in.TriggerRefType), in.TriggerRefID,
-		actionType, in.IdempotencyKey,
+		actionType, in.IdempotencyKey, in.ScheduledAt,
 	).Scan(&created)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, "同一事件已有待执行或已完成的 AI 任务", nil

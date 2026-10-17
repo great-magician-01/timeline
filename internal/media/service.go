@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -25,6 +24,7 @@ import (
 	"github.com/great-magician-01/timeline/internal/jobs"
 	"github.com/great-magician-01/timeline/internal/model"
 	"github.com/great-magician-01/timeline/internal/ratelimit"
+	"github.com/great-magician-01/timeline/internal/settings"
 	"github.com/great-magician-01/timeline/internal/storage"
 )
 
@@ -44,15 +44,6 @@ const (
 	purposeAvatar = "avatar"
 )
 
-// 上传限频参数（docs/API.md §13）。
-const (
-	uploadLimitPerUser = 60
-	uploadWindow       = 10 * time.Minute
-)
-
-// unattachedRetention 是未关联任何帖子的临时附件保留期（docs/WORKFLOWS.md 6.3）。
-const unattachedRetention = 7 * 24 * time.Hour
-
 // Service 提供附件上传、访问、衍生文件与失效清理能力。
 type Service struct {
 	pools PoolProvider
@@ -61,19 +52,21 @@ type Service struct {
 	store *storage.Store
 	jobs  *jobs.Runner
 
-	// uploadLimiter 限制单用户的上传频率，属于安全兜底而非业务配额。
+	// uploadLimiter 限制单用户的上传频率；实际阈值与窗口每次请求从系统设置读取，
+	// 这里的构造参数只作为未读取设置时的兜底，属于安全保护而非业务配额。
 	uploadLimiter *ratelimit.Limiter
 }
 
 // NewService 组装附件服务；store 与 runner 由进程启动时统一创建。
 func NewService(pools PoolProvider, ids IDGenerator, log *slog.Logger, store *storage.Store, runner *jobs.Runner) *Service {
+	defaults := settings.Defaults()
 	return &Service{
 		pools:         pools,
 		ids:           ids,
 		log:           log,
 		store:         store,
 		jobs:          runner,
-		uploadLimiter: ratelimit.New(uploadLimitPerUser, uploadWindow),
+		uploadLimiter: ratelimit.New(defaults.UploadRateLimit, defaults.UploadRateWindow),
 	}
 }
 

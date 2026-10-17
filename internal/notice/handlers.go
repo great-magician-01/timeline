@@ -19,6 +19,27 @@ import (
 
 const previewRunes = 120
 
+// notificationTypes 是 notifications.type 的合法取值（与 migrations/0004_social.sql
+// 的约束和本包常量保持一致）。通知列表的 type 过滤只接受这些值。
+var notificationTypes = []string{
+	TypePostLike, TypeCommentLike, TypeComment, TypeReply, TypeRepost,
+	TypeQuote, TypeFollow, TypeFollowRequest, TypeFollowApprove, TypeMention,
+}
+
+// normalizeNoticeType 校验 type 查询参数：空串表示不过滤，其余必须是合法通知类型。
+func normalizeNoticeType(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", nil
+	}
+	for _, noticeType := range notificationTypes {
+		if value == noticeType {
+			return value, nil
+		}
+	}
+	return "", api.ErrInvalid("type 参数无效，只能是合法通知类型")
+}
+
 // notificationEntry 是列表内部结构：对外 DTO 加上用于权限复核的目标引用。
 type notificationEntry struct {
 	item      NotificationResponse
@@ -62,11 +83,22 @@ func (s *Service) List(c *gin.Context) {
 		api.Error(c, http.StatusBadRequest, "invalid_request", "filter 只能是 all 或 unread")
 		return
 	}
+	noticeType, err := normalizeNoticeType(c.Query("type"))
+	if err != nil {
+		if !api.Respond(c, err) {
+			api.Error(c, http.StatusBadRequest, "invalid_request", "type 参数无效")
+		}
+		return
+	}
 
 	where := []string{"n.recipient_id = $1"}
 	args := []any{viewer.ID}
 	if filter == "unread" {
 		where = append(where, "NOT n.is_read")
+	}
+	if noticeType != "" {
+		args = append(args, noticeType)
+		where = append(where, "n.type = $"+strconv.Itoa(len(args)))
 	}
 	if cursor > 0 {
 		args = append(args, cursor)

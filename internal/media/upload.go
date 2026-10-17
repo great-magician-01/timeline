@@ -2,10 +2,13 @@ package media
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"image"
+	"math"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -17,12 +20,9 @@ import (
 	"github.com/great-magician-01/timeline/internal/auth"
 	"github.com/great-magician-01/timeline/internal/jobs"
 	"github.com/great-magician-01/timeline/internal/model"
+	"github.com/great-magician-01/timeline/internal/settings"
 	"github.com/great-magician-01/timeline/internal/storage"
 )
-
-// maxUploadRequestBytes 是上传请求体上限：单文件上限再加上 1 MiB 的 multipart 开销余量，
-// 防止超大请求在解析阶段就打满磁盘（docs/REQUIREMENTS.md 7.11）。
-const maxUploadRequestBytes = storage.DefaultMaxUploadBytes + 1<<20
 
 // sniffBytes 与 storage 内部嗅探长度一致：类型判定只看实际内容的前 512 字节。
 const sniffBytes = 512
@@ -32,6 +32,30 @@ const maxOriginalFilenameRunes = 200
 
 // defaultFilename 用于无法得到安全文件名的场景。
 const defaultFilename = "未命名文件"
+
+// retryAfterSeconds 把限频窗口剩余时间换算为 Retry-After 秒数（至少 1 秒）。
+func retryAfterSeconds(retryAfter time.Duration) int {
+	seconds := int(math.Ceil(retryAfter.Seconds()))
+	if seconds < 1 {
+		return 1
+	}
+	return seconds
+}
+
+// usedStorageBytes 统计上传者现有附件的总大小，用于存储配额判断。
+// 这里刻意包含已逻辑删除的记录：物理文件仍然保留并占用磁盘，配额必须按实际占用计算。
+func usedStorageBytes(ctx context.Context, q access.Querier, uploaderID int64) (int64, error) {
+	var used int64
+	err := q.QueryRow(ctx,
+		`SELECT COALESCE(SUM(size_bytes), 0) FROM attachments WHERE uploader_id = $1`,
+		uploaderID).Scan(&used)
+	return used, err
+}
+
+// exceedsStorageQuota 判断“已用空间 + 本次上传”是否超过配额（纯函数，便于单元测试）。
+func exceedsStorageQuota(used, incoming, quota int64) bool {
+	return used+incoming > quota
+}
 
 // Upload 处理 POST /api/v1/attachments。
 // 只信任实际内容：文件名仅保留安全形式用于展示，存储路径完全由服务端生成。
@@ -57,13 +81,29 @@ func (s *Service) Upload(c *gin.Context) {
 		}
 		return
 	}
-	if allowed, _ := s.uploadLimiter.Consume("user:" + api.FormatID(u.ID)); !allowed {
+	// 上传大小、请求大小、存储配额与限频均为系统设置，每次请求即时读取。
+	ctx := c.Request.Context()
+	values := settings.LoadOrDefaults(ctx, pool)
+	if allowed, retryAfter := s.uploadLimiter.ConsumeLimit(
+		"user:"+api.FormatID(u.ID), values.UploadRateLimit, values.UploadRateWindow,
+	); !allowed {
+		c.Header("Retry-After", strconv.Itoa(retryAfterSeconds(retryAfter)))
 		api.Error(c, http.StatusTooManyRequests, "rate_limited", "上传过于频繁，请稍后重试")
 		return
 	}
 
+	used, err := usedStorageBytes(ctx, pool, u.ID)
+	if err != nil {
+		s.internalError(c, "统计已用存储空间失败", err)
+		return
+	}
+	if exceedsStorageQuota(used, 0, values.StorageQuotaBytes) {
+		api.Error(c, http.StatusRequestEntityTooLarge, "content_too_large", "存储空间已用完，无法继续上传")
+		return
+	}
+
 	// 即使客户端伪造 Content-Length，超限请求也会在读取时被中断。
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadRequestBytes)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, values.MaxRequestBytes)
 
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
@@ -83,6 +123,11 @@ func (s *Service) Upload(c *gin.Context) {
 		api.Error(c, http.StatusBadRequest, "invalid_request", "purpose 只能是 post 或 avatar")
 		return
 	}
+	// 存储配额包含逻辑删除记录，因此只按 uploader 的 size_bytes 总和判断。
+	if exceedsStorageQuota(used, fileHeader.Size, values.StorageQuotaBytes) {
+		api.Error(c, http.StatusRequestEntityTooLarge, "content_too_large", "附件总大小超过存储配额")
+		return
+	}
 
 	source, err := fileHeader.Open()
 	if err != nil {
@@ -97,7 +142,7 @@ func (s *Service) Upload(c *gin.Context) {
 	header, _ := buffered.Peek(sniffBytes) // 不足 512 字节时返回可用部分，不影响判定
 	kind, _, _ := storage.Detect(header)
 
-	key, size, mediaType, err := s.store.Save(buffered, storage.DefaultMaxUploadBytes, time.Now())
+	key, size, mediaType, err := s.store.Save(buffered, values.MaxUploadBytes, time.Now())
 	if err != nil {
 		switch {
 		case errors.Is(err, storage.ErrTooLarge):
@@ -109,7 +154,6 @@ func (s *Service) Upload(c *gin.Context) {
 		}
 		return
 	}
-
 	attachmentID, err := s.ids.Next()
 	if err != nil {
 		s.internalError(c, "生成附件 ID 失败", err)
@@ -119,7 +163,6 @@ func (s *Service) Upload(c *gin.Context) {
 	width, height := s.imageDimensions(key)
 	createdAt := time.Now()
 
-	ctx := c.Request.Context()
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		s.internalError(c, "开启附件事务失败", err)
