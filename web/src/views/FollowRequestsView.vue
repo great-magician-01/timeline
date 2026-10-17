@@ -16,6 +16,7 @@ import AppIcon from '../components/AppIcon.vue'
 import EmptyState from '../components/EmptyState.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useCursorList } from '../composables/useCursorList'
+import { ui } from '../styles/ui'
 import { relativeTime, timeTitle } from '../utils/format'
 
 type Direction = 'incoming' | 'outgoing'
@@ -62,23 +63,23 @@ async function resolve(item: FollowRequest, action: 'approve' | 'reject' | 'canc
 </script>
 
 <template>
-  <div class="constrain">
-    <div class="stack">
-      <section class="card card--pad">
-        <h1 class="page-head page-title">关注申请</h1>
-        <p class="page-desc">开启关注审批后，新的关注需要你批准才会生效；待处理的申请不计入粉丝数。</p>
+  <div :class="[ui.constrain]">
+    <div :class="[ui.stack]">
+      <section :class="[ui.card, ui.cardPad]">
+        <h1 :class="[ui.pageHead, ui.pageTitle]">关注申请</h1>
+        <p :class="[ui.pageDesc]">开启关注审批后，新的关注需要你批准才会生效；待处理的申请不计入粉丝数。</p>
 
-        <div class="seg filter" role="group" aria-label="关注申请方向">
+        <div :class="[ui.segment, 'mt-[14px]']" role="group" aria-label="关注申请方向">
           <button
             type="button"
-            :class="{ 'is-active': direction === 'incoming' }"
+            :class="[ui.segmentButton, direction === 'incoming' && ui.segmentButtonActive]"
             @click="setDirection('incoming')"
           >
             收到的
           </button>
           <button
             type="button"
-            :class="{ 'is-active': direction === 'outgoing' }"
+            :class="[ui.segmentButton, direction === 'outgoing' && ui.segmentButtonActive]"
             @click="setDirection('outgoing')"
           >
             发出的
@@ -88,13 +89,13 @@ async function resolve(item: FollowRequest, action: 'approve' | 'reject' | 'canc
 
       <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-      <p v-if="loading" class="card card--pad loading-row">
-        <span class="spinner" aria-hidden="true"></span> 加载中…
+      <p v-if="loading" :class="[ui.card, ui.loadingRow]">
+        <span :class="[ui.spinner]" aria-hidden="true"></span> 加载中…
       </p>
 
       <template v-else-if="error && items.length === 0">
         <AlertNote kind="error">{{ error }}</AlertNote>
-        <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+        <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
       </template>
 
       <EmptyState
@@ -109,28 +110,32 @@ async function resolve(item: FollowRequest, action: 'approve' | 'reject' | 'canc
       />
 
       <template v-else>
-        <section class="card request-list">
-          <article v-for="item in items" :key="item.id" class="request">
-            <RouterLink :to="`/users/${counterpart(item).username}`" class="who">
+        <section :class="[ui.card, 'overflow-hidden']">
+          <article
+            v-for="item in items"
+            :key="item.id"
+            class="flex items-center gap-3 border-b border-solid border-border px-4 py-3 [&:last-of-type]:border-b-0 shell-down:flex-wrap"
+          >
+            <RouterLink :to="`/users/${counterpart(item).username}`" class="flex min-w-0 flex-1 items-center gap-2.5 text-ink hover:no-underline">
               <UserAvatar :user="counterpart(item)" size="md" />
-              <span class="names">
-                <span class="row">
+              <span class="flex min-w-0 flex-col leading-[1.35]">
+                <span class="flex flex-wrap items-center gap-1.5 text-[14.5px]">
                   <strong>{{ counterpart(item).nickname || counterpart(item).username }}</strong>
-                  <span v-if="counterpart(item).is_ai" class="badge badge--ai">AI</span>
-                  <span v-if="counterpart(item).is_suspended" class="badge badge--muted">已停用</span>
+                  <span v-if="counterpart(item).is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
+                  <span v-if="counterpart(item).is_suspended" :class="[ui.badge, ui.badgeMuted]">已停用</span>
                 </span>
-                <span class="handle">@{{ counterpart(item).username }}</span>
+                <span class="text-[12.5px] text-ink-3">@{{ counterpart(item).username }}</span>
               </span>
             </RouterLink>
 
-            <span class="meta">
-              <span :title="timeTitle(item.created_at)" class="time">{{ relativeTime(item.created_at) }}</span>
-              <span class="badge badge--muted">{{ item.status === 'pending' ? '待处理' : item.status }}</span>
+            <span class="flex items-center gap-1.5 whitespace-nowrap text-[12.5px] text-ink-3 shell-down:order-3">
+              <span :title="timeTitle(item.created_at)">{{ relativeTime(item.created_at) }}</span>
+              <span :class="[ui.badge, ui.badgeMuted]">{{ item.status === 'pending' ? '待处理' : item.status }}</span>
             </span>
 
-            <div v-if="direction === 'incoming'" class="acts">
+            <div v-if="direction === 'incoming'" class="flex gap-1.5 shell-down:order-4 shell-down:w-full shell-down:justify-end">
               <button
-                class="btn btn--primary btn--sm"
+                :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]"
                 type="button"
                 :disabled="Boolean(busyId)"
                 @click="resolve(item, 'approve')"
@@ -138,7 +143,7 @@ async function resolve(item: FollowRequest, action: 'approve' | 'reject' | 'canc
                 <AppIcon name="check" :size="15" /> 批准
               </button>
               <button
-                class="btn btn--danger btn--sm"
+                :class="[ui.button, ui.buttonDanger, ui.buttonSmall]"
                 type="button"
                 :disabled="Boolean(busyId)"
                 @click="resolve(item, 'reject')"
@@ -146,9 +151,9 @@ async function resolve(item: FollowRequest, action: 'approve' | 'reject' | 'canc
                 <AppIcon name="x" :size="15" /> 拒绝
               </button>
             </div>
-            <div v-else class="acts">
+            <div v-else class="flex gap-1.5 shell-down:order-4 shell-down:w-full shell-down:justify-end">
               <button
-                class="btn btn--secondary btn--sm"
+                :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
                 type="button"
                 :disabled="Boolean(busyId)"
                 @click="resolve(item, 'cancel')"
@@ -158,17 +163,17 @@ async function resolve(item: FollowRequest, action: 'approve' | 'reject' | 'canc
             </div>
           </article>
 
-          <div class="list-foot">
+          <div class="flex justify-center py-3">
             <button
               v-if="hasMore && !loadingMore"
-              class="btn btn--secondary btn--sm"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
               type="button"
               @click="loadMore"
             >
               加载更多
             </button>
-            <p v-else-if="loadingMore" class="loading-row foot-loading">
-              <span class="spinner" aria-hidden="true"></span> 正在加载…
+            <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+              <span :class="[ui.spinner]" aria-hidden="true"></span> 正在加载…
             </p>
           </div>
         </section>
@@ -178,86 +183,3 @@ async function resolve(item: FollowRequest, action: 'approve' | 'reject' | 'canc
     </div>
   </div>
 </template>
-
-<style scoped>
-.filter {
-  margin-top: 14px;
-}
-.request-list {
-  overflow: hidden;
-}
-.request {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.request:last-of-type {
-  border-bottom: none;
-}
-.who {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  flex: 1;
-  color: var(--ink);
-}
-.who:hover {
-  text-decoration: none;
-}
-.names {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.35;
-}
-.row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-size: 14.5px;
-}
-.handle {
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-.acts {
-  display: flex;
-  gap: 6px;
-}
-.self-start {
-  align-self: flex-start;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 12px 0;
-}
-.foot-loading {
-  padding: 0;
-}
-@media (max-width: 880px) {
-  .request {
-    flex-wrap: wrap;
-  }
-  .meta {
-    order: 3;
-  }
-  .acts {
-    order: 4;
-    width: 100%;
-    justify-content: flex-end;
-  }
-}
-</style>

@@ -10,6 +10,7 @@ import { errorMessage } from '../api/client'
 import { deletePost, listMyDrafts } from '../api/posts'
 import type { DraftSummary, Visibility } from '../api/types'
 import { useCursorList } from '../composables/useCursorList'
+import { ui } from '../styles/ui'
 import { relativeTime } from '../utils/format'
 
 const { items, loading, loadingMore, hasMore, error, loadMore, reload } = useCursorList<
@@ -49,26 +50,26 @@ async function removeDraft(draft: DraftSummary): Promise<void> {
 </script>
 
 <template>
-  <div class="constrain">
-    <div class="stack">
-      <header class="page-head">
-        <h1 class="page-title">草稿</h1>
-        <p class="page-desc">草稿只有你自己可见；发布前可以随时继续编辑或删除。</p>
+  <div :class="[ui.constrain]">
+    <div :class="[ui.stack]">
+      <header :class="[ui.pageHead]">
+        <h1 :class="[ui.pageTitle]">草稿</h1>
+        <p :class="[ui.pageDesc]">草稿只有你自己可见；发布前可以随时继续编辑或删除。</p>
       </header>
 
       <AlertNote v-if="notice" kind="success">{{ notice }}</AlertNote>
       <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-      <div v-if="loading" class="card card--pad">
-        <p class="loading-row"><span class="spinner" aria-hidden="true"></span> 正在加载草稿…</p>
+      <div v-if="loading" :class="[ui.card, ui.cardPad]">
+        <p :class="[ui.loadingRow]"><span :class="[ui.spinner]" aria-hidden="true"></span> 正在加载草稿…</p>
       </div>
 
       <template v-else-if="error && items.length === 0">
         <AlertNote kind="error">{{ error }}</AlertNote>
-        <button class="btn btn--secondary btn--sm retry" type="button" @click="reload()">重试</button>
+        <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload()">重试</button>
       </template>
 
-      <section v-else-if="items.length === 0" class="card">
+      <section v-else-if="items.length === 0" :class="[ui.card]">
         <EmptyState
           icon="file-text"
           title="还没有草稿"
@@ -77,29 +78,33 @@ async function removeDraft(draft: DraftSummary): Promise<void> {
       </section>
 
       <template v-else>
-        <section class="card draft-list">
-          <article v-for="draft in items" :key="draft.id" class="draft">
-            <div class="draft-main">
-              <p class="draft-summary">{{ draft.plain_text || '（暂无正文）' }}</p>
-              <p class="draft-meta">
-                <span class="badge badge--muted">草稿</span>
-                <span class="badge" :class="{ 'badge--muted': draft.visibility !== 'public' }">
+        <section :class="[ui.card, 'overflow-hidden']">
+          <article
+            v-for="draft in items"
+            :key="draft.id"
+            class="flex items-start gap-3 border-b border-solid border-border px-4 py-[14px] [&:last-of-type]:border-b-0 shell-down:flex-col shell-down:items-stretch"
+          >
+            <div class="min-w-0 flex-1">
+              <p class="m-0 text-[14.5px] leading-[1.6] [word-break:break-word]">{{ draft.plain_text || '（暂无正文）' }}</p>
+              <p class="mt-1.5 mb-0 flex flex-wrap items-center gap-2">
+                <span :class="[ui.badge, ui.badgeMuted]">草稿</span>
+                <span :class="[ui.badge, draft.visibility !== 'public' && ui.badgeMuted]">
                   {{ visibilityLabel(draft.visibility) }}
                 </span>
-                <span v-if="draft.attachment_count > 0" class="muted">{{ draft.attachment_count }} 个附件</span>
-                <span class="muted">更新于 {{ relativeTime(draft.updated_at) }}</span>
+                <span v-if="draft.attachment_count > 0" :class="[ui.muted, 'text-[12.5px]!']">{{ draft.attachment_count }} 个附件</span>
+                <span :class="[ui.muted, 'text-[12.5px]!']">更新于 {{ relativeTime(draft.updated_at) }}</span>
               </p>
             </div>
 
-            <div class="draft-actions">
+            <div class="flex flex-wrap gap-2">
               <RouterLink
-                class="btn btn--secondary btn--sm"
+                :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'shell-down:flex-1']"
                 :to="{ name: 'draft-edit', params: { draftId: draft.id } }"
               >
                 <AppIcon name="pencil" :size="15" /> 继续编辑
               </RouterLink>
               <button
-                class="btn btn--danger btn--sm"
+                :class="[ui.button, ui.buttonDanger, ui.buttonSmall, 'shell-down:flex-1']"
                 type="button"
                 :disabled="deletingId === draft.id"
                 @click="removeDraft(draft)"
@@ -110,18 +115,18 @@ async function removeDraft(draft: DraftSummary): Promise<void> {
             </div>
           </article>
 
-          <div class="list-foot">
+          <div class="flex justify-center px-4 py-[14px]">
             <button
               v-if="hasMore"
-              class="btn btn--secondary btn--sm load-more"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
               type="button"
               :disabled="loadingMore"
               @click="loadMore()"
             >
-              <span v-if="loadingMore" class="spinner" aria-hidden="true"></span>
+              <span v-if="loadingMore" :class="[ui.spinner, 'size-[14px]! border-border! border-t-primary! opacity-80']" aria-hidden="true"></span>
               {{ loadingMore ? '正在加载…' : '加载更多' }}
             </button>
-            <p v-else class="muted">已加载全部 {{ items.length }} 份草稿</p>
+            <p v-else :class="[ui.muted, 'm-0']">已加载全部 {{ items.length }} 份草稿</p>
           </div>
         </section>
 
@@ -130,68 +135,3 @@ async function removeDraft(draft: DraftSummary): Promise<void> {
     </div>
   </div>
 </template>
-
-<style scoped>
-.retry {
-  align-self: flex-start;
-}
-.draft-list {
-  overflow: hidden;
-}
-.draft {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.draft:last-of-type {
-  border-bottom: 0;
-}
-.draft-main {
-  min-width: 0;
-  flex: 1;
-}
-.draft-summary {
-  margin: 0;
-  font-size: 14.5px;
-  line-height: 1.6;
-  word-break: break-word;
-}
-.draft-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 6px 0 0;
-}
-.draft-meta .muted {
-  font-size: 12.5px;
-}
-.draft-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px;
-}
-.list-foot .muted {
-  margin: 0;
-}
-.load-more .spinner {
-  border-color: var(--border);
-  border-top-color: var(--primary);
-}
-@media (max-width: 880px) {
-  .draft {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .draft-actions .btn {
-    flex: 1;
-  }
-}
-</style>

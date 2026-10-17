@@ -8,6 +8,7 @@ import { errorMessage } from '../../api/client'
 import AlertNote from '../../components/AlertNote.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import type { IconName } from '../../components/icons'
+import { ui } from '../../styles/ui'
 
 interface StatTile {
   label: string
@@ -123,47 +124,47 @@ const quickLinks: QuickLink[] = [
 </script>
 
 <template>
-  <div class="stack">
-    <p v-if="loading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+  <div :class="ui.stack">
+    <p v-if="loading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="loadError">
       <AlertNote kind="error">{{ loadError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="load">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="load">重试</button>
     </template>
 
     <template v-else>
       <AlertNote v-if="!overview" kind="info">暂无统计数据，稍后刷新重试。</AlertNote>
 
-      <section v-for="group in groups" :key="group.title" class="card card--pad">
-        <div class="group-head">
-          <AppIcon :name="group.icon" :size="18" class="group-icon" />
-          <div class="group-text">
-            <h2 class="page-title">{{ group.title }}</h2>
-            <p class="page-desc">{{ group.description }}</p>
+      <section v-for="group in groups" :key="group.title" :class="[ui.card, ui.cardPad]">
+        <div class="flex items-center gap-[10px]">
+          <AppIcon :name="group.icon" :size="18" class="text-ink-2" />
+          <div class="min-w-0">
+            <h2 :class="ui.pageTitle">{{ group.title }}</h2>
+            <p :class="ui.pageDesc">{{ group.description }}</p>
           </div>
-          <RouterLink :to="group.to" class="group-link">
+          <RouterLink :to="group.to" class="ml-auto inline-flex items-center gap-[2px] text-[13px] text-ink-2 hover:text-ink hover:no-underline">
             {{ group.linkLabel }}
             <AppIcon name="chevron-right" :size="15" />
           </RouterLink>
         </div>
 
-        <div class="stat-grid">
-          <div v-for="tile in group.tiles" :key="tile.label" class="stat">
-            <p class="stat-label">{{ tile.label }}</p>
-            <p class="stat-value mono">{{ tile.value }}</p>
+        <div class="mt-4 grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-[10px]">
+          <div v-for="tile in group.tiles" :key="tile.label" class="rounded-[10px] border border-solid border-border bg-surface-subtle px-[14px] py-3">
+            <p class="m-0 text-[12.5px] text-ink-3">{{ tile.label }}</p>
+            <p :class="[ui.mono, 'm-0 mt-[2px] text-[20px] font-extrabold tracking-[0.01em]']">{{ tile.value }}</p>
           </div>
         </div>
       </section>
 
-      <section class="card card--pad">
-        <h2 class="page-title">快捷入口</h2>
-        <p class="page-desc">常用管理页面与排查入口。</p>
-        <div class="link-grid">
-          <RouterLink v-for="link in quickLinks" :key="link.to" :to="link.to" class="quick-link">
-            <AppIcon :name="link.icon" :size="18" class="quick-icon" />
-            <span class="quick-text">
-              <span class="quick-label">{{ link.label }}</span>
-              <span class="quick-desc">{{ link.description }}</span>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">快捷入口</h2>
+        <p :class="ui.pageDesc">常用管理页面与排查入口。</p>
+        <div class="mt-[14px] grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-2">
+          <RouterLink v-for="link in quickLinks" :key="link.to" :to="link.to" class="flex items-start gap-[10px] rounded-[10px] border border-solid border-border px-3 py-[10px] text-ink hover:bg-hover hover:no-underline">
+            <AppIcon :name="link.icon" :size="18" class="mt-[2px] text-ink-2" />
+            <span class="flex min-w-0 flex-col">
+              <span class="text-[14px] font-bold">{{ link.label }}</span>
+              <span class="text-[12.5px] leading-[1.6] text-ink-3">{{ link.description }}</span>
             </span>
           </RouterLink>
         </div>
@@ -171,92 +172,3 @@ const quickLinks: QuickLink[] = [
     </template>
   </div>
 </template>
-
-<style scoped>
-.self-start {
-  align-self: flex-start;
-}
-.group-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.group-icon {
-  color: var(--ink-2);
-}
-.group-text {
-  min-width: 0;
-}
-.group-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
-  font-size: 13px;
-  color: var(--ink-2);
-}
-.group-link:hover {
-  color: var(--ink);
-  text-decoration: none;
-}
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 10px;
-  margin-top: 16px;
-}
-.stat {
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-}
-.stat-label {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.stat-value {
-  margin: 2px 0 0;
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-}
-.link-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-  margin-top: 14px;
-}
-.quick-link {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  color: var(--ink);
-}
-.quick-link:hover {
-  background: var(--hover);
-  text-decoration: none;
-}
-.quick-icon {
-  margin-top: 2px;
-  color: var(--ink-2);
-}
-.quick-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.quick-label {
-  font-size: 14px;
-  font-weight: 700;
-}
-.quick-desc {
-  font-size: 12.5px;
-  color: var(--ink-3);
-  line-height: 1.6;
-}
-</style>

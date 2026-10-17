@@ -1,0 +1,85 @@
+@import 'tailwindcss/theme.css';
+@import './tokens.css' layer(theme);
+@import 'tailwindcss/utilities.css';
+
+/* Tailwind 只暴露设计令牌，不复制颜色值；深浅主题仍由 data-theme 切换。 */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-soft: var(--soft);
+  --color-soft-hover: var(--soft-hover);
+  --color-glass: var(--glass);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-border: var(--border);
+  --color-hover: var(--hover);
+  --color-primary: var(--primary);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-hover: var(--primary-hover);
+  --color-btn-bg: var(--btn-bg);
+  --color-btn-fg: var(--btn-fg);
+  --color-btn-hover: var(--btn-hover);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
+  --color-red: var(--red);
+  --color-red-soft: var(--red-soft);
+  --color-green: var(--green);
+  --color-avatar-bg: var(--avatar-bg);
+  --color-avatar-fg: var(--avatar-fg);
+  --color-overlay: var(--overlay);
+  --color-on-media: var(--on-media);
+  --color-on-media-soft: var(--on-media-soft);
+  --color-media-bg: var(--media-bg);
+
+  --font-sans:
+    -apple-system, 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', 'Noto Sans SC',
+    sans-serif;
+  --breakpoint-shell: 880px;
+  --animate-tl-spin: tl-spin 0.7s linear infinite;
+
+  @keyframes tl-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
+/* 原实现全部使用 max-width: 880px，880px 本身仍属于移动布局。 */
+@custom-variant shell-down (@media (max-width: 880px));
+@custom-variant hover-not-disabled (&:hover:not(:disabled));
+
+/* 不启用 Preflight，避免默认 reset 改变既有排版；仅迁移项目原有的全局行为。 */
+@layer base {
+  * {
+    @apply box-border border-0;
+  }
+
+  ::before,
+  ::after {
+    @apply border-0;
+  }
+
+  body {
+    @apply m-0 bg-bg font-sans text-[15px] leading-[1.8] text-ink;
+  }
+
+  a {
+    @apply text-primary no-underline hover:underline;
+  }
+
+  button {
+    @apply cursor-pointer text-inherit [background:none] [border:0] [font:inherit];
+  }
+
+  :focus-visible {
+    @apply rounded-[6px] outline-2 outline-offset-2 outline-solid outline-primary;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+    }
+  }
+}

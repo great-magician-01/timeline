@@ -11,6 +11,7 @@ import AppIcon from '../../components/AppIcon.vue'
 import { useCursorList } from '../../composables/useCursorList'
 import { formatDateTime } from '../../utils/datetime'
 import { fromDatetimeLocal } from '../../utils/format'
+import { ui } from '../../styles/ui'
 
 type CallFilters = {
   ai_id?: string
@@ -155,27 +156,27 @@ function paramsJson(value: Record<string, unknown> | undefined): string {
 </script>
 
 <template>
-  <div class="stack">
-    <section class="card card--pad">
-      <h2 class="page-title">AI 调用记录</h2>
-      <p class="page-desc">
+  <div :class="ui.stack">
+    <section :class="[ui.card, ui.cardPad]">
+      <h2 :class="ui.pageTitle">AI 调用记录</h2>
+      <p :class="ui.pageDesc">
         每次模型调用（含重试）都会记录状态、用量与耗时；内容按后端截断规则保存，绝不包含 API Key。
       </p>
 
       <AlertNote v-if="optionsError" kind="error">筛选下拉加载失败：{{ optionsError }}</AlertNote>
 
-      <form class="filter-grid" @submit.prevent="onFilter">
-        <label class="filter-field">
-          <span class="muted">AI</span>
-          <select v-model="filters.ai_id" class="input" name="ai_id" aria-label="按 AI 筛选">
+      <form class="mt-[14px] grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-x-3 gap-y-[10px]" @submit.prevent="onFilter">
+        <label class="flex flex-col gap-1 text-[12.5px]">
+          <span :class="ui.muted">AI</span>
+          <select v-model="filters.ai_id" :class="ui.input" name="ai_id" aria-label="按 AI 筛选">
             <option value="">全部 AI</option>
             <option v-for="ai in ais" :key="ai.user.id" :value="ai.user.id">{{ aiLabel(ai) }}</option>
           </select>
         </label>
 
-        <label class="filter-field">
-          <span class="muted">预设</span>
-          <select v-model="filters.provider_id" class="input" name="provider_id" aria-label="按预设筛选">
+        <label class="flex flex-col gap-1 text-[12.5px]">
+          <span :class="ui.muted">预设</span>
+          <select v-model="filters.provider_id" :class="ui.input" name="provider_id" aria-label="按预设筛选">
             <option value="">全部预设</option>
             <option v-for="provider in providers" :key="provider.id" :value="provider.id">
               {{ provider.name }}
@@ -183,11 +184,11 @@ function paramsJson(value: Record<string, unknown> | undefined): string {
           </select>
         </label>
 
-        <label class="filter-field">
-          <span class="muted">任务 ID</span>
+        <label class="flex flex-col gap-1 text-[12.5px]">
+          <span :class="ui.muted">任务 ID</span>
           <input
             v-model="filters.task_id"
-            class="input"
+            :class="ui.input"
             type="search"
             name="task_id"
             placeholder="按 AI 任务筛选"
@@ -195,11 +196,11 @@ function paramsJson(value: Record<string, unknown> | undefined): string {
           />
         </label>
 
-        <label class="filter-field">
-          <span class="muted">错误类型</span>
+        <label class="flex flex-col gap-1 text-[12.5px]">
+          <span :class="ui.muted">错误类型</span>
           <input
             v-model="filters.error_type"
-            class="input"
+            :class="ui.input"
             type="search"
             name="error_type"
             placeholder="例如 timeout、http_401"
@@ -207,57 +208,57 @@ function paramsJson(value: Record<string, unknown> | undefined): string {
           />
         </label>
 
-        <label class="filter-field">
-          <span class="muted">开始时间</span>
-          <input v-model="filters.from" class="input" type="datetime-local" name="from" aria-label="开始时间" />
+        <label class="flex flex-col gap-1 text-[12.5px]">
+          <span :class="ui.muted">开始时间</span>
+          <input v-model="filters.from" :class="ui.input" type="datetime-local" name="from" aria-label="开始时间" />
         </label>
 
-        <label class="filter-field">
-          <span class="muted">结束时间</span>
-          <input v-model="filters.to" class="input" type="datetime-local" name="to" aria-label="结束时间" />
+        <label class="flex flex-col gap-1 text-[12.5px]">
+          <span :class="ui.muted">结束时间</span>
+          <input v-model="filters.to" :class="ui.input" type="datetime-local" name="to" aria-label="结束时间" />
         </label>
 
-        <div class="filter-actions">
-          <button class="btn btn--primary btn--sm" type="submit" :disabled="loading">
-            <span v-if="loading" class="spinner" aria-hidden="true"></span>
+        <div class="flex items-end gap-2">
+          <button :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]" type="submit" :disabled="loading">
+            <span v-if="loading" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
             {{ loading ? '查询中…' : '查询' }}
           </button>
-          <button class="btn btn--secondary btn--sm" type="button" @click="resetFilters">重置</button>
+          <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="resetFilters">重置</button>
         </div>
       </form>
 
-      <div class="filter-row">
-        <div class="seg" role="group" aria-label="调用状态筛选">
-          <button type="button" :class="{ 'is-active': filters.status === '' }" @click="setStatus('')">全部</button>
-          <button type="button" :class="{ 'is-active': filters.status === 'success' }" @click="setStatus('success')">
+      <div class="mt-3 flex flex-wrap gap-2">
+        <div :class="ui.segment" role="group" aria-label="调用状态筛选">
+          <button type="button" :class="[ui.segmentButton, filters.status === '' ? ui.segmentButtonActive : '']" @click="setStatus('')">全部</button>
+          <button type="button" :class="[ui.segmentButton, filters.status === 'success' ? ui.segmentButtonActive : '']" @click="setStatus('success')">
             成功
           </button>
-          <button type="button" :class="{ 'is-active': filters.status === 'error' }" @click="setStatus('error')">
+          <button type="button" :class="[ui.segmentButton, filters.status === 'error' ? ui.segmentButtonActive : '']" @click="setStatus('error')">
             失败
           </button>
         </div>
       </div>
     </section>
 
-    <p v-if="initialLoading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+    <p v-if="initialLoading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="listError && items.length === 0">
       <AlertNote kind="error">{{ listError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
     </template>
 
-    <section v-else-if="items.length === 0" class="card card--pad">
-      <div class="empty">
-        <AppIcon name="activity" :size="26" />
-        <strong>没有匹配的调用记录</strong>
-        <p>调整 AI、预设、状态或时间范围后重试。</p>
+    <section v-else-if="items.length === 0" :class="[ui.card, ui.cardPad]">
+      <div :class="ui.empty">
+        <AppIcon name="activity" :size="26" :class="ui.emptyIcon" />
+        <strong :class="ui.emptyStrong">没有匹配的调用记录</strong>
+        <p :class="ui.emptyText">调整 AI、预设、状态或时间范围后重试。</p>
       </div>
     </section>
 
     <template v-else>
-      <section class="card table-card">
-        <div class="table-scroll">
-          <table class="table">
+      <section :class="[ui.card, 'overflow-hidden']">
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse text-[13px] [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:border-solid [&_th]:border-border [&_th]:px-3 [&_th]:py-[10px] [&_th]:text-left [&_th]:text-[12.5px] [&_th]:font-semibold [&_th]:text-ink-3 [&_td]:border-b [&_td]:border-solid [&_td]:border-border [&_td]:px-3 [&_td]:py-[10px] [&_td]:align-top [&_tbody_tr:last-child_td]:border-b-0">
             <thead>
               <tr>
                 <th>时间</th>
@@ -275,39 +276,39 @@ function paramsJson(value: Record<string, unknown> | undefined): string {
             <tbody>
               <template v-for="call in items" :key="call.id">
                 <tr>
-                  <td class="nowrap col-time">{{ formatDateTime(call.started_at) }}</td>
-                  <td class="nowrap">
+                  <td class="whitespace-nowrap text-[12.5px] text-ink-2">{{ formatDateTime(call.started_at) }}</td>
+                  <td class="whitespace-nowrap">
                     <template v-if="call.ai">@{{ call.ai.username }}</template>
-                    <span v-else class="muted">AI 已不存在</span>
+                    <span v-else :class="ui.muted">AI 已不存在</span>
                   </td>
-                  <td class="col-provider">
+                  <td class="min-w-[140px]">
                     {{ call.provider_name || '—' }}
-                    <span class="muted mono block-id">{{ call.model || '—' }}</span>
+                    <span :class="[ui.mono, 'mt-[2px] block text-[11.5px] text-ink-3']">{{ call.model || '—' }}</span>
                   </td>
                   <td>
-                    <span class="badge" :class="call.status === 'error' ? 'badge--danger' : ''">
+                    <span :class="[ui.badge, call.status === 'error' ? ui.badgeDanger : '']">
                       {{ call.status === 'error' ? '失败' : '成功' }}
                     </span>
                   </td>
-                  <td class="mono">{{ call.http_status ?? '—' }}</td>
-                  <td class="col-error">{{ call.error_type || '—' }}</td>
-                  <td class="mono nowrap">
+                  <td :class="ui.mono">{{ call.http_status ?? '—' }}</td>
+                  <td class="max-w-[160px] [word-break:break-word]">{{ call.error_type || '—' }}</td>
+                  <td :class="[ui.mono, 'whitespace-nowrap']">
                     {{ call.usage_input_tokens ?? '—' }} / {{ call.usage_output_tokens ?? '—' }} /
                     {{ call.usage_reasoning_tokens ?? '—' }}
                   </td>
-                  <td class="mono nowrap">{{ call.latency_ms }} ms</td>
-                  <td class="mono">{{ call.attempt }}</td>
+                  <td :class="[ui.mono, 'whitespace-nowrap']">{{ call.latency_ms }} ms</td>
+                  <td :class="ui.mono">{{ call.attempt }}</td>
                   <td>
-                    <button class="btn btn--secondary btn--sm" type="button" @click="toggleDetail(call)">
+                    <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="toggleDetail(call)">
                       {{ expandedId === call.id ? '收起' : '展开' }}
                     </button>
                   </td>
                 </tr>
 
-                <tr v-if="expandedId === call.id" class="detail-row">
+                <tr v-if="expandedId === call.id" class="[&>td]:bg-surface-subtle">
                   <td colspan="10">
-                    <p v-if="detailLoading" class="loading-row">
-                      <span class="spinner" aria-hidden="true"></span> 正在加载调用详情…
+                    <p v-if="detailLoading" :class="ui.loadingRow">
+                      <span :class="ui.spinner" aria-hidden="true"></span> 正在加载调用详情…
                     </p>
 
                     <template v-else-if="detailError">
@@ -315,17 +316,17 @@ function paramsJson(value: Record<string, unknown> | undefined): string {
                     </template>
 
                     <template v-else-if="detail">
-                      <div class="detail-head">
-                        <span class="muted mono">调用 {{ detail.id }}</span>
-                        <span v-if="detail.truncated" class="badge badge--muted">内容已截断</span>
+                      <div class="flex flex-wrap items-center gap-[10px]">
+                        <span :class="[ui.muted, ui.mono]">调用 {{ detail.id }}</span>
+                        <span v-if="detail.truncated" :class="[ui.badge, ui.badgeMuted]">内容已截断</span>
                         <RouterLink
                           v-if="detail.task_id && detail.ai"
                           :to="`/admin/ai/${detail.ai.id}/tasks`"
-                          class="btn btn--secondary btn--sm detail-link"
+                          :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'ml-auto']"
                         >
                           查看该任务
                         </RouterLink>
-                        <span v-else-if="detail.task_id" class="muted mono detail-link">
+                        <span v-else-if="detail.task_id" :class="[ui.muted, ui.mono, 'ml-auto']">
                           任务 {{ detail.task_id }}
                         </span>
                       </div>
@@ -334,14 +335,14 @@ function paramsJson(value: Record<string, unknown> | undefined): string {
                         {{ detail.error_type ? `${detail.error_type}：` : '' }}{{ detail.error_message }}
                       </AlertNote>
 
-                      <h3 class="detail-title">参数快照</h3>
-                      <pre class="mono block-body">{{ paramsJson(detail.params) }}</pre>
+                      <h3 class="mx-0 mb-[6px] mt-4 text-[13px] font-bold">参数快照</h3>
+                      <pre :class="[ui.mono, 'm-0 max-h-[320px] overflow-auto rounded-[10px] border border-solid border-border bg-surface px-3 py-[10px] text-[12.5px] leading-[1.7] whitespace-pre-wrap [word-break:break-word]']">{{ paramsJson(detail.params) }}</pre>
 
-                      <h3 class="detail-title">请求内容</h3>
-                      <pre class="mono block-body">{{ detail.request_content || '（无可展示内容）' }}</pre>
+                      <h3 class="mx-0 mb-[6px] mt-4 text-[13px] font-bold">请求内容</h3>
+                      <pre :class="[ui.mono, 'm-0 max-h-[320px] overflow-auto rounded-[10px] border border-solid border-border bg-surface px-3 py-[10px] text-[12.5px] leading-[1.7] whitespace-pre-wrap [word-break:break-word]']">{{ detail.request_content || '（无可展示内容）' }}</pre>
 
-                      <h3 class="detail-title">响应内容</h3>
-                      <pre class="mono block-body">{{ detail.response_content || '（无可展示内容）' }}</pre>
+                      <h3 class="mx-0 mb-[6px] mt-4 text-[13px] font-bold">响应内容</h3>
+                      <pre :class="[ui.mono, 'm-0 max-h-[320px] overflow-auto rounded-[10px] border border-solid border-border bg-surface px-3 py-[10px] text-[12.5px] leading-[1.7] whitespace-pre-wrap [word-break:break-word]']">{{ detail.response_content || '（无可展示内容）' }}</pre>
                     </template>
                   </td>
                 </tr>
@@ -350,14 +351,14 @@ function paramsJson(value: Record<string, unknown> | undefined): string {
           </table>
         </div>
 
-        <div class="list-foot">
-          <button v-if="hasMore && !loadingMore" class="btn btn--secondary btn--sm" type="button" @click="loadMore">
+        <div class="flex justify-center px-4 py-[14px]">
+          <button v-if="hasMore && !loadingMore" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="loadMore">
             加载更多
           </button>
-          <p v-else-if="loadingMore" class="loading-row list-foot-loading">
-            <span class="spinner" aria-hidden="true"></span> 正在加载…
+          <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+            <span :class="ui.spinner" aria-hidden="true"></span> 正在加载…
           </p>
-          <p v-else class="muted">已加载全部 {{ items.length }} 条记录</p>
+          <p v-else :class="[ui.muted, 'm-0']">已加载全部 {{ items.length }} 条记录</p>
         </div>
       </section>
 
@@ -365,120 +366,3 @@ function paramsJson(value: Record<string, unknown> | undefined): string {
     </template>
   </div>
 </template>
-
-<style scoped>
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px 12px;
-  margin-top: 14px;
-}
-.filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12.5px;
-}
-.filter-actions {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-.self-start {
-  align-self: flex-start;
-}
-.table-card {
-  overflow: hidden;
-}
-.table-scroll {
-  overflow-x: auto;
-}
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.table th {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  color: var(--ink-3);
-  font-size: 12.5px;
-  font-weight: 600;
-  text-align: left;
-  white-space: nowrap;
-}
-.table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-.table tbody tr:last-child td {
-  border-bottom: none;
-}
-.nowrap {
-  white-space: nowrap;
-}
-.col-time {
-  font-size: 12.5px;
-  color: var(--ink-2);
-}
-.col-provider {
-  min-width: 140px;
-}
-.block-id {
-  display: block;
-  font-size: 11.5px;
-  margin-top: 2px;
-}
-.col-error {
-  max-width: 160px;
-  word-break: break-word;
-}
-.detail-row td {
-  background: var(--surface-subtle);
-}
-.detail-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.detail-link {
-  margin-left: auto;
-}
-.detail-title {
-  margin: 16px 0 6px;
-  font-size: 13px;
-  font-weight: 700;
-}
-.block-body {
-  max-height: 320px;
-  overflow: auto;
-  margin: 0;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  font-size: 12.5px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px;
-}
-.list-foot .muted {
-  margin: 0;
-}
-.list-foot-loading {
-  padding: 0;
-}
-</style>

@@ -9,6 +9,7 @@ import AlertNote from '../../components/AlertNote.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import { useCursorList } from '../../composables/useCursorList'
 import { formatDateTime } from '../../utils/datetime'
+import { ui } from '../../styles/ui'
 
 type TaskFilters = {
   type?: string
@@ -63,9 +64,9 @@ function statusLabel(value: string): string {
 }
 
 function statusClass(value: string): string {
-  if (value === 'failed') return 'badge--danger'
+  if (value === 'failed') return ui.badgeDanger
   if (value === 'succeeded') return ''
-  return 'badge--muted'
+  return ui.badgeMuted
 }
 
 function onTypeChange(): void {
@@ -122,48 +123,48 @@ async function onCancel(job: BackgroundJob): Promise<void> {
 </script>
 
 <template>
-  <div class="stack">
-    <section class="card card--pad">
-      <div class="head-row">
+  <div :class="ui.stack">
+    <section :class="[ui.card, ui.cardPad]">
+      <div class="flex items-start gap-3">
         <div>
-          <h2 class="page-title">全局任务</h2>
-          <p class="page-desc">
+          <h2 :class="ui.pageTitle">全局任务</h2>
+          <p :class="ui.pageDesc">
             定时发布、媒体处理、记忆整理与 AI 动作都由后台作业驱动；失败作业可重试，待执行作业可取消。
           </p>
         </div>
       </div>
 
-      <div class="filter-row">
-        <label class="type-field">
-          <span class="muted">作业类型</span>
-          <select v-model="filters.type" class="input" name="type" aria-label="作业类型筛选" @change="onTypeChange">
+      <div class="mt-[14px] flex flex-wrap items-center gap-[10px]">
+        <label class="flex items-center gap-2">
+          <span :class="ui.muted">作业类型</span>
+          <select v-model="filters.type" :class="[ui.input, 'w-[180px]!']" name="type" aria-label="作业类型筛选" @change="onTypeChange">
             <option value="">全部类型</option>
             <option v-for="item in JOB_TYPES" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
         </label>
 
-        <div class="seg" role="group" aria-label="作业状态筛选">
-          <button type="button" :class="{ 'is-active': filters.status === '' }" @click="setStatus('')">全部</button>
-          <button type="button" :class="{ 'is-active': filters.status === 'pending' }" @click="setStatus('pending')">
+        <div :class="ui.segment" role="group" aria-label="作业状态筛选">
+          <button type="button" :class="[ui.segmentButton, filters.status === '' ? ui.segmentButtonActive : '']" @click="setStatus('')">全部</button>
+          <button type="button" :class="[ui.segmentButton, filters.status === 'pending' ? ui.segmentButtonActive : '']" @click="setStatus('pending')">
             待执行
           </button>
-          <button type="button" :class="{ 'is-active': filters.status === 'running' }" @click="setStatus('running')">
+          <button type="button" :class="[ui.segmentButton, filters.status === 'running' ? ui.segmentButtonActive : '']" @click="setStatus('running')">
             执行中
           </button>
           <button
             type="button"
-            :class="{ 'is-active': filters.status === 'succeeded' }"
+            :class="[ui.segmentButton, filters.status === 'succeeded' ? ui.segmentButtonActive : '']"
             @click="setStatus('succeeded')"
           >
             成功
           </button>
-          <button type="button" :class="{ 'is-active': filters.status === 'failed' }" @click="setStatus('failed')">
+          <button type="button" :class="[ui.segmentButton, filters.status === 'failed' ? ui.segmentButtonActive : '']" @click="setStatus('failed')">
             失败
           </button>
-          <button type="button" :class="{ 'is-active': filters.status === 'paused' }" @click="setStatus('paused')">
+          <button type="button" :class="[ui.segmentButton, filters.status === 'paused' ? ui.segmentButtonActive : '']" @click="setStatus('paused')">
             已暂停
           </button>
-          <button type="button" :class="{ 'is-active': filters.status === 'canceled' }" @click="setStatus('canceled')">
+          <button type="button" :class="[ui.segmentButton, filters.status === 'canceled' ? ui.segmentButtonActive : '']" @click="setStatus('canceled')">
             已取消
           </button>
         </div>
@@ -173,25 +174,25 @@ async function onCancel(job: BackgroundJob): Promise<void> {
     <AlertNote v-if="actionNotice" kind="success">{{ actionNotice }}</AlertNote>
     <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-    <p v-if="initialLoading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+    <p v-if="initialLoading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="listError && items.length === 0">
       <AlertNote kind="error">{{ listError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
     </template>
 
-    <section v-else-if="items.length === 0" class="card card--pad">
-      <div class="empty">
-        <AppIcon name="list" :size="26" />
-        <strong>没有匹配的后台作业</strong>
-        <p>调整作业类型或状态筛选条件。</p>
+    <section v-else-if="items.length === 0" :class="[ui.card, ui.cardPad]">
+      <div :class="ui.empty">
+        <AppIcon name="list" :size="26" :class="ui.emptyIcon" />
+        <strong :class="ui.emptyStrong">没有匹配的后台作业</strong>
+        <p :class="ui.emptyText">调整作业类型或状态筛选条件。</p>
       </div>
     </section>
 
     <template v-else>
-      <section class="card table-card">
-        <div class="table-scroll">
-          <table class="table">
+      <section :class="[ui.card, 'overflow-hidden']">
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse text-[13px] [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:border-solid [&_th]:border-border [&_th]:px-3 [&_th]:py-[10px] [&_th]:text-left [&_th]:text-[12.5px] [&_th]:font-semibold [&_th]:text-ink-3 [&_td]:border-b [&_td]:border-solid [&_td]:border-border [&_td]:px-3 [&_td]:py-[10px] [&_td]:align-top [&_tbody_tr:last-child_td]:border-b-0">
             <thead>
               <tr>
                 <th>ID</th>
@@ -206,28 +207,28 @@ async function onCancel(job: BackgroundJob): Promise<void> {
             </thead>
             <tbody>
               <tr v-for="job in items" :key="job.id">
-                <td class="col-id mono" :title="job.id">{{ job.id }}</td>
-                <td class="nowrap">{{ typeLabel(job.job_type) }}</td>
-                <td class="col-ref mono">
+                <td :class="[ui.mono, 'max-w-[140px] overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px]']" :title="job.id">{{ job.id }}</td>
+                <td class="whitespace-nowrap">{{ typeLabel(job.job_type) }}</td>
+                <td :class="[ui.mono, 'max-w-[190px] [word-break:break-all]']">
                   <template v-if="job.ref_type">
                     {{ job.ref_type }}<template v-if="job.ref_id"> · {{ job.ref_id }}</template>
                   </template>
                   <template v-else>—</template>
                 </td>
                 <td>
-                  <span class="badge" :class="statusClass(job.status)">{{ statusLabel(job.status) }}</span>
+                  <span :class="[ui.badge, statusClass(job.status)]">{{ statusLabel(job.status) }}</span>
                 </td>
-                <td class="nowrap col-time">
+                <td class="whitespace-nowrap text-[12.5px] text-ink-2">
                   {{ formatDateTime(job.run_at) }}
-                  <span class="muted block-id">更新于 {{ formatDateTime(job.updated_at) }}</span>
+                  <span class="mt-[2px] block text-[11.5px] text-ink-3">更新于 {{ formatDateTime(job.updated_at) }}</span>
                 </td>
-                <td class="mono">{{ job.attempts }} / {{ job.max_attempts }}</td>
-                <td class="col-error">{{ job.last_error || '—' }}</td>
-                <td class="col-actions">
-                  <div class="actions">
+                <td :class="ui.mono">{{ job.attempts }} / {{ job.max_attempts }}</td>
+                <td class="min-w-[160px] max-w-[260px] text-red [word-break:break-word]">{{ job.last_error || '—' }}</td>
+                <td class="min-w-[96px]">
+                  <div class="flex flex-wrap gap-[6px]">
                     <button
                       v-if="job.status === 'failed'"
-                      class="btn btn--secondary btn--sm"
+                      :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
                       type="button"
                       :disabled="busyId === job.id"
                       @click="onRetry(job)"
@@ -236,14 +237,14 @@ async function onCancel(job: BackgroundJob): Promise<void> {
                     </button>
                     <button
                       v-if="job.status === 'pending'"
-                      class="btn btn--danger btn--sm"
+                      :class="[ui.button, ui.buttonDanger, ui.buttonSmall]"
                       type="button"
                       :disabled="busyId === job.id"
                       @click="onCancel(job)"
                     >
                       {{ busyId === job.id ? '处理中…' : '取消' }}
                     </button>
-                    <span v-if="job.status !== 'failed' && job.status !== 'pending'" class="muted">—</span>
+                    <span v-if="job.status !== 'failed' && job.status !== 'pending'" :class="ui.muted">—</span>
                   </div>
                 </td>
               </tr>
@@ -251,129 +252,24 @@ async function onCancel(job: BackgroundJob): Promise<void> {
           </table>
         </div>
 
-        <div class="list-foot">
-          <button v-if="hasMore && !loadingMore" class="btn btn--secondary btn--sm" type="button" @click="loadMore">
+        <div class="flex justify-center px-4 py-[14px]">
+          <button v-if="hasMore && !loadingMore" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="loadMore">
             加载更多
           </button>
-          <p v-else-if="loadingMore" class="loading-row list-foot-loading">
-            <span class="spinner" aria-hidden="true"></span> 正在加载…
+          <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+            <span :class="ui.spinner" aria-hidden="true"></span> 正在加载…
           </p>
-          <p v-else class="muted">已加载全部 {{ items.length }} 个作业</p>
+          <p v-else :class="[ui.muted, 'm-0']">已加载全部 {{ items.length }} 个作业</p>
         </div>
       </section>
 
       <AlertNote v-if="listError" kind="error">{{ listError }}</AlertNote>
     </template>
 
-    <p class="muted foot-note">
+    <p :class="[ui.muted, 'm-0']">
       单个 AI 的任务记录请在
       <RouterLink to="/admin/ai">AI 管理</RouterLink>
       中选择具体 AI 查看。
     </p>
   </div>
 </template>
-
-<style scoped>
-.head-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-}
-.type-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.type-field .input {
-  width: 180px;
-}
-.self-start {
-  align-self: flex-start;
-}
-.table-card {
-  overflow: hidden;
-}
-.table-scroll {
-  overflow-x: auto;
-}
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.table th {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  color: var(--ink-3);
-  font-size: 12.5px;
-  font-weight: 600;
-  text-align: left;
-  white-space: nowrap;
-}
-.table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-.table tbody tr:last-child td {
-  border-bottom: none;
-}
-.nowrap {
-  white-space: nowrap;
-}
-.col-id {
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12.5px;
-}
-.col-ref {
-  max-width: 190px;
-  word-break: break-all;
-}
-.col-time {
-  font-size: 12.5px;
-  color: var(--ink-2);
-}
-.block-id {
-  display: block;
-  font-size: 11.5px;
-  margin-top: 2px;
-}
-.col-error {
-  min-width: 160px;
-  max-width: 260px;
-  color: var(--red);
-  word-break: break-word;
-}
-.col-actions {
-  min-width: 96px;
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px;
-}
-.list-foot .muted {
-  margin: 0;
-}
-.list-foot-loading {
-  padding: 0;
-}
-.foot-note {
-  margin: 0;
-}
-</style>

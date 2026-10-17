@@ -8,6 +8,7 @@ import AlertNote from '../../components/AlertNote.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import FormField from '../../components/FormField.vue'
 import { authState, logout } from '../../stores/auth'
+import { ui } from '../../styles/ui'
 import { formatDate } from '../../utils/datetime'
 
 const router = useRouter()
@@ -116,42 +117,42 @@ onMounted(() => void loadFollowSettings())
 </script>
 
 <template>
-  <section class="card card--pad">
-    <h2 class="page-title">账号信息</h2>
-    <p class="page-desc">用户名与邮箱由系统管理；邮箱变更尚未开放。</p>
+  <section :class="[ui.card, ui.cardPad]">
+    <h2 :class="[ui.pageTitle]">账号信息</h2>
+    <p :class="[ui.pageDesc]">用户名与邮箱由系统管理；邮箱变更尚未开放。</p>
 
     <AlertNote v-if="suspended" kind="warning">账号已被停用：读操作可用，写操作会被拒绝。</AlertNote>
 
-    <dl class="info-list account-list">
-      <dt>用户名</dt>
-      <dd class="mono">@{{ user?.username }}</dd>
-      <dt>邮箱</dt>
-      <dd>{{ user?.email }}</dd>
-      <dt>角色</dt>
-      <dd>{{ roleLabel }}</dd>
-      <dt>状态</dt>
-      <dd>
-        <span v-if="suspended" class="badge badge--danger">已停用</span>
-        <span v-else class="badge">正常</span>
+    <dl :class="[ui.infoList, 'mt-[14px]']">
+      <dt :class="[ui.infoTerm]">用户名</dt>
+      <dd :class="[ui.infoDetails, ui.mono]">@{{ user?.username }}</dd>
+      <dt :class="[ui.infoTerm]">邮箱</dt>
+      <dd :class="[ui.infoDetails]">{{ user?.email }}</dd>
+      <dt :class="[ui.infoTerm]">角色</dt>
+      <dd :class="[ui.infoDetails]">{{ roleLabel }}</dd>
+      <dt :class="[ui.infoTerm]">状态</dt>
+      <dd :class="[ui.infoDetails]">
+        <span v-if="suspended" :class="[ui.badge, ui.badgeDanger]">已停用</span>
+        <span v-else :class="[ui.badge]">正常</span>
       </dd>
-      <dt>注册时间</dt>
-      <dd>{{ formatDate(user?.created_at) }}</dd>
+      <dt :class="[ui.infoTerm]">注册时间</dt>
+      <dd :class="[ui.infoDetails]">{{ formatDate(user?.created_at) }}</dd>
     </dl>
   </section>
 
-  <section class="card card--pad">
-    <h2 class="page-title">修改密码</h2>
-    <p class="page-desc">修改成功后，其他已登录会话会立即失效，当前会话保留。</p>
+  <section :class="[ui.card, ui.cardPad]">
+    <h2 :class="[ui.pageTitle]">修改密码</h2>
+    <p :class="[ui.pageDesc]">修改成功后，其他已登录会话会立即失效，当前会话保留。</p>
 
     <AlertNote v-if="passwordSaved" kind="success">密码已更新，其他会话已失效。</AlertNote>
     <AlertNote v-if="passwordError" kind="error">{{ passwordError }}</AlertNote>
 
-    <form class="form" novalidate @submit.prevent="onChangePassword">
+    <form :class="[ui.form]" novalidate @submit.prevent="onChangePassword">
       <FormField label="当前密码" input-id="account-old-password" :error="passwordErrors.old_password">
         <input
           id="account-old-password"
           v-model="passwordForm.old_password"
-          class="input"
+          :class="[ui.input]"
           type="password"
           name="old_password"
           autocomplete="current-password"
@@ -169,7 +170,7 @@ onMounted(() => void loadFollowSettings())
         <input
           id="account-new-password"
           v-model="passwordForm.new_password"
-          class="input"
+          :class="[ui.input]"
           type="password"
           name="new_password"
           autocomplete="new-password"
@@ -178,23 +179,24 @@ onMounted(() => void loadFollowSettings())
         />
       </FormField>
 
-      <button class="btn btn--primary" type="submit" :disabled="passwordSaving || suspended">
-        <span v-if="passwordSaving" class="spinner" aria-hidden="true"></span>
+      <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="passwordSaving || suspended">
+        <span v-if="passwordSaving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
         {{ passwordSaving ? '提交中…' : '更新密码' }}
       </button>
     </form>
   </section>
 
-  <section class="card card--pad">
-    <h2 class="page-title">关注审批</h2>
-    <p class="page-desc">开启后，他人关注你需要你的批准；关闭后关注会直接生效。</p>
+  <section :class="[ui.card, ui.cardPad]">
+    <h2 :class="[ui.pageTitle]">关注审批</h2>
+    <p :class="[ui.pageDesc]">开启后，他人关注你需要你的批准；关闭后关注会直接生效。</p>
 
-    <p v-if="followLoading" class="loading-row"><span class="spinner" aria-hidden="true"></span> 载入中…</p>
+    <p v-if="followLoading" :class="[ui.loadingRow]"><span :class="[ui.spinner]" aria-hidden="true"></span> 载入中…</p>
 
     <template v-else>
-      <label class="switch">
+      <label :class="[ui.switch]">
         <input
           type="checkbox"
+          :class="[ui.switchInput]"
           :checked="requireApproval"
           :disabled="followSaving || suspended"
           @change="onApprovalChange"
@@ -202,26 +204,17 @@ onMounted(() => void loadFollowSettings())
         <span>需要我批准新的关注请求</span>
       </label>
 
-      <AlertNote v-if="followSaved" kind="success" class="switch-alert">关注审批设置已更新。</AlertNote>
-      <AlertNote v-if="followError" kind="error" class="switch-alert">{{ followError }}</AlertNote>
+      <AlertNote v-if="followSaved" kind="success" class="mt-3!">关注审批设置已更新。</AlertNote>
+      <AlertNote v-if="followError" kind="error" class="mt-3!">{{ followError }}</AlertNote>
     </template>
   </section>
 
-  <section class="card card--pad">
-    <h2 class="page-title">退出登录</h2>
-    <p class="page-desc">退出后需要重新输入用户名与密码。</p>
-    <button class="btn btn--secondary" type="button" :disabled="loggingOut" @click="onLogout">
+  <section :class="[ui.card, ui.cardPad]">
+    <h2 :class="[ui.pageTitle]">退出登录</h2>
+    <p :class="[ui.pageDesc]">退出后需要重新输入用户名与密码。</p>
+    <button :class="[ui.button, ui.buttonSecondary]" type="button" :disabled="loggingOut" @click="onLogout">
       <AppIcon name="logout" :size="17" />
       {{ loggingOut ? '正在退出…' : '退出登录' }}
     </button>
   </section>
 </template>
-
-<style scoped>
-.account-list {
-  margin-top: 14px;
-}
-.switch-alert {
-  margin-top: 12px;
-}
-</style>

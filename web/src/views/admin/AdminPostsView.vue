@@ -11,6 +11,7 @@ import UserAvatar from '../../components/UserAvatar.vue'
 import { useCursorList } from '../../composables/useCursorList'
 import { formatDateTime } from '../../utils/datetime'
 import { plainSummary } from '../../utils/format'
+import { ui } from '../../styles/ui'
 
 type VisibilityFilter = '' | 'public' | 'followers' | 'private'
 type StatusFilter = '' | 'published' | 'draft' | 'scheduled' | 'deleted'
@@ -77,9 +78,9 @@ function statusLabel(value: string): string {
 }
 
 function statusClass(value: string): string {
-  if (value === 'deleted') return 'badge--danger'
+  if (value === 'deleted') return ui.badgeDanger
   if (value === 'published') return ''
-  return 'badge--muted'
+  return ui.badgeMuted
 }
 
 function setVisibility(value: VisibilityFilter): void {
@@ -123,14 +124,14 @@ async function onDelete(post: AdminPost): Promise<void> {
 </script>
 
 <template>
-  <div class="stack">
-    <section class="card card--pad">
-      <form class="search-form" @submit.prevent="onSearch">
-        <div class="search-box">
-          <AppIcon name="search" :size="17" class="search-icon" />
+  <div :class="ui.stack">
+    <section :class="[ui.card, ui.cardPad]">
+      <form class="flex flex-wrap gap-2" @submit.prevent="onSearch">
+        <div class="relative min-w-0 flex-[1_1_220px]">
+          <AppIcon name="search" :size="17" class="pointer-events-none absolute top-1/2 left-[11px] -translate-y-1/2 text-ink-3" />
           <input
             v-model="filters.q"
-            class="input search-input"
+            :class="[ui.input, 'pl-9!']"
             type="search"
             name="q"
             placeholder="搜索正文关键词"
@@ -139,70 +140,70 @@ async function onDelete(post: AdminPost): Promise<void> {
         </div>
         <input
           v-model="filters.author"
-          class="input author-input"
+          :class="[ui.input, 'flex-[0_1_180px]']"
           type="search"
           name="author"
           placeholder="作者用户名"
           aria-label="按作者用户名筛选"
         />
-        <button class="btn btn--primary" type="submit" :disabled="loading">
-          <span v-if="loading" class="spinner" aria-hidden="true"></span>
+        <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="loading">
+          <span v-if="loading" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
           {{ loading ? '查询中…' : '查询' }}
         </button>
       </form>
 
-      <div class="filter-row">
-        <div class="seg" role="group" aria-label="可见性筛选">
-          <button type="button" :class="{ 'is-active': filters.visibility === '' }" @click="setVisibility('')">
+      <div class="mt-3 flex flex-wrap gap-2">
+        <div :class="ui.segment" role="group" aria-label="可见性筛选">
+          <button type="button" :class="[ui.segmentButton, filters.visibility === '' ? ui.segmentButtonActive : '']" @click="setVisibility('')">
             全部可见性
           </button>
           <button
             type="button"
-            :class="{ 'is-active': filters.visibility === 'public' }"
+            :class="[ui.segmentButton, filters.visibility === 'public' ? ui.segmentButtonActive : '']"
             @click="setVisibility('public')"
           >
             公开
           </button>
           <button
             type="button"
-            :class="{ 'is-active': filters.visibility === 'followers' }"
+            :class="[ui.segmentButton, filters.visibility === 'followers' ? ui.segmentButtonActive : '']"
             @click="setVisibility('followers')"
           >
             仅关注者
           </button>
           <button
             type="button"
-            :class="{ 'is-active': filters.visibility === 'private' }"
+            :class="[ui.segmentButton, filters.visibility === 'private' ? ui.segmentButtonActive : '']"
             @click="setVisibility('private')"
           >
             仅自己
           </button>
         </div>
 
-        <div class="seg" role="group" aria-label="状态筛选">
-          <button type="button" :class="{ 'is-active': filters.status === '' }" @click="setStatus('')">
+        <div :class="ui.segment" role="group" aria-label="状态筛选">
+          <button type="button" :class="[ui.segmentButton, filters.status === '' ? ui.segmentButtonActive : '']" @click="setStatus('')">
             全部状态
           </button>
           <button
             type="button"
-            :class="{ 'is-active': filters.status === 'published' }"
+            :class="[ui.segmentButton, filters.status === 'published' ? ui.segmentButtonActive : '']"
             @click="setStatus('published')"
           >
             已发布
           </button>
-          <button type="button" :class="{ 'is-active': filters.status === 'draft' }" @click="setStatus('draft')">
+          <button type="button" :class="[ui.segmentButton, filters.status === 'draft' ? ui.segmentButtonActive : '']" @click="setStatus('draft')">
             草稿
           </button>
           <button
             type="button"
-            :class="{ 'is-active': filters.status === 'scheduled' }"
+            :class="[ui.segmentButton, filters.status === 'scheduled' ? ui.segmentButtonActive : '']"
             @click="setStatus('scheduled')"
           >
             定时
           </button>
           <button
             type="button"
-            :class="{ 'is-active': filters.status === 'deleted' }"
+            :class="[ui.segmentButton, filters.status === 'deleted' ? ui.segmentButtonActive : '']"
             @click="setStatus('deleted')"
           >
             已删除
@@ -214,25 +215,25 @@ async function onDelete(post: AdminPost): Promise<void> {
     <AlertNote v-if="actionNotice" kind="success">{{ actionNotice }}</AlertNote>
     <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-    <p v-if="initialLoading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+    <p v-if="initialLoading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="listError && items.length === 0">
       <AlertNote kind="error">{{ listError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
     </template>
 
-    <section v-else-if="items.length === 0" class="card card--pad">
-      <div class="empty">
-        <AppIcon name="file-text" :size="26" />
-        <strong>没有找到匹配的帖子</strong>
-        <p>尝试调整关键词、作者或筛选条件。</p>
+    <section v-else-if="items.length === 0" :class="[ui.card, ui.cardPad]">
+      <div :class="ui.empty">
+        <AppIcon name="file-text" :size="26" :class="ui.emptyIcon" />
+        <strong :class="ui.emptyStrong">没有找到匹配的帖子</strong>
+        <p :class="ui.emptyText">尝试调整关键词、作者或筛选条件。</p>
       </div>
     </section>
 
     <template v-else>
-      <section class="card table-card">
-        <div class="table-scroll">
-          <table class="table">
+      <section :class="[ui.card, 'overflow-hidden']">
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse text-[13.5px] [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:border-solid [&_th]:border-border [&_th]:px-3 [&_th]:py-[10px] [&_th]:text-left [&_th]:text-[12.5px] [&_th]:font-semibold [&_th]:text-ink-3 [&_td]:border-b [&_td]:border-solid [&_td]:border-border [&_td]:px-3 [&_td]:py-[10px] [&_td]:align-middle [&_tbody_tr:last-child_td]:border-b-0 [&_tbody_tr:hover]:bg-hover">
             <thead>
               <tr>
                 <th>ID</th>
@@ -247,30 +248,30 @@ async function onDelete(post: AdminPost): Promise<void> {
             </thead>
             <tbody>
               <tr v-for="post in items" :key="post.id">
-                <td class="col-id">
-                  <RouterLink :to="`/admin/content/posts/${post.id}`" class="mono id-link" :title="post.id">
+                <td class="max-w-[150px]">
+                  <RouterLink :to="`/admin/content/posts/${post.id}`" :class="[ui.mono, 'block overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px]']" :title="post.id">
                     {{ post.id }}
                   </RouterLink>
                 </td>
                 <td>
-                  <span class="author">
+                  <span class="flex min-w-[140px] items-center gap-2">
                     <UserAvatar :user="post.author" size="sm" />
-                    <span class="author-text">
-                      <span class="author-name">{{ post.author.nickname || post.author.username }}</span>
-                      <span class="muted">@{{ post.author.username }}</span>
+                    <span class="flex min-w-0 flex-col leading-[1.4]">
+                      <span class="whitespace-nowrap font-bold">{{ post.author.nickname || post.author.username }}</span>
+                      <span :class="ui.muted">@{{ post.author.username }}</span>
                     </span>
                   </span>
                 </td>
                 <td>{{ visibilityLabel(post.visibility) }}</td>
                 <td>
-                  <span class="badge" :class="statusClass(post.status)">{{ statusLabel(post.status) }}</span>
+                  <span :class="[ui.badge, statusClass(post.status)]">{{ statusLabel(post.status) }}</span>
                 </td>
-                <td class="col-summary">{{ plainSummary(post.content_html, 60) || '（无正文）' }}</td>
-                <td class="mono">{{ post.like_count }} / {{ post.comment_count }} / {{ post.repost_count }}</td>
-                <td class="col-time">{{ post.published_at ? formatDateTime(post.published_at) : '—' }}</td>
+                <td class="min-w-[200px] max-w-[320px]">{{ plainSummary(post.content_html, 60) || '（无正文）' }}</td>
+                <td :class="ui.mono">{{ post.like_count }} / {{ post.comment_count }} / {{ post.repost_count }}</td>
+                <td class="whitespace-nowrap text-[12.5px] text-ink-2">{{ post.published_at ? formatDateTime(post.published_at) : '—' }}</td>
                 <td>
                   <button
-                    class="btn btn--danger btn--sm"
+                    :class="[ui.button, ui.buttonDanger, ui.buttonSmall]"
                     type="button"
                     :disabled="busyId === post.id"
                     @click="onDelete(post)"
@@ -283,14 +284,14 @@ async function onDelete(post: AdminPost): Promise<void> {
           </table>
         </div>
 
-        <div class="list-foot">
-          <button v-if="hasMore && !loadingMore" class="btn btn--secondary btn--sm" type="button" @click="loadMore">
+        <div class="flex justify-center px-4 py-[14px]">
+          <button v-if="hasMore && !loadingMore" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="loadMore">
             加载更多
           </button>
-          <p v-else-if="loadingMore" class="loading-row list-foot-loading">
-            <span class="spinner" aria-hidden="true"></span> 正在加载…
+          <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+            <span :class="ui.spinner" aria-hidden="true"></span> 正在加载…
           </p>
-          <p v-else class="muted">已加载全部 {{ items.length }} 条记录</p>
+          <p v-else :class="[ui.muted, 'm-0']">已加载全部 {{ items.length }} 条记录</p>
         </div>
       </section>
 
@@ -298,116 +299,3 @@ async function onDelete(post: AdminPost): Promise<void> {
     </template>
   </div>
 </template>
-
-<style scoped>
-.search-form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.search-box {
-  position: relative;
-  flex: 1 1 220px;
-  min-width: 0;
-}
-.search-icon {
-  position: absolute;
-  top: 50%;
-  left: 11px;
-  transform: translateY(-50%);
-  color: var(--ink-3);
-  pointer-events: none;
-}
-.search-input {
-  padding-left: 36px;
-}
-.author-input {
-  flex: 0 1 180px;
-}
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-.self-start {
-  align-self: flex-start;
-}
-.table-card {
-  overflow: hidden;
-}
-.table-scroll {
-  overflow-x: auto;
-}
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13.5px;
-}
-.table th {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  color: var(--ink-3);
-  font-size: 12.5px;
-  font-weight: 600;
-  text-align: left;
-  white-space: nowrap;
-}
-.table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: middle;
-}
-.table tbody tr:last-child td {
-  border-bottom: none;
-}
-.table tbody tr:hover {
-  background: var(--hover);
-}
-.col-id {
-  max-width: 150px;
-}
-.id-link {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12.5px;
-}
-.author {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 140px;
-}
-.author-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.4;
-}
-.author-name {
-  font-weight: 700;
-  white-space: nowrap;
-}
-.col-summary {
-  min-width: 200px;
-  max-width: 320px;
-}
-.col-time {
-  white-space: nowrap;
-  font-size: 12.5px;
-  color: var(--ink-2);
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px;
-}
-.list-foot .muted {
-  margin: 0;
-}
-.list-foot-loading {
-  padding: 0;
-}
-</style>

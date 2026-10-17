@@ -19,6 +19,7 @@ import AppIcon from '../../components/AppIcon.vue'
 import { useCursorList } from '../../composables/useCursorList'
 import { formatDateTime } from '../../utils/datetime'
 import { fromDatetimeLocal } from '../../utils/format'
+import { ui } from '../../styles/ui'
 
 type DraftFilters = Record<string, never>
 type GenerateMode = 'draft' | 'publish' | 'schedule'
@@ -56,9 +57,9 @@ function taskStatusLabel(status: AITaskStatus): string {
 }
 
 function taskStatusClass(status: AITaskStatus): string {
-  if (status === 'failed' || status === 'rejected') return 'badge--danger'
+  if (status === 'failed' || status === 'rejected') return ui.badgeDanger
   if (status === 'succeeded') return ''
-  return 'badge--muted'
+  return ui.badgeMuted
 }
 
 function stopTaskPolling(): void {
@@ -236,48 +237,48 @@ async function onPublish(draft: AIDraft): Promise<void> {
 </script>
 
 <template>
-  <div class="stack">
-    <section class="card card--pad">
-      <h2 class="page-title">手动生成</h2>
-      <p class="page-desc">
+  <div :class="ui.stack">
+    <section :class="[ui.card, ui.cardPad]">
+      <h2 :class="ui.pageTitle">手动生成</h2>
+      <p :class="ui.pageDesc">
         生成与发布都是异步任务，模型按身份设定自行选题；提交后下方会轮询展示任务状态与结果。
       </p>
 
       <AlertNote v-if="actionNotice" kind="success">
         {{ actionNotice }}
         <template v-if="lastTaskId">
-          任务已提交（<span class="mono">{{ lastTaskId }}</span>），可在任务页查看进度。
+          任务已提交（<span :class="ui.mono">{{ lastTaskId }}</span>），可在任务页查看进度。
         </template>
       </AlertNote>
       <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-      <div class="form">
-        <p class="muted generation-hint">
+      <div :class="ui.form">
+        <p class="m-0 text-[12.5px] text-ink-3">
           模型会按 AI 身份设定与当前上下文自行选题；生成内容仅进入草稿或发布队列，不会在前端回显模型原始输出。
         </p>
 
-        <label class="field-label" for="publish-schedule">定时发布时间（可选，北京时间）</label>
+        <label :class="ui.fieldLabel" for="publish-schedule">定时发布时间（可选，北京时间）</label>
         <input
           id="publish-schedule"
           v-model="scheduledAt"
-          class="input schedule-input"
+          :class="[ui.input, 'max-w-[260px]']"
           type="datetime-local"
           name="scheduled_at"
           :disabled="submitting"
         />
-        <p class="muted schedule-hint">填写后使用「生成并定时发布」；到点由服务端按可见性发布，应用重启不会丢失。</p>
+        <p class="m-0 text-[12.5px] text-ink-3">填写后使用「生成并定时发布」；到点由服务端按可见性发布，应用重启不会丢失。</p>
 
-        <div class="actions">
-          <button class="btn btn--primary" type="button" :disabled="submitting" @click="onGenerate('draft')">
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button :class="[ui.button, ui.buttonPrimary]" type="button" :disabled="submitting" @click="onGenerate('draft')">
             <AppIcon name="file-text" :size="16" />
             生成草稿
           </button>
-          <button class="btn btn--secondary" type="button" :disabled="submitting" @click="onGenerate('publish')">
+          <button :class="[ui.button, ui.buttonSecondary]" type="button" :disabled="submitting" @click="onGenerate('publish')">
             <AppIcon name="send" :size="16" />
             直接生成并发布
           </button>
           <button
-            class="btn btn--secondary"
+            :class="[ui.button, ui.buttonSecondary]"
             type="button"
             :disabled="submitting || !scheduledAt"
             @click="onGenerate('schedule')"
@@ -285,93 +286,93 @@ async function onPublish(draft: AIDraft): Promise<void> {
             <AppIcon name="calendar" :size="16" />
             生成并定时发布
           </button>
-          <RouterLink :to="`/admin/ai/${aiId}/tasks`" class="btn btn--secondary">查看任务</RouterLink>
+          <RouterLink :to="`/admin/ai/${aiId}/tasks`" :class="[ui.button, ui.buttonSecondary]">查看任务</RouterLink>
         </div>
 
-        <p v-if="submitting" class="loading-row">
-          <span class="spinner" aria-hidden="true"></span> 正在提交任务…
+        <p v-if="submitting" :class="ui.loadingRow">
+          <span :class="ui.spinner" aria-hidden="true"></span> 正在提交任务…
         </p>
       </div>
 
-      <div v-if="lastTaskId" class="task-panel">
-        <p class="task-head">
+      <div v-if="lastTaskId" class="mt-4 grid gap-[6px] rounded-[10px] border border-solid border-border bg-surface-subtle px-[14px] py-3">
+        <p class="m-0 flex flex-wrap items-center gap-2 text-[13.5px] font-semibold">
           <AppIcon name="activity" :size="16" />
-          <span>生成任务 <span class="mono">{{ lastTaskId }}</span></span>
-          <span class="badge" :class="currentTask ? taskStatusClass(currentTask.status) : 'badge--muted'">
+          <span>生成任务 <span :class="ui.mono">{{ lastTaskId }}</span></span>
+          <span :class="[ui.badge, currentTask ? taskStatusClass(currentTask.status) : ui.badgeMuted, 'ml-auto']">
             {{ currentTask ? taskStatusLabel(currentTask.status) : '已提交' }}
           </span>
         </p>
 
         <template v-if="currentTask">
-          <p class="muted task-line">
+          <p class="m-0 text-[12.5px] text-ink-3 [overflow-wrap:anywhere]">
             动作 {{ currentTask.action_type || '—' }} · 触发 {{ currentTask.trigger_type }} · 尝试
             {{ currentTask.attempts }}
           </p>
-          <p v-if="currentTask.decision_summary" class="muted task-line">决策：{{ currentTask.decision_summary }}</p>
-          <p v-if="currentTask.error" class="task-error">错误：{{ currentTask.error }}</p>
-          <p class="muted task-line">
+          <p v-if="currentTask.decision_summary" class="m-0 text-[12.5px] text-ink-3 [overflow-wrap:anywhere]">决策：{{ currentTask.decision_summary }}</p>
+          <p v-if="currentTask.error" class="m-0 text-[12.5px] text-red [overflow-wrap:anywhere]">错误：{{ currentTask.error }}</p>
+          <p class="m-0 text-[12.5px] text-ink-3 [overflow-wrap:anywhere]">
             结果引用：
             <RouterLink :to="resultLink(currentTask)">{{ resultLabel(currentTask) }}</RouterLink>
           </p>
-          <div v-if="currentTask.memories && currentTask.memories.length > 0" class="task-memories">
-            <p class="field-label">注入记忆</p>
-            <ul>
-              <li v-for="memory in currentTask.memories" :key="memory.id">
-                <span class="badge badge--muted">{{ memory.category || memory.type }}</span>
+          <div v-if="currentTask.memories && currentTask.memories.length > 0" class="mt-1">
+            <p :class="[ui.fieldLabel, 'm-0 mb-1']">注入记忆</p>
+            <ul class="m-0 grid list-none gap-1 p-0">
+              <li v-for="memory in currentTask.memories" :key="memory.id" class="flex items-start gap-[6px] text-[12.5px] leading-[1.6] text-ink-2">
+                <span :class="[ui.badge, ui.badgeMuted]">{{ memory.category || memory.type }}</span>
                 {{ memory.content }}
               </li>
             </ul>
           </div>
         </template>
-        <p v-else-if="taskPolling" class="loading-row">
-          <span class="spinner" aria-hidden="true"></span> 正在获取任务状态…
+        <p v-else-if="taskPolling" :class="ui.loadingRow">
+          <span :class="ui.spinner" aria-hidden="true"></span> 正在获取任务状态…
         </p>
-        <p v-if="taskPollNote" class="muted task-line">{{ taskPollNote }}</p>
+        <p v-if="taskPollNote" class="m-0 text-[12.5px] text-ink-3 [overflow-wrap:anywhere]">{{ taskPollNote }}</p>
       </div>
     </section>
 
-    <section class="card card--pad">
-      <h2 class="page-title">AI 草稿</h2>
-      <p class="page-desc">AI 草稿在发布前仅管理员可见，不会出现在作者主页或时间线上。</p>
+    <section :class="[ui.card, ui.cardPad]">
+      <h2 :class="ui.pageTitle">AI 草稿</h2>
+      <p :class="ui.pageDesc">AI 草稿在发布前仅管理员可见，不会出现在作者主页或时间线上。</p>
 
-      <p v-if="initialLoading" class="loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+      <p v-if="initialLoading" :class="ui.loadingRow"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
       <template v-else-if="listError && items.length === 0">
         <AlertNote kind="error">{{ listError }}</AlertNote>
-        <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+        <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
       </template>
 
-      <div v-else-if="items.length === 0" class="empty">
-        <AppIcon name="file-text" :size="26" />
-        <strong>暂无 AI 草稿</strong>
-        <p>使用上方「生成草稿」提交任务，完成后草稿会出现在这里。</p>
+      <div v-else-if="items.length === 0" :class="ui.empty">
+        <AppIcon name="file-text" :size="26" :class="ui.emptyIcon" />
+        <strong :class="ui.emptyStrong">暂无 AI 草稿</strong>
+        <p :class="ui.emptyText">使用上方「生成草稿」提交任务，完成后草稿会出现在这里。</p>
       </div>
 
-      <div v-else class="draft-list">
-        <article v-for="draft in items" :key="draft.id" class="draft-row">
-          <div class="draft-head">
-            <span class="muted mono">草稿 {{ draft.id }}</span>
-            <span class="badge badge--muted">{{ draft.visibility }}</span>
-            <span class="muted mono">r{{ draft.revision }}</span>
-            <span class="draft-time mono">更新于 {{ formatDateTime(draft.updated_at) }}</span>
+      <div v-else class="mt-[14px]">
+        <article v-for="draft in items" :key="draft.id" class="border-b border-solid border-border py-[14px] last:border-b-0">
+          <div class="flex flex-wrap items-center gap-2 text-[12.5px]">
+            <span :class="[ui.muted, ui.mono]">草稿 {{ draft.id }}</span>
+            <span :class="[ui.badge, ui.badgeMuted]">{{ draft.visibility }}</span>
+            <span :class="[ui.muted, ui.mono]">r{{ draft.revision }}</span>
+            <span :class="[ui.mono, 'ml-auto whitespace-nowrap text-ink-3']">更新于 {{ formatDateTime(draft.updated_at) }}</span>
           </div>
 
-          <form v-if="editingId === draft.id" class="draft-edit" novalidate @submit.prevent="onSaveDraft(draft)">
-            <label class="field-label" for="draft-content">正文（Markdown）</label>
+          <form v-if="editingId === draft.id" class="mt-[10px]" novalidate @submit.prevent="onSaveDraft(draft)">
+            <label :class="ui.fieldLabel" for="draft-content">正文（Markdown）</label>
             <textarea
               id="draft-content"
               v-model="editForm.content_source"
-              class="textarea draft-textarea"
+              :class="[ui.input, ui.textarea, 'min-h-[180px]!']"
               name="content_source"
               :disabled="savingId === draft.id"
             ></textarea>
-            <div class="actions">
-              <button class="btn btn--primary btn--sm" type="submit" :disabled="savingId === draft.id">
-                <span v-if="savingId === draft.id" class="spinner" aria-hidden="true"></span>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]" type="submit" :disabled="savingId === draft.id">
+                <span v-if="savingId === draft.id" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
                 {{ savingId === draft.id ? '保存中…' : '保存草稿' }}
               </button>
               <button
-                class="btn btn--secondary btn--sm"
+                :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
                 type="button"
                 :disabled="savingId === draft.id"
                 @click="cancelEdit"
@@ -383,31 +384,31 @@ async function onPublish(draft: AIDraft): Promise<void> {
 
           <template v-else>
             <!-- content_html 由后端转换并清洗 -->
-            <div v-if="draft.content_html" class="draft-body" v-html="draft.content_html"></div>
-            <p v-else class="muted">（空正文）</p>
-            <div class="actions">
-              <button class="btn btn--secondary btn--sm" type="button" @click="startEdit(draft)">编辑</button>
+            <div v-if="draft.content_html" class="mt-2 max-h-[260px] overflow-y-auto rounded-[10px] border border-solid border-border bg-surface-subtle px-[14px] py-3 text-[14px] leading-[1.8] [word-break:break-word] [&_img]:h-auto [&_img]:max-w-full" v-html="draft.content_html"></div>
+            <p v-else :class="ui.muted">（空正文）</p>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="startEdit(draft)">编辑</button>
               <button
-                class="btn btn--primary btn--sm"
+                :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]"
                 type="button"
                 :disabled="publishingId === draft.id"
                 @click="onPublish(draft)"
               >
-                <span v-if="publishingId === draft.id" class="spinner" aria-hidden="true"></span>
+                <span v-if="publishingId === draft.id" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
                 {{ publishingId === draft.id ? '发布中…' : '发布' }}
               </button>
             </div>
           </template>
         </article>
 
-        <div class="list-foot">
-          <button v-if="hasMore && !loadingMore" class="btn btn--secondary btn--sm" type="button" @click="loadMore">
+        <div class="flex justify-center px-0 pt-[14px] pb-0">
+          <button v-if="hasMore && !loadingMore" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="loadMore">
             加载更多
           </button>
-          <p v-else-if="loadingMore" class="loading-row list-foot-loading">
-            <span class="spinner" aria-hidden="true"></span> 正在加载…
+          <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+            <span :class="ui.spinner" aria-hidden="true"></span> 正在加载…
           </p>
-          <p v-else class="muted">已加载全部 {{ items.length }} 条草稿</p>
+          <p v-else :class="[ui.muted, 'm-0']">已加载全部 {{ items.length }} 条草稿</p>
         </div>
       </div>
 
@@ -415,135 +416,3 @@ async function onPublish(draft: AIDraft): Promise<void> {
     </section>
   </div>
 </template>
-
-<style scoped>
-.self-start {
-  align-self: flex-start;
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-.schedule-input {
-  max-width: 260px;
-}
-.generation-hint {
-  margin: 0;
-  font-size: 12.5px;
-}
-.schedule-hint {
-  margin: 0;
-  font-size: 12.5px;
-}
-.task-panel {
-  display: grid;
-  gap: 6px;
-  margin-top: 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-}
-.task-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 0;
-  font-size: 13.5px;
-  font-weight: 600;
-}
-.task-head .badge {
-  margin-left: auto;
-}
-.task-line {
-  margin: 0;
-  font-size: 12.5px;
-  overflow-wrap: anywhere;
-}
-.task-error {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--red);
-  overflow-wrap: anywhere;
-}
-.task-memories {
-  margin-top: 4px;
-}
-.task-memories .field-label {
-  margin: 0 0 4px;
-}
-.task-memories ul {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.task-memories li {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  font-size: 12.5px;
-  color: var(--ink-2);
-  line-height: 1.6;
-}
-.draft-list {
-  margin-top: 14px;
-}
-.draft-row {
-  padding: 14px 0;
-  border-bottom: 1px solid var(--border);
-}
-.draft-row:last-child {
-  border-bottom: none;
-}
-.draft-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-size: 12.5px;
-}
-.draft-time {
-  margin-left: auto;
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-.draft-body {
-  max-height: 260px;
-  overflow-y: auto;
-  margin-top: 8px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-  font-size: 14px;
-  line-height: 1.8;
-  word-break: break-word;
-}
-.draft-body :deep(img) {
-  max-width: 100%;
-  height: auto;
-}
-.draft-edit {
-  margin-top: 10px;
-}
-.draft-textarea {
-  min-height: 180px;
-  font-family: inherit;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 14px 0 0;
-}
-.list-foot .muted {
-  margin: 0;
-}
-.list-foot-loading {
-  padding: 0;
-}
-</style>

@@ -10,6 +10,7 @@ import AlertNote from '../../components/AlertNote.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import { useCursorList } from '../../composables/useCursorList'
 import { formatDateTime } from '../../utils/datetime'
+import { ui } from '../../styles/ui'
 
 type TaskFilters = {
   status?: string
@@ -59,9 +60,9 @@ function statusLabel(value: AITaskStatus): string {
 }
 
 function statusClass(value: AITaskStatus): string {
-  if (value === 'failed' || value === 'rejected') return 'badge--danger'
+  if (value === 'failed' || value === 'rejected') return ui.badgeDanger
   if (value === 'succeeded') return ''
-  return 'badge--muted'
+  return ui.badgeMuted
 }
 
 function triggerLabel(value: string): string {
@@ -129,42 +130,42 @@ async function onCancel(task: AITask): Promise<void> {
 </script>
 
 <template>
-  <div class="stack">
-    <section class="card card--pad">
-      <div class="head-row">
+  <div :class="ui.stack">
+    <section :class="[ui.card, ui.cardPad]">
+      <div class="flex flex-wrap items-start gap-3">
         <div>
-          <h2 class="page-title">任务记录</h2>
-          <p class="page-desc">每次动作执行都会留下记录，包含触发原因、决策摘要与失败原因。</p>
+          <h2 :class="ui.pageTitle">任务记录</h2>
+          <p :class="ui.pageDesc">每次动作执行都会留下记录，包含触发原因、决策摘要与失败原因。</p>
         </div>
-        <RouterLink to="/admin/ai-calls" class="btn btn--secondary btn--sm">查看调用记录</RouterLink>
+        <RouterLink to="/admin/ai-calls" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'ml-auto']">查看调用记录</RouterLink>
       </div>
 
-      <div class="filter-row">
-        <div class="seg" role="group" aria-label="任务状态筛选">
-          <button type="button" :class="{ 'is-active': filters.status === '' }" @click="setStatus('')">全部</button>
-          <button type="button" :class="{ 'is-active': filters.status === 'pending' }" @click="setStatus('pending')">
+      <div class="mt-[14px] flex flex-wrap gap-2">
+        <div :class="ui.segment" role="group" aria-label="任务状态筛选">
+          <button type="button" :class="[ui.segmentButton, filters.status === '' ? ui.segmentButtonActive : '']" @click="setStatus('')">全部</button>
+          <button type="button" :class="[ui.segmentButton, filters.status === 'pending' ? ui.segmentButtonActive : '']" @click="setStatus('pending')">
             待执行
           </button>
-          <button type="button" :class="{ 'is-active': filters.status === 'running' }" @click="setStatus('running')">
+          <button type="button" :class="[ui.segmentButton, filters.status === 'running' ? ui.segmentButtonActive : '']" @click="setStatus('running')">
             执行中
           </button>
           <button
             type="button"
-            :class="{ 'is-active': filters.status === 'succeeded' }"
+            :class="[ui.segmentButton, filters.status === 'succeeded' ? ui.segmentButtonActive : '']"
             @click="setStatus('succeeded')"
           >
             成功
           </button>
-          <button type="button" :class="{ 'is-active': filters.status === 'noop' }" @click="setStatus('noop')">
+          <button type="button" :class="[ui.segmentButton, filters.status === 'noop' ? ui.segmentButtonActive : '']" @click="setStatus('noop')">
             无动作
           </button>
-          <button type="button" :class="{ 'is-active': filters.status === 'rejected' }" @click="setStatus('rejected')">
+          <button type="button" :class="[ui.segmentButton, filters.status === 'rejected' ? ui.segmentButtonActive : '']" @click="setStatus('rejected')">
             被拒绝
           </button>
-          <button type="button" :class="{ 'is-active': filters.status === 'failed' }" @click="setStatus('failed')">
+          <button type="button" :class="[ui.segmentButton, filters.status === 'failed' ? ui.segmentButtonActive : '']" @click="setStatus('failed')">
             失败
           </button>
-          <button type="button" :class="{ 'is-active': filters.status === 'canceled' }" @click="setStatus('canceled')">
+          <button type="button" :class="[ui.segmentButton, filters.status === 'canceled' ? ui.segmentButtonActive : '']" @click="setStatus('canceled')">
             已取消
           </button>
         </div>
@@ -174,25 +175,25 @@ async function onCancel(task: AITask): Promise<void> {
     <AlertNote v-if="actionNotice" kind="success">{{ actionNotice }}</AlertNote>
     <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-    <p v-if="initialLoading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+    <p v-if="initialLoading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="listError && items.length === 0">
       <AlertNote kind="error">{{ listError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
     </template>
 
-    <section v-else-if="items.length === 0" class="card card--pad">
-      <div class="empty">
-        <AppIcon name="list" :size="26" />
-        <strong>没有匹配的任务记录</strong>
-        <p>调整状态筛选，或先在「生成与发布」中提交一次生成任务。</p>
+    <section v-else-if="items.length === 0" :class="[ui.card, ui.cardPad]">
+      <div :class="ui.empty">
+        <AppIcon name="list" :size="26" :class="ui.emptyIcon" />
+        <strong :class="ui.emptyStrong">没有匹配的任务记录</strong>
+        <p :class="ui.emptyText">调整状态筛选，或先在「生成与发布」中提交一次生成任务。</p>
       </div>
     </section>
 
     <template v-else>
-      <section class="card table-card">
-        <div class="table-scroll">
-          <table class="table">
+      <section :class="[ui.card, 'overflow-hidden']">
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse text-[13px] [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:border-solid [&_th]:border-border [&_th]:px-3 [&_th]:py-[10px] [&_th]:text-left [&_th]:text-[12.5px] [&_th]:font-semibold [&_th]:text-ink-3 [&_td]:border-b [&_td]:border-solid [&_td]:border-border [&_td]:px-3 [&_td]:py-[10px] [&_td]:align-top [&_tbody_tr:last-child_td]:border-b-0">
             <thead>
               <tr>
                 <th>状态</th>
@@ -212,49 +213,49 @@ async function onCancel(task: AITask): Promise<void> {
             <tbody>
               <tr v-for="task in items" :key="task.id">
                 <td>
-                  <span class="badge" :class="statusClass(task.status)">{{ statusLabel(task.status) }}</span>
-                  <span class="muted mono block-id">{{ task.id }}</span>
+                  <span :class="[ui.badge, statusClass(task.status)]">{{ statusLabel(task.status) }}</span>
+                  <span :class="[ui.mono, 'mt-1 block text-[11.5px] text-ink-3']">{{ task.id }}</span>
                 </td>
-                <td class="nowrap">{{ triggerLabel(task.trigger_type) }}</td>
-                <td class="nowrap">{{ task.action_type }}</td>
-                <td class="col-summary">{{ task.decision_summary || '—' }}</td>
-                <td class="col-target mono">
+                <td class="whitespace-nowrap">{{ triggerLabel(task.trigger_type) }}</td>
+                <td class="whitespace-nowrap">{{ task.action_type }}</td>
+                <td class="min-w-[180px] max-w-[300px]">{{ task.decision_summary || '—' }}</td>
+                <td :class="[ui.mono, 'max-w-[170px] [word-break:break-all]']">
                   <template v-if="task.target_type">
                     {{ task.target_type }}<template v-if="task.target_id"> · {{ task.target_id }}</template>
                   </template>
                   <template v-else>—</template>
                 </td>
-                <td class="col-memories">
-                  <ul v-if="task.memories && task.memories.length > 0" class="memory-list">
-                    <li v-for="memory in task.memories" :key="memory.id" :title="memory.content">
-                      <span class="badge badge--muted">{{ memory.category || memory.type }}</span>
-                      <span class="memory-text">{{ memory.content }}</span>
+                <td class="min-w-[200px] max-w-[300px]">
+                  <ul v-if="task.memories && task.memories.length > 0" class="m-0 grid list-none gap-1 p-0">
+                    <li v-for="memory in task.memories" :key="memory.id" :title="memory.content" class="flex items-start gap-[5px] text-[12px] leading-[1.5] text-ink-2">
+                      <span :class="[ui.badge, ui.badgeMuted]">{{ memory.category || memory.type }}</span>
+                      <span class="line-clamp-2 [word-break:break-word]">{{ memory.content }}</span>
                     </li>
                   </ul>
-                  <span v-else class="muted">—</span>
+                  <span v-else :class="ui.muted">—</span>
                 </td>
-                <td class="col-result mono">
+                <td :class="[ui.mono, 'max-w-[200px] text-[12px] [word-break:break-all]']">
                   <template v-if="task.result_ref_type">
                     <RouterLink
                       v-if="resultLink(task)"
                       :to="resultLink(task)"
-                      class="result-link"
+                      class="text-primary"
                     >
                       {{ task.result_ref_type }} · {{ task.result_ref_id }}
                     </RouterLink>
                     <template v-else>{{ task.result_ref_type }} · {{ task.result_ref_id ?? '—' }}</template>
                   </template>
-                  <span v-else class="muted">—</span>
+                  <span v-else :class="ui.muted">—</span>
                 </td>
-                <td class="mono nowrap">{{ task.model || '—' }}</td>
-                <td class="mono">{{ task.attempts }}</td>
-                <td class="nowrap col-time">{{ formatDateTime(task.created_at) }}</td>
-                <td class="col-error">{{ task.error || '—' }}</td>
-                <td class="col-actions">
-                  <div class="actions">
+                <td :class="[ui.mono, 'whitespace-nowrap']">{{ task.model || '—' }}</td>
+                <td :class="ui.mono">{{ task.attempts }}</td>
+                <td class="whitespace-nowrap text-[12.5px] text-ink-2">{{ formatDateTime(task.created_at) }}</td>
+                <td class="min-w-[160px] max-w-[260px] text-red [word-break:break-word]">{{ task.error || '—' }}</td>
+                <td class="min-w-[96px]">
+                  <div class="flex flex-wrap gap-[6px]">
                     <button
                       v-if="task.status === 'failed'"
-                      class="btn btn--secondary btn--sm"
+                      :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
                       type="button"
                       :disabled="busyId === task.id"
                       @click="onRetry(task)"
@@ -263,7 +264,7 @@ async function onCancel(task: AITask): Promise<void> {
                     </button>
                     <button
                       v-if="task.status === 'pending'"
-                      class="btn btn--danger btn--sm"
+                      :class="[ui.button, ui.buttonDanger, ui.buttonSmall]"
                       type="button"
                       :disabled="busyId === task.id"
                       @click="onCancel(task)"
@@ -271,7 +272,7 @@ async function onCancel(task: AITask): Promise<void> {
                       {{ busyId === task.id ? '处理中…' : '取消' }}
                     </button>
                     <RouterLink
-                      class="btn btn--secondary btn--sm"
+                      :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
                       :to="`/admin/ai-calls?task_id=${task.id}`"
                     >
                       调用记录
@@ -283,14 +284,14 @@ async function onCancel(task: AITask): Promise<void> {
           </table>
         </div>
 
-        <div class="list-foot">
-          <button v-if="hasMore && !loadingMore" class="btn btn--secondary btn--sm" type="button" @click="loadMore">
+        <div class="flex justify-center px-4 py-[14px]">
+          <button v-if="hasMore && !loadingMore" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="loadMore">
             加载更多
           </button>
-          <p v-else-if="loadingMore" class="loading-row list-foot-loading">
-            <span class="spinner" aria-hidden="true"></span> 正在加载…
+          <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+            <span :class="ui.spinner" aria-hidden="true"></span> 正在加载…
           </p>
-          <p v-else class="muted">已加载全部 {{ items.length }} 条任务</p>
+          <p v-else :class="[ui.muted, 'm-0']">已加载全部 {{ items.length }} 条任务</p>
         </div>
       </section>
 
@@ -298,131 +299,3 @@ async function onCancel(task: AITask): Promise<void> {
     </template>
   </div>
 </template>
-
-<style scoped>
-.head-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.head-row .btn {
-  margin-left: auto;
-}
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
-}
-.self-start {
-  align-self: flex-start;
-}
-.table-card {
-  overflow: hidden;
-}
-.table-scroll {
-  overflow-x: auto;
-}
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.table th {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  color: var(--ink-3);
-  font-size: 12.5px;
-  font-weight: 600;
-  text-align: left;
-  white-space: nowrap;
-}
-.table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-.table tbody tr:last-child td {
-  border-bottom: none;
-}
-.nowrap {
-  white-space: nowrap;
-}
-.block-id {
-  display: block;
-  font-size: 11.5px;
-  margin-top: 4px;
-}
-.col-summary {
-  min-width: 180px;
-  max-width: 300px;
-}
-.col-target {
-  max-width: 170px;
-  word-break: break-all;
-}
-.col-memories {
-  min-width: 200px;
-  max-width: 300px;
-}
-.memory-list {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.memory-list li {
-  display: flex;
-  align-items: flex-start;
-  gap: 5px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--ink-2);
-}
-.memory-text {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  word-break: break-word;
-}
-.col-result {
-  max-width: 200px;
-  font-size: 12px;
-  word-break: break-all;
-}
-.result-link {
-  color: var(--primary);
-}
-.col-time {
-  font-size: 12.5px;
-  color: var(--ink-2);
-}
-.col-error {
-  min-width: 160px;
-  max-width: 260px;
-  color: var(--red);
-  word-break: break-word;
-}
-.col-actions {
-  min-width: 96px;
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px;
-}
-.list-foot .muted {
-  margin: 0;
-}
-.list-foot-loading {
-  padding: 0;
-}
-</style>

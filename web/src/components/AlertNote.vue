@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
 import type { IconName } from './icons'
+import { ui } from '../styles/ui'
 
 const props = withDefaults(defineProps<{ kind?: 'error' | 'success' | 'info' | 'warning' }>(), {
   kind: 'info',
@@ -15,8 +16,12 @@ const iconName = computed<IconName>(() => {
 </script>
 
 <template>
-  <p class="alert" :class="`alert--${props.kind}`">
-    <AppIcon :name="iconName" :size="17" />
-    <span class="alert-text"><slot /></span>
+  <p :class="[ui.alert, ui.alertVariants[props.kind].root]">
+    <AppIcon
+      :name="iconName"
+      :size="17"
+      :class="[ui.alertIcon, ui.alertVariants[props.kind].icon]"
+    />
+    <span :class="ui.alertText"><slot /></span>
   </p>
 </template>

@@ -7,6 +7,7 @@ import AlertNote from '../../components/AlertNote.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import { useCursorList } from '../../composables/useCursorList'
 import { formatDateTime } from '../../utils/datetime'
+import { ui } from '../../styles/ui'
 
 type AuditFilters = {
   action_type?: string
@@ -94,15 +95,15 @@ function detailJson(detail: Record<string, unknown>): string {
 </script>
 
 <template>
-  <div class="stack">
-    <section class="card card--pad">
-      <h2 class="page-title">审计日志</h2>
-      <p class="page-desc">管理处置、AI 配置变更与全局开关都会记录在这里，用于追溯操作来源。</p>
+  <div :class="ui.stack">
+    <section :class="[ui.card, ui.cardPad]">
+      <h2 :class="ui.pageTitle">审计日志</h2>
+      <p :class="ui.pageDesc">管理处置、AI 配置变更与全局开关都会记录在这里，用于追溯操作来源。</p>
 
-      <form class="filter-grid" @submit.prevent="onFilter">
-        <label class="filter-field">
-          <span class="muted">动作类型</span>
-          <select v-model="filters.action_type" class="input" name="action_type" aria-label="动作类型筛选">
+      <form class="mt-[14px] grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-x-3 gap-y-[10px]" @submit.prevent="onFilter">
+        <label class="flex flex-col gap-1 text-[12.5px]">
+          <span :class="ui.muted">动作类型</span>
+          <select v-model="filters.action_type" :class="ui.input" name="action_type" aria-label="动作类型筛选">
             <option value="">全部动作</option>
             <option v-for="option in ACTION_OPTIONS" :key="option.value" :value="option.value">
               {{ option.label }}（{{ option.value }}）
@@ -110,11 +111,11 @@ function detailJson(detail: Record<string, unknown>): string {
           </select>
         </label>
 
-        <label class="filter-field">
-          <span class="muted">管理员用户名</span>
+        <label class="flex flex-col gap-1 text-[12.5px]">
+          <span :class="ui.muted">管理员用户名</span>
           <input
             v-model="filters.admin"
-            class="input"
+            :class="ui.input"
             type="search"
             name="admin"
             placeholder="例如 admin"
@@ -122,35 +123,35 @@ function detailJson(detail: Record<string, unknown>): string {
           />
         </label>
 
-        <div class="filter-actions">
-          <button class="btn btn--primary btn--sm" type="submit" :disabled="loading">
-            <span v-if="loading" class="spinner" aria-hidden="true"></span>
+        <div class="flex items-end gap-2">
+          <button :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]" type="submit" :disabled="loading">
+            <span v-if="loading" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
             {{ loading ? '查询中…' : '查询' }}
           </button>
-          <button class="btn btn--secondary btn--sm" type="button" @click="resetFilters">重置</button>
+          <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="resetFilters">重置</button>
         </div>
       </form>
     </section>
 
-    <p v-if="initialLoading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+    <p v-if="initialLoading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="listError && items.length === 0">
       <AlertNote kind="error">{{ listError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
     </template>
 
-    <section v-else-if="items.length === 0" class="card card--pad">
-      <div class="empty">
-        <AppIcon name="scroll" :size="26" />
-        <strong>没有匹配的审计记录</strong>
-        <p>调整动作类型或管理员筛选条件。</p>
+    <section v-else-if="items.length === 0" :class="[ui.card, ui.cardPad]">
+      <div :class="ui.empty">
+        <AppIcon name="scroll" :size="26" :class="ui.emptyIcon" />
+        <strong :class="ui.emptyStrong">没有匹配的审计记录</strong>
+        <p :class="ui.emptyText">调整动作类型或管理员筛选条件。</p>
       </div>
     </section>
 
     <template v-else>
-      <section class="card table-card">
-        <div class="table-scroll">
-          <table class="table">
+      <section :class="[ui.card, 'overflow-hidden']">
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse text-[13px] [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:border-solid [&_th]:border-border [&_th]:px-3 [&_th]:py-[10px] [&_th]:text-left [&_th]:text-[12.5px] [&_th]:font-semibold [&_th]:text-ink-3 [&_td]:border-b [&_td]:border-solid [&_td]:border-border [&_td]:px-3 [&_td]:py-[10px] [&_td]:align-top [&_tbody_tr:last-child_td]:border-b-0">
             <thead>
               <tr>
                 <th>时间</th>
@@ -162,37 +163,37 @@ function detailJson(detail: Record<string, unknown>): string {
             </thead>
             <tbody>
               <tr v-for="log in items" :key="log.id">
-                <td class="nowrap col-time">{{ formatDateTime(log.created_at) }}</td>
-                <td class="nowrap">
-                  <span class="admin-name">{{ log.admin.nickname || log.admin.username }}</span>
-                  <span class="muted mono block-id">@{{ log.admin.username }}</span>
+                <td class="whitespace-nowrap text-[12.5px] text-ink-2">{{ formatDateTime(log.created_at) }}</td>
+                <td class="whitespace-nowrap">
+                  <span class="font-bold">{{ log.admin.nickname || log.admin.username }}</span>
+                  <span :class="[ui.mono, 'mt-[2px] block text-[11.5px] text-ink-3']">@{{ log.admin.username }}</span>
                 </td>
-                <td class="nowrap">
+                <td class="whitespace-nowrap">
                   {{ actionLabel(log.action_type) }}
-                  <span class="muted mono block-id">{{ log.action_type }}</span>
+                  <span :class="[ui.mono, 'mt-[2px] block text-[11.5px] text-ink-3']">{{ log.action_type }}</span>
                 </td>
-                <td class="col-target mono">
+                <td :class="[ui.mono, 'max-w-[200px] [word-break:break-all]']">
                   <template v-if="log.target_type">
                     {{ log.target_type }}<template v-if="log.target_id"> · {{ log.target_id }}</template>
                   </template>
                   <template v-else>—</template>
                 </td>
-                <td class="col-detail">
-                  <pre class="mono block-body">{{ detailJson(log.detail) }}</pre>
+                <td class="min-w-[260px]">
+                  <pre :class="[ui.mono, 'm-0 max-h-[220px] overflow-auto rounded-[10px] border border-solid border-border bg-surface-subtle px-3 py-[10px] text-[12px] leading-[1.6] whitespace-pre-wrap [word-break:break-word]']">{{ detailJson(log.detail) }}</pre>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <div class="list-foot">
-          <button v-if="hasMore && !loadingMore" class="btn btn--secondary btn--sm" type="button" @click="loadMore">
+        <div class="flex justify-center px-4 py-[14px]">
+          <button v-if="hasMore && !loadingMore" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="loadMore">
             加载更多
           </button>
-          <p v-else-if="loadingMore" class="loading-row list-foot-loading">
-            <span class="spinner" aria-hidden="true"></span> 正在加载…
+          <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+            <span :class="ui.spinner" aria-hidden="true"></span> 正在加载…
           </p>
-          <p v-else class="muted">已加载全部 {{ items.length }} 条记录</p>
+          <p v-else :class="[ui.muted, 'm-0']">已加载全部 {{ items.length }} 条记录</p>
         </div>
       </section>
 
@@ -200,100 +201,3 @@ function detailJson(detail: Record<string, unknown>): string {
     </template>
   </div>
 </template>
-
-<style scoped>
-.filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 10px 12px;
-  margin-top: 14px;
-}
-.filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12.5px;
-}
-.filter-actions {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
-.self-start {
-  align-self: flex-start;
-}
-.table-card {
-  overflow: hidden;
-}
-.table-scroll {
-  overflow-x: auto;
-}
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.table th {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  color: var(--ink-3);
-  font-size: 12.5px;
-  font-weight: 600;
-  text-align: left;
-  white-space: nowrap;
-}
-.table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-.table tbody tr:last-child td {
-  border-bottom: none;
-}
-.nowrap {
-  white-space: nowrap;
-}
-.col-time {
-  font-size: 12.5px;
-  color: var(--ink-2);
-}
-.admin-name {
-  font-weight: 700;
-}
-.block-id {
-  display: block;
-  font-size: 11.5px;
-  margin-top: 2px;
-}
-.col-target {
-  max-width: 200px;
-  word-break: break-all;
-}
-.col-detail {
-  min-width: 260px;
-}
-.block-body {
-  max-height: 220px;
-  overflow: auto;
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px;
-}
-.list-foot .muted {
-  margin: 0;
-}
-.list-foot-loading {
-  padding: 0;
-}
-</style>

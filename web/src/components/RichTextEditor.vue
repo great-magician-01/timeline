@@ -105,12 +105,18 @@ function onPaste(event: ClipboardEvent): void {
 </script>
 
 <template>
-  <div class="editor" :class="{ 'is-disabled': disabled }">
-    <div class="toolbar" role="toolbar" aria-label="格式工具">
+  <div class="overflow-hidden rounded-[10px] border border-solid border-border bg-surface focus-within:border-primary focus-within:shadow-[0_0_0_3px_var(--primary-soft)]">
+    <div
+      class="flex flex-wrap gap-[2px] border-b border-solid border-border bg-surface-subtle p-[6px]"
+      :class="disabled ? 'opacity-60' : ''"
+      role="toolbar"
+      aria-label="格式工具"
+    >
       <button
         v-for="tool in tools"
         :key="tool.label + (tool.value ?? '')"
         type="button"
+        class="flex size-[30px] items-center justify-center rounded-[7px] text-ink-2 hover-not-disabled:bg-hover hover-not-disabled:text-ink"
         :title="tool.label"
         :aria-label="tool.label"
         :disabled="disabled"
@@ -119,16 +125,32 @@ function onPaste(event: ClipboardEvent): void {
       >
         <AppIcon :name="tool.icon" :size="16" />
       </button>
-      <button type="button" title="插入链接" aria-label="插入链接" :disabled="disabled" @mousedown.prevent @click="insertLink">
+      <button
+        type="button"
+        class="flex size-[30px] items-center justify-center rounded-[7px] text-ink-2 hover-not-disabled:bg-hover hover-not-disabled:text-ink"
+        title="插入链接"
+        aria-label="插入链接"
+        :disabled="disabled"
+        @mousedown.prevent
+        @click="insertLink"
+      >
         <AppIcon name="globe" :size="16" />
       </button>
-      <button type="button" title="清除格式" aria-label="清除格式" :disabled="disabled" @mousedown.prevent @click="clearFormat">
+      <button
+        type="button"
+        class="flex size-[30px] items-center justify-center rounded-[7px] text-ink-2 hover-not-disabled:bg-hover hover-not-disabled:text-ink"
+        title="清除格式"
+        aria-label="清除格式"
+        :disabled="disabled"
+        @mousedown.prevent
+        @click="clearFormat"
+      >
         <AppIcon name="x" :size="16" />
       </button>
     </div>
     <div
       ref="editor"
-      class="surface"
+      class="p-[14px] text-[15px] leading-[1.75] outline-none [word-break:break-word] empty:before:text-ink-3 empty:before:content-[attr(data-placeholder)] [&_blockquote]:m-0 [&_blockquote]:border-l-[3px] [&_blockquote]:border-solid [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-ink-2 [&_pre]:overflow-auto [&_pre]:rounded-[8px] [&_pre]:bg-soft [&_pre]:p-[10px] [&_pre]:text-[13px]"
       :style="{ minHeight: `${minHeight}px` }"
       :contenteditable="!disabled"
       role="textbox"
@@ -141,64 +163,3 @@ function onPaste(event: ClipboardEvent): void {
     ></div>
   </div>
 </template>
-
-<style scoped>
-.editor {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  overflow: hidden;
-}
-.editor:focus-within {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-soft);
-}
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  padding: 6px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-subtle);
-}
-.toolbar button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  color: var(--ink-2);
-}
-.toolbar button:hover:not(:disabled) {
-  background: var(--hover);
-  color: var(--ink);
-}
-.surface {
-  padding: 14px;
-  font-size: 15px;
-  line-height: 1.75;
-  outline: none;
-  word-break: break-word;
-}
-.surface:empty::before {
-  content: attr(data-placeholder);
-  color: var(--ink-3);
-}
-.surface :deep(blockquote) {
-  margin: 0;
-  padding-left: 12px;
-  border-left: 3px solid var(--border);
-  color: var(--ink-2);
-}
-.surface :deep(pre) {
-  overflow: auto;
-  padding: 10px;
-  border-radius: 8px;
-  background: var(--soft);
-  font-size: 13px;
-}
-.is-disabled .toolbar {
-  opacity: 0.6;
-}
-</style>

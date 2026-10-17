@@ -10,6 +10,7 @@ import FormField from '../../components/FormField.vue'
 import UserAvatar from '../../components/UserAvatar.vue'
 import { authState, setCurrentUser } from '../../stores/auth'
 import { formatDateTime } from '../../utils/datetime'
+import { ui } from '../../styles/ui'
 
 const route = useRoute()
 const userId = computed(() => String(route.params.id ?? ''))
@@ -155,118 +156,118 @@ async function confirmReset(): Promise<void> {
 </script>
 
 <template>
-  <div class="stack">
-    <RouterLink to="/admin/users" class="back-link">
+  <div :class="ui.stack">
+    <RouterLink to="/admin/users" class="inline-flex items-center gap-[6px] self-start text-[13.5px] text-ink-2 hover:text-ink hover:no-underline">
       <AppIcon name="arrow-left" :size="16" />
       返回用户列表
     </RouterLink>
 
-    <p v-if="loading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+    <p v-if="loading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="notFound">
-      <section class="card card--pad">
-        <div class="empty">
-          <AppIcon name="users" :size="26" />
-          <strong>用户不存在或不可见</strong>
-          <p>该 ID 可能无效，或用户已被移除。</p>
+      <section :class="[ui.card, ui.cardPad]">
+        <div :class="ui.empty">
+          <AppIcon name="users" :size="26" :class="ui.emptyIcon" />
+          <strong :class="ui.emptyStrong">用户不存在或不可见</strong>
+          <p :class="ui.emptyText">该 ID 可能无效，或用户已被移除。</p>
         </div>
       </section>
     </template>
 
     <template v-else-if="loadError">
       <AlertNote kind="error">{{ loadError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="load">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="load">重试</button>
     </template>
 
     <template v-else-if="user">
-      <section class="card card--pad">
-        <div class="user-head">
+      <section :class="[ui.card, ui.cardPad]">
+        <div class="flex items-center gap-[14px]">
           <UserAvatar :user="user" size="lg" />
-          <div class="user-info">
-            <p class="user-name">
-              <span class="name-text">{{ user.nickname || user.username }}</span>
-              <span v-if="user.role === 'admin'" class="badge">管理员</span>
-              <span v-if="user.is_ai" class="badge badge--ai">AI</span>
-              <span v-if="isSuspended" class="badge badge--danger">已停用</span>
+          <div class="min-w-0">
+            <p class="m-0 flex flex-wrap items-center gap-[6px] text-[17px] font-extrabold">
+              <span class="font-extrabold">{{ user.nickname || user.username }}</span>
+              <span v-if="user.role === 'admin'" :class="ui.badge">管理员</span>
+              <span v-if="user.is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
+              <span v-if="isSuspended" :class="[ui.badge, ui.badgeDanger]">已停用</span>
             </p>
-            <p class="muted">@{{ user.username }}</p>
+            <p :class="[ui.muted, 'm-0 mt-[2px]']">@{{ user.username }}</p>
           </div>
         </div>
 
-        <p v-if="user.bio" class="user-bio">{{ user.bio }}</p>
+        <p v-if="user.bio" class="m-0 mt-[14px] whitespace-pre-wrap text-[14px] leading-[1.8]">{{ user.bio }}</p>
 
-        <dl class="info-list user-list-info">
-          <dt>用户 ID</dt>
-          <dd class="mono">{{ user.id }}</dd>
-          <dt>邮箱</dt>
-          <dd>{{ user.email }}</dd>
-          <dt>角色</dt>
-          <dd>{{ user.role === 'admin' ? '管理员' : '普通用户' }}</dd>
-          <dt>状态</dt>
-          <dd>{{ isSuspended ? '已停用' : '正常' }}</dd>
-          <dt>类型</dt>
-          <dd>{{ user.is_ai ? 'AI 用户' : '人类用户' }}</dd>
-          <dt>活跃会话</dt>
-          <dd class="mono">{{ activeSessions }}</dd>
-          <dt>注册时间</dt>
-          <dd>{{ formatDateTime(user.created_at) }}</dd>
-          <dt>更新时间</dt>
-          <dd>{{ formatDateTime(user.updated_at) }}</dd>
+        <dl :class="[ui.infoList, 'mt-4']">
+          <dt :class="ui.infoTerm">用户 ID</dt>
+          <dd :class="[ui.infoDetails, ui.mono]">{{ user.id }}</dd>
+          <dt :class="ui.infoTerm">邮箱</dt>
+          <dd :class="ui.infoDetails">{{ user.email }}</dd>
+          <dt :class="ui.infoTerm">角色</dt>
+          <dd :class="ui.infoDetails">{{ user.role === 'admin' ? '管理员' : '普通用户' }}</dd>
+          <dt :class="ui.infoTerm">状态</dt>
+          <dd :class="ui.infoDetails">{{ isSuspended ? '已停用' : '正常' }}</dd>
+          <dt :class="ui.infoTerm">类型</dt>
+          <dd :class="ui.infoDetails">{{ user.is_ai ? 'AI 用户' : '人类用户' }}</dd>
+          <dt :class="ui.infoTerm">活跃会话</dt>
+          <dd :class="[ui.infoDetails, ui.mono]">{{ activeSessions }}</dd>
+          <dt :class="ui.infoTerm">注册时间</dt>
+          <dd :class="ui.infoDetails">{{ formatDateTime(user.created_at) }}</dd>
+          <dt :class="ui.infoTerm">更新时间</dt>
+          <dd :class="ui.infoDetails">{{ formatDateTime(user.updated_at) }}</dd>
         </dl>
       </section>
 
-      <section v-if="stats" class="card card--pad">
-        <h2 class="page-title">内容与关系概览</h2>
-        <p class="page-desc">用于管理审核统计；数据来自当前账号的帖子、评论与关注关系。</p>
-        <ul class="stat-grid">
-          <li v-for="field in STAT_FIELDS" :key="field.key" class="stat-item">
-            <strong>{{ stats[field.key] }}</strong>
-            <span>{{ field.label }}</span>
+      <section v-if="stats" :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">内容与关系概览</h2>
+        <p :class="ui.pageDesc">用于管理审核统计；数据来自当前账号的帖子、评论与关注关系。</p>
+        <ul class="m-0 mt-[14px] grid list-none grid-cols-[repeat(auto-fit,minmax(110px,1fr))] gap-[10px] p-0">
+          <li v-for="field in STAT_FIELDS" :key="field.key" class="rounded-[10px] border border-solid border-border bg-surface-subtle px-3 py-[10px]">
+            <strong class="block text-[18px] font-extrabold tabular-nums">{{ stats[field.key] }}</strong>
+            <span class="text-[12.5px] text-ink-3">{{ field.label }}</span>
           </li>
         </ul>
       </section>
 
-      <section class="card card--pad">
-        <h2 class="page-title">账号状态</h2>
-        <p class="page-desc">停用后该用户的所有会话立即失效；恢复后可以重新登录。</p>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">账号状态</h2>
+        <p :class="ui.pageDesc">停用后该用户的所有会话立即失效；恢复后可以重新登录。</p>
 
         <AlertNote v-if="actionNotice" kind="success">{{ actionNotice }}</AlertNote>
         <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-        <div v-if="!suspendConfirming" class="actions">
-          <button v-if="!isSuspended" class="btn btn--danger" type="button" :disabled="actionSaving" @click="suspendConfirming = true">
+        <div v-if="!suspendConfirming" class="flex flex-wrap gap-2">
+          <button v-if="!isSuspended" :class="[ui.button, ui.buttonDanger]" type="button" :disabled="actionSaving" @click="suspendConfirming = true">
             停用账号
           </button>
-          <button v-else class="btn btn--primary" type="button" :disabled="actionSaving" @click="onUnsuspend">
-            <span v-if="actionSaving" class="spinner" aria-hidden="true"></span>
+          <button v-else :class="[ui.button, ui.buttonPrimary]" type="button" :disabled="actionSaving" @click="onUnsuspend">
+            <span v-if="actionSaving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
             {{ actionSaving ? '处理中…' : '恢复账号' }}
           </button>
         </div>
 
-        <div v-else class="confirm-panel">
+        <div v-else class="mt-1">
           <AlertNote kind="warning">
             确认停用 @{{ user.username }}？停用后该用户的会话会立即失效，且无法执行写操作。
           </AlertNote>
-          <div class="actions">
-            <button class="btn btn--danger btn--sm" type="button" :disabled="actionSaving" @click="onSuspend">
-              <span v-if="actionSaving" class="spinner" aria-hidden="true"></span>
+          <div class="flex flex-wrap gap-2">
+            <button :class="[ui.button, ui.buttonDanger, ui.buttonSmall]" type="button" :disabled="actionSaving" @click="onSuspend">
+              <span v-if="actionSaving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
               {{ actionSaving ? '处理中…' : '确认停用' }}
             </button>
-            <button class="btn btn--secondary btn--sm" type="button" :disabled="actionSaving" @click="suspendConfirming = false">
+            <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" :disabled="actionSaving" @click="suspendConfirming = false">
               取消
             </button>
           </div>
         </div>
       </section>
 
-      <section class="card card--pad">
-        <h2 class="page-title">重置密码</h2>
-        <p class="page-desc">管理员直接设置新密码；重置后该用户的所有会话立即失效，旧密码不会回显。</p>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">重置密码</h2>
+        <p :class="ui.pageDesc">管理员直接设置新密码；重置后该用户的所有会话立即失效，旧密码不会回显。</p>
 
         <AlertNote v-if="passwordNotice" kind="success">{{ passwordNotice }}</AlertNote>
         <AlertNote v-if="passwordError" kind="error">{{ passwordError }}</AlertNote>
 
-        <form class="form" novalidate @submit.prevent="askReset">
+        <form :class="ui.form" novalidate @submit.prevent="askReset">
           <FormField
             label="新密码"
             input-id="admin-reset-password"
@@ -276,7 +277,7 @@ async function confirmReset(): Promise<void> {
             <input
               id="admin-reset-password"
               v-model="passwordForm.new_password"
-              class="input"
+              :class="ui.input"
               type="password"
               name="new_password"
               autocomplete="new-password"
@@ -285,21 +286,21 @@ async function confirmReset(): Promise<void> {
             />
           </FormField>
 
-          <div v-if="!resetConfirming" class="actions">
-            <button class="btn btn--secondary" type="submit" :disabled="passwordSaving">重置密码</button>
+          <div v-if="!resetConfirming" class="flex flex-wrap gap-2">
+            <button :class="[ui.button, ui.buttonSecondary]" type="submit" :disabled="passwordSaving">重置密码</button>
           </div>
         </form>
 
-        <div v-if="resetConfirming" class="confirm-panel">
+        <div v-if="resetConfirming" class="mt-1">
           <AlertNote kind="warning">
             确认重置 @{{ user.username }} 的密码？该用户的所有会话将立即失效，新密码只会提交给后端、不在页面显示。
           </AlertNote>
-          <div class="actions">
-            <button class="btn btn--danger btn--sm" type="button" :disabled="passwordSaving" @click="confirmReset">
-              <span v-if="passwordSaving" class="spinner" aria-hidden="true"></span>
+          <div class="flex flex-wrap gap-2">
+            <button :class="[ui.button, ui.buttonDanger, ui.buttonSmall]" type="button" :disabled="passwordSaving" @click="confirmReset">
+              <span v-if="passwordSaving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
               {{ passwordSaving ? '提交中…' : '确认重置' }}
             </button>
-            <button class="btn btn--secondary btn--sm" type="button" :disabled="passwordSaving" @click="resetConfirming = false">
+            <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" :disabled="passwordSaving" @click="resetConfirming = false">
               取消
             </button>
           </div>
@@ -308,82 +309,3 @@ async function confirmReset(): Promise<void> {
     </template>
   </div>
 </template>
-
-<style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: flex-start;
-  font-size: 13.5px;
-  color: var(--ink-2);
-}
-.back-link:hover {
-  color: var(--ink);
-  text-decoration: none;
-}
-.user-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.user-info {
-  min-width: 0;
-}
-.user-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin: 0;
-  font-size: 17px;
-  font-weight: 800;
-}
-.user-info .muted {
-  margin: 2px 0 0;
-}
-.user-bio {
-  margin: 14px 0 0;
-  font-size: 14px;
-  line-height: 1.8;
-  white-space: pre-wrap;
-}
-.user-list-info {
-  margin-top: 16px;
-}
-.self-start {
-  align-self: flex-start;
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.confirm-panel {
-  margin-top: 4px;
-}
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: 10px;
-  margin: 14px 0 0;
-  padding: 0;
-  list-style: none;
-}
-.stat-item {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-}
-.stat-item strong {
-  display: block;
-  font-size: 18px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-.stat-item span {
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-</style>

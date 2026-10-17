@@ -12,6 +12,7 @@ import { errorMessage } from '../api/client'
 import { getPost, getVersion, listVersions, restoreVersion } from '../api/posts'
 import type { PostDetail, PostVersion, PostVersionSummary, Visibility } from '../api/types'
 import { useCursorList } from '../composables/useCursorList'
+import { ui } from '../styles/ui'
 import { absoluteTime, plainSummary } from '../utils/format'
 
 const route = useRoute()
@@ -133,30 +134,30 @@ async function restore(): Promise<void> {
 </script>
 
 <template>
-  <div class="constrain">
-    <div class="stack">
-      <header class="page-head">
-        <RouterLink class="back-link" :to="{ name: 'post-detail', params: { postId } }">
+  <div :class="[ui.constrain]">
+    <div :class="[ui.stack]">
+      <header :class="[ui.pageHead]">
+        <RouterLink class="mb-2 inline-flex items-center gap-1.5 text-[13.5px] text-ink-2 hover:text-ink hover:no-underline" :to="{ name: 'post-detail', params: { postId } }">
           <AppIcon name="arrow-left" :size="16" /> 返回帖子
         </RouterLink>
-        <h1 class="page-title">编辑历史</h1>
-        <p class="page-desc">历史版本与其中的附件对所有有权查看该帖子的人可见。</p>
+        <h1 :class="[ui.pageTitle]">编辑历史</h1>
+        <p :class="[ui.pageDesc]">历史版本与其中的附件对所有有权查看该帖子的人可见。</p>
       </header>
 
       <AlertNote v-if="postError" kind="error">{{ postError }}</AlertNote>
       <AlertNote v-if="notice" kind="success">{{ notice }}</AlertNote>
       <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-      <div v-if="loading" class="card card--pad">
-        <p class="loading-row"><span class="spinner" aria-hidden="true"></span> 正在加载历史版本…</p>
+      <div v-if="loading" :class="[ui.card, ui.cardPad]">
+        <p :class="[ui.loadingRow]"><span :class="[ui.spinner]" aria-hidden="true"></span> 正在加载历史版本…</p>
       </div>
 
       <template v-else-if="error && items.length === 0">
         <AlertNote kind="error">{{ error }}</AlertNote>
-        <button class="btn btn--secondary btn--sm retry" type="button" @click="reload()">重试</button>
+        <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload()">重试</button>
       </template>
 
-      <section v-else-if="items.length === 0" class="card">
+      <section v-else-if="items.length === 0" :class="[ui.card]">
         <EmptyState
           icon="scroll"
           title="还没有历史版本"
@@ -165,77 +166,80 @@ async function restore(): Promise<void> {
       </section>
 
       <template v-else>
-        <section class="card version-list">
-          <p class="list-title">共 {{ items.length }} 个版本{{ hasMore ? '（还有更多）' : '' }}</p>
+        <section :class="[ui.card, 'overflow-hidden']">
+          <p class="m-0 px-4 pt-3 pb-2 text-[12.5px] text-ink-3">共 {{ items.length }} 个版本{{ hasMore ? '（还有更多）' : '' }}</p>
           <button
             v-for="item in items"
             :key="item.id"
             type="button"
-            class="version-row"
-            :class="{ 'is-active': selectedId === item.id }"
+            class="flex w-full flex-col gap-1 border-t border-solid border-border px-4 py-3 text-left transition-[background] duration-150 ease-[ease]"
+            :class="selectedId === item.id ? 'bg-primary-soft' : 'hover:bg-hover'"
             @click="selectVersion(item.id)"
           >
-            <span class="version-head">
+            <span class="flex flex-wrap items-center gap-2 text-[14px]">
               <strong>版本 {{ item.version_number }}</strong>
-              <span class="badge" :class="{ 'badge--muted': item.visibility !== 'public' }">
+              <span :class="[ui.badge, item.visibility !== 'public' && ui.badgeMuted]">
                 {{ visibilityLabel(item.visibility) }}
               </span>
-              <span v-if="item.restored_from_version_id" class="badge badge--muted">由历史恢复</span>
-              <span class="muted version-time">{{ absoluteTime(item.created_at) }}</span>
+              <span v-if="item.restored_from_version_id" :class="[ui.badge, ui.badgeMuted]">由历史恢复</span>
+              <span :class="[ui.muted, 'text-[12.5px]!']">{{ absoluteTime(item.created_at) }}</span>
             </span>
-            <span class="version-summary">{{ plainSummary(item.summary || '') || '（无摘要）' }}</span>
+            <span class="text-[13px] text-ink-2 [word-break:break-word]">{{ plainSummary(item.summary || '') || '（无摘要）' }}</span>
           </button>
 
-          <div class="list-foot">
+          <div class="flex justify-center border-t border-solid border-border px-4 py-[14px]">
             <button
               v-if="hasMore"
-              class="btn btn--secondary btn--sm load-more"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
               type="button"
               :disabled="loadingMore"
               @click="loadMore()"
             >
-              <span v-if="loadingMore" class="spinner" aria-hidden="true"></span>
+              <span v-if="loadingMore" :class="[ui.spinner, 'size-[14px]! border-border! border-t-primary! opacity-80']" aria-hidden="true"></span>
               {{ loadingMore ? '正在加载…' : '加载更多' }}
             </button>
-            <p v-else class="muted">已加载全部 {{ items.length }} 个版本</p>
+            <p v-else :class="[ui.muted, 'm-0']">已加载全部 {{ items.length }} 个版本</p>
           </div>
         </section>
 
         <AlertNote v-if="error" kind="error">{{ error }}</AlertNote>
 
-        <section v-if="selectedId" ref="detailPanel" class="card card--pad version-detail">
-          <p v-if="versionLoading" class="loading-row">
-            <span class="spinner" aria-hidden="true"></span> 正在加载版本内容…
+        <section v-if="selectedId" ref="detailPanel" :class="[ui.card, ui.cardPad]">
+          <p v-if="versionLoading" :class="[ui.loadingRow]">
+            <span :class="[ui.spinner]" aria-hidden="true"></span> 正在加载版本内容…
           </p>
           <AlertNote v-else-if="versionError" kind="error">{{ versionError }}</AlertNote>
 
           <template v-else-if="version">
-            <header class="detail-head">
+            <header class="mb-3 flex items-start justify-between gap-3 shell-down:flex-col shell-down:items-stretch">
               <div>
-                <p class="detail-title">
+                <p class="m-0 flex flex-wrap items-center gap-2 text-[15px] font-bold">
                   版本 {{ version.version_number }}
-                  <span class="badge" :class="{ 'badge--muted': version.visibility !== 'public' }">
+                  <span :class="[ui.badge, version.visibility !== 'public' && ui.badgeMuted]">
                     {{ visibilityLabel(version.visibility) }}
                   </span>
-                  <span v-if="version.restored_from_version_id" class="badge badge--muted">由历史恢复</span>
+                  <span v-if="version.restored_from_version_id" :class="[ui.badge, ui.badgeMuted]">由历史恢复</span>
                 </p>
-                <p class="muted">{{ absoluteTime(version.created_at) }}</p>
+                <p :class="[ui.muted, 'm-0 mt-1']">{{ absoluteTime(version.created_at) }}</p>
               </div>
-              <button class="btn btn--secondary btn--sm" type="button" @click="selectVersion(version.id)">
+              <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'shell-down:self-start']" type="button" @click="selectVersion(version.id)">
                 <AppIcon name="x" :size="15" /> 收起
               </button>
             </header>
 
-            <div class="content" v-html="version.content_html"></div>
+            <div
+              class="text-[15px] leading-[1.75] text-ink [word-break:break-word] [&_a.tl-tag]:font-semibold [&_a.tl-tag]:text-primary [&_a.tl-mention]:font-semibold [&_a.tl-mention]:text-primary [&_img]:max-w-full [&_img]:rounded-lg [&_pre]:m-0 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-soft [&_pre]:p-3 [&_pre]:text-[13px] [&_blockquote]:m-0 [&_blockquote]:border-l-[3px] [&_blockquote]:border-solid [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-ink-2"
+              v-html="version.content_html"
+            ></div>
             <AttachmentGallery :attachments="version.attachments" />
 
-            <div v-if="canRestore" class="detail-actions">
-              <button class="btn btn--primary btn--sm" type="button" :disabled="restoring" @click="restore">
-                <span v-if="restoring" class="spinner restore-spinner" aria-hidden="true"></span>
+            <div v-if="canRestore" class="mt-4 flex flex-wrap items-center gap-2.5 border-t border-solid border-border pt-[14px]">
+              <button :class="[ui.button, ui.buttonPrimary, ui.buttonSmall, 'shell-down:w-full']" type="button" :disabled="restoring" @click="restore">
+                <span v-if="restoring" :class="[ui.spinner, 'size-[14px]! border-border! border-t-primary! opacity-80']" aria-hidden="true"></span>
                 <AppIcon v-else name="refresh" :size="15" />
                 {{ restoring ? '恢复中…' : '恢复此版本' }}
               </button>
-              <p class="muted">恢复会生成新的当前版本，不会删除或覆盖任何历史版本。</p>
+              <p :class="[ui.muted, 'm-0']">恢复会生成新的当前版本，不会删除或覆盖任何历史版本。</p>
             </div>
           </template>
         </section>
@@ -243,147 +247,3 @@ async function restore(): Promise<void> {
     </div>
   </div>
 </template>
-
-<style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  font-size: 13.5px;
-  color: var(--ink-2);
-}
-.back-link:hover {
-  color: var(--ink);
-  text-decoration: none;
-}
-.retry {
-  align-self: flex-start;
-}
-.version-list {
-  overflow: hidden;
-}
-.list-title {
-  margin: 0;
-  padding: 12px 16px 8px;
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.version-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-  text-align: left;
-  transition: background 0.15s ease;
-}
-.version-row:hover {
-  background: var(--hover);
-}
-.version-row.is-active {
-  background: var(--primary-soft);
-}
-.version-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-size: 14px;
-}
-.version-time {
-  font-size: 12.5px;
-}
-.version-summary {
-  font-size: 13px;
-  color: var(--ink-2);
-  word-break: break-word;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px;
-  border-top: 1px solid var(--border);
-}
-.list-foot .muted {
-  margin: 0;
-}
-.load-more .spinner,
-.restore-spinner {
-  border-color: var(--border);
-  border-top-color: var(--primary);
-}
-.detail-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.detail-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-}
-.detail-head .muted {
-  margin: 4px 0 0;
-}
-.content {
-  font-size: 15px;
-  line-height: 1.75;
-  color: var(--ink);
-  word-break: break-word;
-}
-.content :deep(a.tl-tag),
-.content :deep(a.tl-mention) {
-  color: var(--primary);
-  font-weight: 600;
-}
-.content :deep(img) {
-  max-width: 100%;
-  border-radius: 8px;
-}
-.content :deep(pre) {
-  overflow: auto;
-  margin: 0;
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--soft);
-  font-size: 13px;
-}
-.content :deep(blockquote) {
-  margin: 0;
-  padding-left: 12px;
-  border-left: 3px solid var(--border);
-  color: var(--ink-2);
-}
-.detail-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-}
-.detail-actions .muted {
-  margin: 0;
-}
-@media (max-width: 880px) {
-  .detail-head {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .detail-head .btn {
-    align-self: flex-start;
-  }
-  .detail-actions .btn {
-    width: 100%;
-  }
-}
-</style>

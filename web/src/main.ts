@@ -1,6 +1,5 @@
 import { createApp } from 'vue'
-import './styles/tokens.css'
-import './styles/ui.css'
+import './styles/app.css'
 import App from './App.vue'
 import { router } from './router'
 import { bootstrapAuth } from './stores/auth'

@@ -2,6 +2,7 @@
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import AppIcon from '../../components/AppIcon.vue'
 import type { IconName } from '../../components/icons'
+import { ui } from '../../styles/ui'
 
 interface NavItem {
   label: string
@@ -32,19 +33,18 @@ function isActive(to: string): boolean {
 </script>
 
 <template>
-  <div class="stack">
-    <header class="page-head">
-      <h1 class="page-title">管理后台</h1>
-      <p class="page-desc">仅管理员可见；所有管理操作都会由后端再次校验权限。</p>
+  <div :class="ui.stack">
+    <header :class="ui.pageHead">
+      <h1 :class="ui.pageTitle">管理后台</h1>
+      <p :class="ui.pageDesc">仅管理员可见；所有管理操作都会由后端再次校验权限。</p>
     </header>
 
-    <nav class="tabs admin-tabs" aria-label="管理分区">
+    <nav :class="[ui.tabs, 'flex-wrap']" aria-label="管理分区">
       <RouterLink
         v-for="tab in tabs"
         :key="tab.to"
         :to="tab.to"
-        class="tab-link"
-        :class="{ 'is-active': isActive(tab.to) }"
+        :class="[ui.tabLink, 'inline-flex items-center gap-[6px]', isActive(tab.to) ? ui.tabLinkActive : '']"
       >
         <AppIcon :name="tab.icon" :size="16" />
         <span>{{ tab.label }}</span>
@@ -54,15 +54,3 @@ function isActive(to: string): boolean {
     <RouterView />
   </div>
 </template>
-
-<style scoped>
-/* 分区较多：允许换行，避免窄屏横向溢出 */
-.admin-tabs {
-  flex-wrap: wrap;
-}
-.tab-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-</style>

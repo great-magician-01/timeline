@@ -19,6 +19,7 @@ import {
   updatePost,
 } from '../api/posts'
 import { fromDatetimeLocal, toDatetimeLocal } from '../utils/format'
+import { ui } from '../styles/ui'
 
 const props = withDefaults(
   defineProps<{
@@ -384,38 +385,38 @@ const saveLabel = computed(() => {
 </script>
 
 <template>
-  <div class="composer stack">
+  <div class="flex flex-col gap-3">
     <AlertNote v-if="loading" kind="info">载入中…</AlertNote>
     <AlertNote v-if="errorText" kind="error">{{ errorText }}</AlertNote>
 
-    <div v-if="conflict" class="conflict card card--pad">
-      <h3>草稿已在其他位置被更新</h3>
-      <p class="muted">服务端最新版本时间：{{ conflict.updated_at || '未知' }}。请选择保留哪一份内容。</p>
-      <div class="conflict-actions">
-        <button class="btn btn--secondary" type="button" @click="useServerVersion">使用服务端版本</button>
-        <button class="btn" type="button" :disabled="busy" @click="overwriteServer">用我的内容覆盖</button>
+    <div v-if="conflict" :class="[ui.card, ui.cardPad]">
+      <h3 class="m-0 mb-[6px] text-[15px]">草稿已在其他位置被更新</h3>
+      <p :class="ui.muted">服务端最新版本时间：{{ conflict.updated_at || '未知' }}。请选择保留哪一份内容。</p>
+      <div class="mt-2 flex gap-2">
+        <button :class="[ui.button, ui.buttonSecondary]" type="button" @click="useServerVersion">使用服务端版本</button>
+        <button :class="[ui.button]" type="button" :disabled="busy" @click="overwriteServer">用我的内容覆盖</button>
       </div>
     </div>
 
-    <div v-if="props.quotedPost" class="quote-banner card card--pad">
-      <p class="muted">引用转发</p>
-      <RouterLink :to="`/posts/${props.quotedPost.id}`" class="quote-head">
+    <div v-if="props.quotedPost" :class="[ui.card, ui.cardPad, 'grid gap-[6px]']">
+      <p class="m-0 text-[12px] text-ink-3">引用转发</p>
+      <RouterLink :to="`/posts/${props.quotedPost.id}`" class="flex items-center gap-2 text-[13.5px] text-ink">
         <UserAvatar :user="props.quotedPost.author" size="sm" />
         <strong>{{ props.quotedPost.author.nickname || props.quotedPost.author.username }}</strong>
       </RouterLink>
-      <div class="quote-content" v-html="props.quotedPost.content_html"></div>
+      <div class="text-[13.5px] text-ink-2" v-html="props.quotedPost.content_html"></div>
     </div>
 
     <RichTextEditor v-model="content" :disabled="busy" placeholder="写点什么，支持 #话题# 与 @提及" />
 
-    <div class="row">
-      <label class="label" for="visibility">可见性</label>
-      <select id="visibility" v-model="visibility" class="input" :disabled="busy">
+    <div class="flex flex-wrap items-center gap-[10px]">
+      <label class="text-[13px] font-semibold text-ink-2" for="visibility">可见性</label>
+      <select id="visibility" v-model="visibility" :class="[ui.input, 'max-w-[220px]']" :disabled="busy">
         <option value="public">公开：所有人可见</option>
         <option value="followers">仅关注者</option>
         <option value="private">仅自己</option>
       </select>
-      <span class="muted">只有公开帖子允许被转发或引用</span>
+      <span :class="ui.muted">只有公开帖子允许被转发或引用</span>
     </div>
 
     <MediaUploader
@@ -425,117 +426,85 @@ const saveLabel = computed(() => {
       @removed="onAttachmentRemoved"
     />
 
-    <p v-if="fieldError.content_source" class="field-error">{{ fieldError.content_source }}</p>
+    <p v-if="fieldError.content_source" :class="ui.fieldError">{{ fieldError.content_source }}</p>
 
-    <div class="actions">
-      <span class="save-state" :class="{ 'is-error': saveState === 'failed' || saveState === 'conflict' }">
+    <div class="flex flex-wrap items-center gap-[10px]">
+      <span
+        :class="[
+          'mr-auto text-[12.5px] text-ink-3',
+          saveState === 'failed' || saveState === 'conflict' ? 'text-red!' : '',
+        ]"
+      >
         {{ saveLabel }}
       </span>
       <template v-if="!isPublished">
-        <button class="btn btn--secondary" type="button" :disabled="busy || !canSubmit" @click="submit('draft')">
+        <button :class="[ui.button, ui.buttonSecondary]" type="button" :disabled="busy || !canSubmit" @click="submit('draft')">
           保存草稿
         </button>
-        <button class="btn btn--secondary" type="button" :disabled="busy || !canSubmit" @click="showSchedule = !showSchedule">
+        <button
+          :class="[ui.button, ui.buttonSecondary]"
+          type="button"
+          :disabled="busy || !canSubmit"
+          @click="showSchedule = !showSchedule"
+        >
           {{ isScheduled ? '修改定时' : '定时发布' }}
         </button>
-        <button class="btn btn--primary" type="button" :disabled="busy || !canSubmit" @click="publishNow">
+        <button :class="[ui.button, ui.buttonPrimary]" type="button" :disabled="busy || !canSubmit" @click="publishNow">
           {{ isScheduled ? '立即发布' : '发布' }}
         </button>
       </template>
       <template v-else>
-        <RouterLink class="btn btn--secondary" :to="{ name: 'post-history', params: { postId: status?.id } }">
+        <RouterLink
+          :class="[ui.button, ui.buttonSecondary]"
+          :to="{ name: 'post-history', params: { postId: status?.id } }"
+        >
           历史版本
         </RouterLink>
-        <button class="btn btn--primary" type="button" :disabled="busy || !canSubmit" @click="submit('save-published')">
+        <button
+          :class="[ui.button, ui.buttonPrimary]"
+          type="button"
+          :disabled="busy || !canSubmit"
+          @click="submit('save-published')"
+        >
           保存修改
         </button>
       </template>
     </div>
 
-    <div v-if="showSchedule && !isPublished" class="schedule card card--pad">
-      <label class="label" for="schedule-at">发布时间（北京时间）</label>
-      <input id="schedule-at" v-model="scheduleAt" class="input" type="datetime-local" :disabled="busy" />
-      <div class="schedule-actions">
-        <button class="btn btn--primary" type="button" :disabled="busy || !scheduleAt" @click="confirmSchedule">
+    <div v-if="showSchedule && !isPublished" :class="[ui.card, ui.cardPad, 'grid gap-2']">
+      <label class="text-[13px] font-semibold text-ink-2" for="schedule-at">发布时间（北京时间）</label>
+      <input
+        id="schedule-at"
+        v-model="scheduleAt"
+        :class="ui.input"
+        type="datetime-local"
+        :disabled="busy"
+      />
+      <div class="mt-2 flex gap-2">
+        <button
+          :class="[ui.button, ui.buttonPrimary]"
+          type="button"
+          :disabled="busy || !scheduleAt"
+          @click="confirmSchedule"
+        >
           设为定时
         </button>
-        <button v-if="isScheduled" class="btn btn--secondary" type="button" :disabled="busy" @click="cancelScheduled">
+        <button
+          v-if="isScheduled"
+          :class="[ui.button, ui.buttonSecondary]"
+          type="button"
+          :disabled="busy"
+          @click="cancelScheduled"
+        >
           取消定时
         </button>
       </div>
-      <p class="muted">到点后由服务端任务按当前可见性发布；应用重启不会丢失。</p>
+      <p :class="ui.muted">到点后由服务端任务按当前可见性发布；应用重启不会丢失。</p>
     </div>
 
-    <p v-if="isPublished" class="muted">
+    <p v-if="isPublished" :class="ui.muted">
       <AppIcon name="info" :size="14" />
       保存后会生成新版本，历史版本与其中的附件仍可被有权查看者查阅。
     </p>
   </div>
 </template>
-
-<style scoped>
-.composer {
-  gap: 12px;
-}
-.row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink-2);
-}
-.row .input {
-  max-width: 220px;
-}
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.save-state {
-  margin-right: auto;
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.save-state.is-error {
-  color: var(--red);
-}
-.conflict h3 {
-  margin: 0 0 6px;
-  font-size: 15px;
-}
-.conflict-actions,
-.schedule-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-.quote-banner {
-  display: grid;
-  gap: 6px;
-}
-.quote-banner .muted {
-  margin: 0;
-  font-size: 12px;
-}
-.quote-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13.5px;
-  color: var(--ink);
-}
-.quote-content {
-  font-size: 13.5px;
-  color: var(--ink-2);
-}
-.schedule {
-  display: grid;
-  gap: 8px;
-}
-</style>

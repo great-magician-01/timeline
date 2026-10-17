@@ -99,10 +99,13 @@ function previewURL(attachment: Attachment): string {
 </script>
 
 <template>
-  <div class="uploader">
+  <div class="grid gap-2">
     <div
-      class="drop"
-      :class="{ 'is-dragging': dragging, 'is-disabled': disabled }"
+      :class="[
+        'flex cursor-pointer flex-col items-center gap-1 rounded-[10px] border border-dashed border-border bg-surface-subtle p-[18px] text-center text-[13.5px] text-ink-2',
+        disabled ? 'cursor-not-allowed! opacity-70' : 'hover:border-primary hover:text-ink',
+        dragging ? 'border-primary! bg-primary-soft!' : '',
+      ]"
       @dragover.prevent="dragging = true"
       @dragleave.prevent="dragging = false"
       @drop.prevent="onDrop"
@@ -111,132 +114,62 @@ function previewURL(attachment: Attachment): string {
       <input ref="input" type="file" multiple hidden @change="onSelect" />
       <AppIcon name="upload" :size="20" />
       <span>点击选择文件，或拖放到此处</span>
-      <small class="muted">支持图片、视频与其他文件；单文件上限由服务端配置</small>
+      <small class="text-[12px] text-ink-3">支持图片、视频与其他文件；单文件上限由服务端配置</small>
     </div>
 
-    <ul v-if="attachments.length > 0" class="list">
-      <li v-for="item in attachments" :key="item.id">
+    <ul v-if="attachments.length > 0" class="m-0 grid list-none gap-[6px] p-0">
+      <li
+        v-for="item in attachments"
+        :key="item.id"
+        class="flex items-center gap-2 rounded-[8px] border border-solid border-border px-2 py-[6px] text-[13px]"
+      >
         <img
           v-if="item.kind === 'image' && !previewFailed[item.id]"
           :src="previewURL(item)"
           :alt="item.original_filename"
+          class="size-[34px] rounded-[6px] object-cover"
           @error="previewFailed[item.id] = true"
         />
         <AppIcon v-else :name="item.kind === 'video' ? 'image' : 'file-text'" :size="18" />
-        <span class="name">{{ item.original_filename }}</span>
-        <span v-if="statusLabel(item)" class="status">{{ statusLabel(item) }}</span>
-        <span class="muted">{{ formatBytes(item.size_bytes) }}</span>
-        <button type="button" class="icon-btn" aria-label="移除附件" :disabled="disabled" @click="remove(item)">
+        <span class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ item.original_filename }}</span>
+        <span
+          v-if="statusLabel(item)"
+          class="whitespace-nowrap rounded-[999px] bg-soft px-[7px] py-[1px] text-[11.5px] font-semibold text-ink-2"
+          >{{ statusLabel(item) }}</span
+        >
+        <span class="text-[12px] text-ink-3">{{ formatBytes(item.size_bytes) }}</span>
+        <button
+          type="button"
+          class="flex size-[26px] items-center justify-center rounded-[6px] text-ink-3 hover:bg-hover hover:text-ink"
+          aria-label="移除附件"
+          :disabled="disabled"
+          @click="remove(item)"
+        >
           <AppIcon name="x" :size="15" />
         </button>
       </li>
     </ul>
 
-    <ul v-if="tasks.length > 0" class="list">
-      <li v-for="task in tasks" :key="task.key">
+    <ul v-if="tasks.length > 0" class="m-0 grid list-none gap-[6px] p-0">
+      <li
+        v-for="task in tasks"
+        :key="task.key"
+        class="flex items-center gap-2 rounded-[8px] border border-solid border-border px-2 py-[6px] text-[13px]"
+      >
         <AppIcon :name="task.error ? 'alert' : 'upload'" :size="16" />
-        <span class="name">{{ task.name }}</span>
-        <span v-if="task.error" class="err">{{ task.error }}</span>
-        <span v-else class="muted">{{ task.percent }}%</span>
-        <button v-if="task.error" type="button" class="icon-btn" aria-label="关闭" @click="dismiss(task.key)">
+        <span class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ task.name }}</span>
+        <span v-if="task.error" class="text-[12px] text-red">{{ task.error }}</span>
+        <span v-else class="text-[12px] text-ink-3">{{ task.percent }}%</span>
+        <button
+          v-if="task.error"
+          type="button"
+          class="flex size-[26px] items-center justify-center rounded-[6px] text-ink-3 hover:bg-hover hover:text-ink"
+          aria-label="关闭"
+          @click="dismiss(task.key)"
+        >
           <AppIcon name="x" :size="15" />
         </button>
       </li>
     </ul>
   </div>
 </template>
-
-<style scoped>
-.uploader {
-  display: grid;
-  gap: 8px;
-}
-.drop {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 18px;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-  color: var(--ink-2);
-  font-size: 13.5px;
-  cursor: pointer;
-  text-align: center;
-}
-.drop:hover:not(.is-disabled) {
-  border-color: var(--primary);
-  color: var(--ink);
-}
-.drop.is-dragging {
-  border-color: var(--primary);
-  background: var(--primary-soft);
-}
-.drop.is-disabled {
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-.drop small {
-  font-size: 12px;
-}
-.list {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.list li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 13px;
-}
-.list img {
-  width: 34px;
-  height: 34px;
-  border-radius: 6px;
-  object-fit: cover;
-}
-.name {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.muted {
-  color: var(--ink-3);
-  font-size: 12px;
-}
-.err {
-  color: var(--red);
-  font-size: 12px;
-}
-.status {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--soft);
-  color: var(--ink-2);
-  font-size: 11.5px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  color: var(--ink-3);
-}
-.icon-btn:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-</style>

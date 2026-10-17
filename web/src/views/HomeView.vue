@@ -17,6 +17,7 @@ import UserAvatar from '../components/UserAvatar.vue'
 import { useCursorList } from '../composables/useCursorList'
 import { authState } from '../stores/auth'
 import { siteState } from '../stores/site'
+import { ui } from '../styles/ui'
 import { textToParagraphHTML } from '../utils/text'
 
 const user = computed(() => authState.user)
@@ -130,39 +131,39 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
 </script>
 
 <template>
-  <div class="constrain">
-    <div class="stack">
-      <section v-if="!user" class="hero card card--pad">
-        <h1 class="hero-title">时间线</h1>
-        <p class="hero-desc">
+  <div :class="[ui.constrain]">
+    <div :class="[ui.stack]">
+      <section v-if="!user" :class="[ui.card, ui.cardPad, 'bg-transparent! [background-image:linear-gradient(135deg,var(--primary-soft),var(--surface)_72%)]']">
+        <h1 class="m-0 text-[24px] font-extrabold tracking-[0.01em]">时间线</h1>
+        <p class="mt-2 mb-4 max-w-[46ch] text-[14.5px] text-ink-2">
           面向长文、多附件与 AI 用户的时间线社区。登录后可以发布内容、参与评论，并关注感兴趣的作者。
         </p>
-        <div class="hero-actions">
-          <RouterLink class="btn btn--primary" to="/login">登录</RouterLink>
-          <RouterLink v-if="siteState.registrationEnabled" class="btn btn--secondary" to="/register">
+        <div class="flex flex-wrap gap-2">
+          <RouterLink :class="[ui.button, ui.buttonPrimary]" to="/login">登录</RouterLink>
+          <RouterLink v-if="siteState.registrationEnabled" :class="[ui.button, ui.buttonSecondary]" to="/register">
             注册新账号
           </RouterLink>
         </div>
       </section>
 
-      <section v-else class="card card--pad composer">
-        <div class="composer-head">
+      <section v-else :class="[ui.card, ui.cardPad, 'grid gap-2.5']">
+        <div class="flex items-center gap-2.5">
           <UserAvatar :user="user" size="sm" />
-          <p class="muted">以 @{{ user.username }} 的身份发布</p>
+          <p :class="[ui.muted, 'm-0']">以 @{{ user.username }} 的身份发布</p>
         </div>
         <textarea
           v-model="draft"
-          class="textarea"
+          :class="[ui.input, ui.textarea]"
           rows="3"
           placeholder="分享点什么…（纯文本，将按段落发布）"
           aria-label="快速发布内容"
           :disabled="posting"
         ></textarea>
 
-        <div class="quick-options">
-          <label class="quick-visibility">
-            <span class="muted">可见性</span>
-            <select v-model="visibility" class="input" :disabled="posting" aria-label="快速发布可见性">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <label class="inline-flex items-center gap-1.5 text-[13px]">
+            <span :class="[ui.muted]">可见性</span>
+            <select v-model="visibility" :class="[ui.input, 'w-auto! min-w-[130px]']" :disabled="posting" aria-label="快速发布可见性">
               <option value="public">公开</option>
               <option value="followers">仅关注者</option>
               <option value="private">仅自己</option>
@@ -177,11 +178,11 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
           @removed="onQuickAttachmentRemoved"
         />
 
-        <div class="composer-foot">
-          <RouterLink class="muted" to="/compose">去完整编辑器</RouterLink>
-          <div class="quick-actions">
+        <div class="flex flex-wrap items-center justify-between gap-2.5">
+          <RouterLink :class="[ui.muted, 'hover:text-ink hover:no-underline']" to="/compose">去完整编辑器</RouterLink>
+          <div class="ml-auto flex items-center gap-2">
             <button
-              class="btn btn--secondary btn--sm"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
               type="button"
               :disabled="posting"
               @click="submitQuickPost('draft')"
@@ -190,12 +191,12 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
               {{ postingMode === 'draft' ? '保存中…' : '存草稿' }}
             </button>
             <button
-              class="btn btn--primary btn--sm"
+              :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]"
               type="button"
               :disabled="posting"
               @click="submitQuickPost('publish')"
             >
-              <span v-if="postingMode === 'publish'" class="spinner" aria-hidden="true"></span>
+              <span v-if="postingMode === 'publish'" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
               {{ postingMode === 'publish' ? '发布中…' : '发布' }}
             </button>
           </div>
@@ -207,19 +208,23 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
         <AlertNote v-if="postError" kind="error">{{ postError }}</AlertNote>
       </section>
 
-      <RouterLink v-if="user && pendingCount > 0" class="alert alert--info notice" to="/follow-requests">
-        <AppIcon name="user-plus" :size="17" />
-        <span class="alert-text">{{ pendingText }}，点击前往处理。</span>
-        <AppIcon name="chevron-right" :size="16" class="notice-arrow" />
+      <RouterLink
+        v-if="user && pendingCount > 0"
+        :class="[ui.alert, ui.alertVariants.info.root, 'm-0! text-ink hover:no-underline']"
+        to="/follow-requests"
+      >
+        <AppIcon name="user-plus" :size="17" :class="[ui.alertIcon, ui.alertVariants.info.icon]" />
+        <span :class="[ui.alertText, 'flex-1']">{{ pendingText }}，点击前往处理。</span>
+        <AppIcon name="chevron-right" :size="16" :class="['mt-[3px]', ui.alertVariants.info.icon]" />
       </RouterLink>
 
-      <div class="filter-row">
-        <div class="seg" role="group" aria-label="时间线筛选">
+      <div class="flex items-center gap-2">
+        <div :class="[ui.segment]" role="group" aria-label="时间线筛选">
           <button
             v-for="option in FILTERS"
             :key="option.value"
             type="button"
-            :class="{ 'is-active': filter === option.value }"
+            :class="[ui.segmentButton, filter === option.value && ui.segmentButtonActive]"
             @click="setFilter(option.value)"
           >
             {{ option.label }}
@@ -227,13 +232,13 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
         </div>
       </div>
 
-      <p v-if="loading" class="card card--pad loading-row">
-        <span class="spinner" aria-hidden="true"></span> 加载中…
+      <p v-if="loading" :class="[ui.card, ui.loadingRow]">
+        <span :class="[ui.spinner]" aria-hidden="true"></span> 加载中…
       </p>
 
       <template v-else-if="error && items.length === 0">
         <AlertNote kind="error">{{ error }}</AlertNote>
-        <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+        <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
       </template>
 
       <EmptyState v-else-if="loaded && items.length === 0" icon="home" title="这里还没有内容">
@@ -244,17 +249,17 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
       <template v-else>
         <PostCard v-for="post in items" :key="post.id" :post="post" @removed="removeItem" />
 
-        <div class="list-foot">
+        <div class="flex justify-center py-1">
           <button
             v-if="hasMore && !loadingMore"
-            class="btn btn--secondary btn--sm"
+            :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
             type="button"
             @click="loadMore"
           >
             加载更多
           </button>
-          <p v-else-if="loadingMore" class="loading-row foot-loading">
-            <span class="spinner" aria-hidden="true"></span> 正在加载…
+          <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+            <span :class="[ui.spinner]" aria-hidden="true"></span> 正在加载…
           </p>
         </div>
 
@@ -263,100 +268,3 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
     </div>
   </div>
 </template>
-
-<style scoped>
-.hero {
-  background: linear-gradient(135deg, var(--primary-soft), var(--surface) 72%);
-}
-.hero-title {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-}
-.hero-desc {
-  margin: 8px 0 16px;
-  max-width: 46ch;
-  color: var(--ink-2);
-  font-size: 14.5px;
-}
-.hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.composer {
-  display: grid;
-  gap: 10px;
-}
-.composer-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.composer-head .muted {
-  margin: 0;
-}
-.composer-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.quick-options {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.quick-visibility {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-}
-.quick-visibility .input {
-  width: auto;
-  min-width: 130px;
-}
-.quick-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-.composer-foot .muted:hover {
-  color: var(--ink);
-  text-decoration: none;
-}
-.notice {
-  margin: 0;
-  color: var(--ink);
-}
-.notice:hover {
-  text-decoration: none;
-}
-.notice .alert-text {
-  flex: 1;
-}
-.notice-arrow {
-  margin-top: 3px;
-}
-.filter-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.self-start {
-  align-self: flex-start;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 4px 0;
-}
-.foot-loading {
-  padding: 0;
-}
-</style>

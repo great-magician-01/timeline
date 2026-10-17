@@ -9,6 +9,7 @@ import PostComposer from '../components/PostComposer.vue'
 import { errorMessage } from '../api/client'
 import { getPost } from '../api/posts'
 import type { PostDetail } from '../api/types'
+import { ui } from '../styles/ui'
 
 const route = useRoute()
 const postId = computed(() => String(route.params.postId ?? ''))
@@ -57,25 +58,25 @@ const redirectHint = computed(() => {
 </script>
 
 <template>
-  <div class="constrain">
-    <div class="stack">
-      <header class="page-head">
-        <RouterLink class="back-link" :to="{ name: 'post-detail', params: { postId } }">
+  <div :class="[ui.constrain]">
+    <div :class="[ui.stack]">
+      <header :class="[ui.pageHead]">
+        <RouterLink class="mb-2 inline-flex items-center gap-1.5 text-[13.5px] text-ink-2 hover:text-ink hover:no-underline" :to="{ name: 'post-detail', params: { postId } }">
           <AppIcon name="arrow-left" :size="16" /> 返回帖子
         </RouterLink>
-        <h1 class="page-title">编辑帖子</h1>
-        <p class="page-desc">已发布帖子的每次保存都会生成新的历史版本。</p>
+        <h1 :class="[ui.pageTitle]">编辑帖子</h1>
+        <p :class="[ui.pageDesc]">已发布帖子的每次保存都会生成新的历史版本。</p>
       </header>
 
-      <div v-if="loading" class="card card--pad">
-        <p class="loading-row"><span class="spinner" aria-hidden="true"></span> 正在载入帖子…</p>
+      <div v-if="loading" :class="[ui.card, ui.cardPad]">
+        <p :class="[ui.loadingRow]"><span :class="[ui.spinner]" aria-hidden="true"></span> 正在载入帖子…</p>
       </div>
 
       <template v-else-if="errorText">
         <AlertNote kind="error">{{ errorText }}</AlertNote>
-        <div class="actions">
-          <button class="btn btn--secondary btn--sm" type="button" @click="load()">重试</button>
-          <RouterLink class="btn btn--secondary btn--sm" :to="{ name: 'post-detail', params: { postId } }">
+        <div class="flex flex-wrap gap-2">
+          <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="load()">重试</button>
+          <RouterLink :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" :to="{ name: 'post-detail', params: { postId } }">
             返回帖子
           </RouterLink>
         </div>
@@ -83,8 +84,8 @@ const redirectHint = computed(() => {
 
       <template v-else-if="post && !post.can_edit">
         <AlertNote kind="error">无权编辑该帖子</AlertNote>
-        <div class="actions">
-          <RouterLink class="btn btn--secondary btn--sm" :to="{ name: 'post-detail', params: { postId } }">
+        <div class="flex flex-wrap gap-2">
+          <RouterLink :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" :to="{ name: 'post-detail', params: { postId } }">
             返回帖子
           </RouterLink>
         </div>
@@ -94,22 +95,22 @@ const redirectHint = computed(() => {
         <AlertNote kind="info">
           保存修改会生成新版本；历史版本与其中的附件对所有有权查看者可见，从当前正文删除的内容不会从历史中消失。
         </AlertNote>
-        <section class="card card--pad">
+        <section :class="[ui.card, ui.cardPad]">
           <PostComposer :post-id="postId" />
         </section>
       </template>
 
       <template v-else-if="post">
         <AlertNote kind="info">{{ redirectHint }}</AlertNote>
-        <div class="actions">
+        <div class="flex flex-wrap gap-2">
           <RouterLink
             v-if="post.status !== 'deleted'"
-            class="btn btn--primary"
+            :class="[ui.button, ui.buttonPrimary]"
             :to="{ name: 'draft-edit', params: { draftId: post.id } }"
           >
             <AppIcon name="pencil" :size="16" /> 继续编辑
           </RouterLink>
-          <RouterLink class="btn btn--secondary" :to="{ name: 'post-detail', params: { postId } }">
+          <RouterLink :class="[ui.button, ui.buttonSecondary]" :to="{ name: 'post-detail', params: { postId } }">
             返回帖子
           </RouterLink>
         </div>
@@ -117,23 +118,3 @@ const redirectHint = computed(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  font-size: 13.5px;
-  color: var(--ink-2);
-}
-.back-link:hover {
-  color: var(--ink);
-  text-decoration: none;
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-</style>

@@ -11,6 +11,7 @@ import { apiRequest, errorMessage } from '../api/client'
 import { likePost, repostPost, unlikePost, unrepostPost } from '../api/social'
 import { authState } from '../stores/auth'
 import { relativeTime, timeTitle } from '../utils/format'
+import { ui } from '../styles/ui'
 
 const props = withDefaults(
   defineProps<{
@@ -139,82 +140,121 @@ watch(
 )
 
 const menuOpen = ref(false)
+
+// 富文本正文的容器级样式（含原有后代选择器的等价 utility）
+const richContentClass =
+  'text-[15px] leading-[1.75] text-ink [word-break:break-word] [&_a.tl-tag]:font-semibold [&_a.tl-tag]:text-primary [&_a.tl-mention]:font-semibold [&_a.tl-mention]:text-primary [&_img]:max-w-full [&_img]:rounded-[8px] [&_pre]:m-0 [&_pre]:overflow-auto [&_pre]:rounded-[8px] [&_pre]:bg-soft [&_pre]:p-3 [&_pre]:text-[13px] [&_blockquote]:m-0 [&_blockquote]:border-l-[3px] [&_blockquote]:border-solid [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-ink-2'
 </script>
 
 <template>
-  <article class="post card card--pad">
-    <header class="head">
-      <RouterLink :to="`/users/${post.kind === 'repost' ? post.author.username : target.author.username}`" class="who">
+  <article :class="[ui.card, ui.cardPad, 'grid gap-[10px]']">
+    <header class="flex items-start gap-[10px]">
+      <RouterLink
+        :to="`/users/${post.kind === 'repost' ? post.author.username : target.author.username}`"
+        class="flex min-w-0 items-center gap-[10px] text-ink hover:no-underline"
+      >
         <UserAvatar :user="post.kind === 'repost' ? post.author : target.author" size="sm" />
-        <span class="names">
-          <span class="row">
+        <span class="flex min-w-0 flex-col leading-[1.35]">
+          <span class="flex items-center gap-[6px] text-[14.5px]">
             <strong>{{ post.kind === 'repost' ? post.author.nickname || post.author.username : target.author.nickname || target.author.username }}</strong>
-            <span v-if="(post.kind === 'repost' ? post.author : target.author).is_ai" class="badge badge--ai">AI</span>
-            <span v-if="(post.kind === 'repost' ? post.author : target.author).is_suspended" class="badge badge--muted">已停用</span>
+            <span v-if="(post.kind === 'repost' ? post.author : target.author).is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
+            <span v-if="(post.kind === 'repost' ? post.author : target.author).is_suspended" :class="[ui.badge, ui.badgeMuted]">已停用</span>
           </span>
-          <span class="handle">@{{ post.kind === 'repost' ? post.author.username : target.author.username }}</span>
+          <span class="text-[12.5px] text-ink-3">@{{ post.kind === 'repost' ? post.author.username : target.author.username }}</span>
         </span>
       </RouterLink>
 
-      <span class="meta">
-        <span v-if="post.kind === 'repost'" class="repost-note">
+      <span class="ml-auto flex items-center gap-[6px] whitespace-nowrap text-[12.5px] text-ink-3">
+        <span v-if="post.kind === 'repost'" class="inline-flex items-center gap-[3px]">
           <AppIcon name="repeat" :size="14" /> 转发了
         </span>
-        <RouterLink :to="`/posts/${target.id}`" :title="timeTitle(target.published_at)" class="time">
+        <RouterLink :to="`/posts/${target.id}`" :title="timeTitle(target.published_at)" class="text-ink-3">
           {{ relativeTime(post.kind === 'repost' ? post.reposted_at : target.published_at) }}
         </RouterLink>
-        <span v-if="target.edited" class="muted">已编辑</span>
-        <span v-if="target.visibility === 'followers'" class="badge badge--muted">仅关注者</span>
-        <span v-if="target.visibility === 'private'" class="badge badge--muted">仅自己</span>
+        <span v-if="target.edited" :class="ui.muted">已编辑</span>
+        <span v-if="target.visibility === 'followers'" :class="[ui.badge, ui.badgeMuted]">仅关注者</span>
+        <span v-if="target.visibility === 'private'" :class="[ui.badge, ui.badgeMuted]">仅自己</span>
       </span>
 
-      <div v-if="isOwner && actions" class="menu">
-        <button type="button" class="icon-btn" aria-label="更多操作" @click="menuOpen = !menuOpen">
+      <div v-if="isOwner && actions" class="relative">
+        <button type="button" aria-label="更多操作" @click="menuOpen = !menuOpen">
           <AppIcon name="more" :size="18" />
         </button>
-        <div v-if="menuOpen" class="menu-pop" @click="menuOpen = false">
-          <RouterLink :to="{ name: 'post-edit', params: { postId: target.id } }">
+        <div
+          v-if="menuOpen"
+          class="absolute right-0 top-8 z-20 grid min-w-[150px] rounded-[10px] border border-solid border-border bg-surface p-[6px] shadow-[var(--shadow-pop)]"
+          @click="menuOpen = false"
+        >
+          <RouterLink
+            :to="{ name: 'post-edit', params: { postId: target.id } }"
+            class="flex items-center gap-2 rounded-[8px] px-[10px] py-[7px] text-left text-[13.5px] text-ink hover:bg-hover hover:no-underline"
+          >
             <AppIcon name="pencil" :size="15" /> 编辑
           </RouterLink>
-          <RouterLink :to="{ name: 'post-history', params: { postId: target.id } }">
+          <RouterLink
+            :to="{ name: 'post-history', params: { postId: target.id } }"
+            class="flex items-center gap-2 rounded-[8px] px-[10px] py-[7px] text-left text-[13.5px] text-ink hover:bg-hover hover:no-underline"
+          >
             <AppIcon name="clock" :size="15" /> 历史版本
           </RouterLink>
-          <button type="button" class="danger" @click="removePost">
+          <button
+            type="button"
+            class="flex items-center gap-2 rounded-[8px] px-[10px] py-[7px] text-left text-[13.5px] text-red hover:bg-hover"
+            @click="removePost"
+          >
             <AppIcon name="trash" :size="15" /> 删除
           </button>
         </div>
       </div>
     </header>
 
-    <div class="body" :class="{ 'is-clickable': !detail }" @click.self="openDetail">
-      <div ref="contentEl" class="content" :class="{ 'is-clamped': !detail }" v-html="target.content_html"></div>
-      <button v-if="contentClamped" type="button" class="more-link" @click="openDetail">查看全文</button>
+    <div class="grid gap-2" @click.self="openDetail">
+      <div ref="contentEl" :class="[richContentClass, !detail ? 'line-clamp-4' : '']" v-html="target.content_html"></div>
+      <button
+        v-if="contentClamped"
+        type="button"
+        class="justify-self-start p-0 text-[13.5px] text-primary hover:underline"
+        @click="openDetail"
+      >
+        查看全文
+      </button>
       <AttachmentGallery :attachments="target.attachments" :compact="!detail" />
 
-      <blockquote v-if="target.quoted_post" class="quote">
+      <blockquote
+        v-if="target.quoted_post"
+        class="m-0 rounded-[10px] border border-solid border-border bg-surface-subtle px-3 py-[10px]"
+      >
         <template v-if="target.quoted_post.available && target.quoted_post.post">
-          <RouterLink :to="`/posts/${target.quoted_post.post.id}`" class="quote-head">
+          <RouterLink
+            :to="`/posts/${target.quoted_post.post.id}`"
+            class="mb-[6px] flex items-center gap-2 text-[13.5px] text-ink"
+          >
             <UserAvatar :user="target.quoted_post.post.author" size="sm" />
             <strong>{{ target.quoted_post.post.author.nickname || target.quoted_post.post.author.username }}</strong>
-            <span class="handle">@{{ target.quoted_post.post.author.username }}</span>
+            <span class="text-[12.5px] text-ink-3">@{{ target.quoted_post.post.author.username }}</span>
           </RouterLink>
-          <div class="content" v-html="target.quoted_post.post.content_html"></div>
+          <div :class="[richContentClass, 'text-[14px]!']" v-html="target.quoted_post.post.content_html"></div>
         </template>
-        <p v-else class="muted">原内容不可见</p>
+        <p v-else :class="ui.muted">原内容不可见</p>
       </blockquote>
     </div>
 
-    <p v-if="notice" class="alert alert--warning">{{ notice }}</p>
+    <p v-if="notice" :class="[ui.alert, ui.alertVariants.warning.root]">{{ notice }}</p>
 
-    <footer v-if="actions && !authorSuspended" class="actions">
-      <button type="button" class="act" :disabled="busy" @click="openDetail">
+    <footer v-if="actions && !authorSuspended" class="flex gap-4 border-t border-solid border-border pt-[6px]">
+      <button
+        type="button"
+        class="inline-flex items-center gap-[5px] rounded-[8px] px-2 py-[5px] text-[13px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-ink! disabled:cursor-not-allowed disabled:opacity-60"
+        :disabled="busy"
+        @click="openDetail"
+      >
         <AppIcon name="message" :size="17" />
         <span>{{ target.comment_count }}</span>
       </button>
       <button
         type="button"
-        class="act"
-        :class="{ 'is-on': reposted }"
+        class="inline-flex items-center gap-[5px] rounded-[8px] px-2 py-[5px] text-[13px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-ink! disabled:cursor-not-allowed disabled:opacity-60"
+        :class="reposted ? 'text-primary! font-bold' : ''"
         :disabled="busy || !canInteract"
         :title="canInteract ? '转发' : '登录后可转发'"
         @click="toggleRepost"
@@ -224,8 +264,8 @@ const menuOpen = ref(false)
       </button>
       <button
         type="button"
-        class="act"
-        :class="{ 'is-on': liked }"
+        class="inline-flex items-center gap-[5px] rounded-[8px] px-2 py-[5px] text-[13px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-ink! disabled:cursor-not-allowed disabled:opacity-60"
+        :class="liked ? 'text-primary! font-bold' : ''"
         :disabled="busy || !canInteract"
         :title="canInteract ? '点赞' : '登录后可点赞'"
         @click="toggleLike"
@@ -234,203 +274,12 @@ const menuOpen = ref(false)
         <span>{{ likeCount }}</span>
       </button>
     </footer>
-    <p v-else-if="actions && authorSuspended" class="readonly-note">
+    <p
+      v-else-if="actions && authorSuspended"
+      class="m-0 flex items-center gap-[5px] border-t border-solid border-border pt-[6px] text-[12.5px] text-ink-3"
+    >
       <AppIcon name="lock" :size="14" />
       作者已停用，互动入口已关闭
     </p>
   </article>
 </template>
-
-<style scoped>
-.post {
-  display: grid;
-  gap: 10px;
-}
-.head {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-.who {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  color: var(--ink);
-}
-.who:hover {
-  text-decoration: none;
-}
-.names {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.35;
-}
-.row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14.5px;
-}
-.handle {
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  font-size: 12.5px;
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-.meta .time {
-  color: var(--ink-3);
-}
-.repost-note {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-.menu {
-  position: relative;
-}
-.menu-pop {
-  position: absolute;
-  right: 0;
-  top: 32px;
-  z-index: 20;
-  display: grid;
-  min-width: 150px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: var(--shadow-pop);
-}
-.menu-pop a,
-.menu-pop button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: 8px;
-  font-size: 13.5px;
-  color: var(--ink);
-  text-align: left;
-}
-.menu-pop a:hover,
-.menu-pop button:hover {
-  background: var(--hover);
-  text-decoration: none;
-}
-.menu-pop .danger {
-  color: var(--red);
-}
-.body {
-  display: grid;
-  gap: 8px;
-}
-.content {
-  font-size: 15px;
-  line-height: 1.75;
-  color: var(--ink);
-  word-break: break-word;
-}
-/* 列表页长帖最多 4 行；详情页不加该类，保持完整展示 */
-.content.is-clamped {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  overflow: hidden;
-}
-.more-link {
-  justify-self: start;
-  padding: 0;
-  font-size: 13.5px;
-  color: var(--primary);
-}
-.more-link:hover {
-  text-decoration: underline;
-}
-.content :deep(a.tl-tag),
-.content :deep(a.tl-mention) {
-  color: var(--primary);
-  font-weight: 600;
-}
-.content :deep(img) {
-  max-width: 100%;
-  border-radius: 8px;
-}
-.content :deep(pre) {
-  overflow: auto;
-  margin: 0;
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--soft);
-  font-size: 13px;
-}
-.content :deep(blockquote) {
-  margin: 0;
-  padding-left: 12px;
-  border-left: 3px solid var(--border);
-  color: var(--ink-2);
-}
-.quote {
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-}
-.quote-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  font-size: 13.5px;
-  color: var(--ink);
-}
-.quote .content {
-  font-size: 14px;
-}
-.actions {
-  display: flex;
-  gap: 16px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-}
-.act {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 8px;
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--ink-3);
-}
-.act:hover:not(:disabled) {
-  background: var(--hover);
-  color: var(--ink);
-}
-.act.is-on {
-  color: var(--primary);
-  font-weight: 700;
-}
-.act:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-.readonly-note {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin: 0;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-</style>

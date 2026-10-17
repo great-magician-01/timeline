@@ -26,6 +26,7 @@ import EmptyState from '../components/EmptyState.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useCursorList } from '../composables/useCursorList'
 import { authState } from '../stores/auth'
+import { ui } from '../styles/ui'
 import { relativeTime, timeTitle } from '../utils/format'
 import { textToParagraphHTML } from '../utils/text'
 
@@ -61,7 +62,7 @@ const visibilityLabel = computed(() => {
 })
 
 const visibilityClass = computed(() =>
-  target.value?.visibility === 'public' ? 'badge badge--muted' : 'badge',
+  target.value?.visibility === 'public' ? ui.badgeMuted : '',
 )
 
 const isAuthor = computed(() => Boolean(my.value && target.value && my.value.id === target.value.author.id))
@@ -307,41 +308,41 @@ watch(postId, () => void loadPost(), { immediate: true })
 </script>
 
 <template>
-  <div class="constrain">
-    <div class="stack">
-      <p v-if="loading" class="card card--pad loading-row">
-        <span class="spinner" aria-hidden="true"></span> 加载中…
+  <div :class="[ui.constrain]">
+    <div :class="[ui.stack]">
+      <p v-if="loading" :class="[ui.card, ui.loadingRow]">
+        <span :class="[ui.spinner]" aria-hidden="true"></span> 加载中…
       </p>
 
-      <section v-else-if="notFound" class="card card--pad">
+      <section v-else-if="notFound" :class="[ui.card, ui.cardPad]">
         <EmptyState icon="lock" title="内容不存在或无权访问" description="该内容可能已被删除，或你没有查看权限。">
-          <RouterLink class="btn btn--secondary btn--sm empty-action" to="/">返回首页</RouterLink>
+          <RouterLink :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'mt-3']" to="/">返回首页</RouterLink>
         </EmptyState>
       </section>
 
       <template v-else-if="loadError">
         <AlertNote kind="error">{{ loadError }}</AlertNote>
-        <button class="btn btn--secondary btn--sm self-start" type="button" @click="loadPost">重试</button>
+        <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="loadPost">重试</button>
       </template>
 
       <template v-else-if="post && target">
-        <article class="card card--pad detail">
-          <header class="head">
-            <RouterLink :to="`/users/${target.author.username}`" class="who">
+        <article :class="[ui.card, ui.cardPad, 'grid gap-3']">
+          <header class="flex items-center gap-2.5">
+            <RouterLink :to="`/users/${target.author.username}`" class="flex min-w-0 items-center gap-2.5 text-ink hover:no-underline">
               <UserAvatar :user="target.author" size="md" />
-              <span class="names">
-                <span class="row">
+              <span class="flex min-w-0 flex-col leading-[1.35]">
+                <span class="flex items-center gap-1.5 text-[15px]">
                   <strong>{{ target.author.nickname || target.author.username }}</strong>
-                  <span v-if="target.author.is_ai" class="badge badge--ai">AI</span>
-                  <span v-if="target.author.is_suspended" class="badge badge--muted">已停用</span>
+                  <span v-if="target.author.is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
+                  <span v-if="target.author.is_suspended" :class="[ui.badge, ui.badgeMuted]">已停用</span>
                 </span>
-                <span class="handle">@{{ target.author.username }}</span>
+                <span class="text-[12.5px] text-ink-3">@{{ target.author.username }}</span>
               </span>
             </RouterLink>
 
             <button
               v-if="showFollowButton"
-              class="btn btn--secondary btn--sm follow"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'ml-auto']"
               type="button"
               :disabled="followBusy"
               @click="toggleFollow"
@@ -350,46 +351,46 @@ watch(postId, () => void loadPost(), { immediate: true })
             </button>
             <RouterLink
               v-else-if="my && !isAuthor && authorFollow === 'incoming_pending'"
-              class="btn btn--secondary btn--sm follow"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'ml-auto']"
               to="/follow-requests"
             >
               对方申请关注你
             </RouterLink>
           </header>
 
-          <p class="meta">
-            <span v-if="post.kind === 'repost'" class="muted">转发了以下内容 ·</span>
-            <RouterLink :to="`/posts/${target.id}`" :title="timeTitle(target.published_at)" class="time">
+          <p class="m-0 flex flex-wrap items-center gap-1.5 text-[12.5px] text-ink-3">
+            <span v-if="post.kind === 'repost'" :class="[ui.muted]">转发了以下内容 ·</span>
+            <RouterLink :to="`/posts/${target.id}`" :title="timeTitle(target.published_at)" class="text-ink-3">
               {{ relativeTime(target.published_at) }}
             </RouterLink>
-            <span :class="visibilityClass">{{ visibilityLabel }}</span>
-            <span v-if="post.status === 'draft'" class="badge">草稿</span>
-            <span v-else-if="post.status === 'scheduled'" class="badge">定时发布</span>
-            <span v-if="target.edited" class="muted">已编辑</span>
+            <span :class="[ui.badge, visibilityClass]">{{ visibilityLabel }}</span>
+            <span v-if="post.status === 'draft'" :class="[ui.badge]">草稿</span>
+            <span v-else-if="post.status === 'scheduled'" :class="[ui.badge]">定时发布</span>
+            <span v-if="target.edited" :class="[ui.muted]">已编辑</span>
           </p>
 
           <AlertNote v-if="authorSuspended" kind="warning">
             该内容作者已停用，正文与评论只读展示，点赞、评论、转发与引用入口已关闭。
           </AlertNote>
 
-          <div v-if="canManage" class="manage">
+          <div v-if="canManage" class="flex flex-wrap gap-2 border-y border-solid border-border py-2.5">
             <RouterLink
               v-if="post.can_edit"
-              class="btn btn--secondary btn--sm"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
               :to="{ name: 'post-edit', params: { postId: post.id } }"
             >
               <AppIcon name="pencil" :size="16" /> 编辑
             </RouterLink>
             <RouterLink
               v-if="post.can_view_history"
-              class="btn btn--secondary btn--sm"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
               :to="{ name: 'post-history', params: { postId: post.id } }"
             >
               <AppIcon name="clock" :size="16" /> 历史版本
             </RouterLink>
             <button
               v-if="post.can_delete"
-              class="btn btn--danger btn--sm"
+              :class="[ui.button, ui.buttonDanger, ui.buttonSmall]"
               type="button"
               :disabled="busy"
               @click="removePost"
@@ -398,28 +399,34 @@ watch(postId, () => void loadPost(), { immediate: true })
             </button>
           </div>
 
-          <div class="content" v-html="target.content_html"></div>
+          <div
+            class="text-[15.5px] leading-[1.85] [word-break:break-word] [&_a.tl-tag]:font-semibold [&_a.tl-tag]:text-primary [&_a.tl-mention]:font-semibold [&_a.tl-mention]:text-primary [&_img]:max-w-full [&_img]:rounded-lg [&_pre]:m-0 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-soft [&_pre]:p-3 [&_pre]:text-[13px] [&_blockquote]:m-0 [&_blockquote]:border-l-[3px] [&_blockquote]:border-solid [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-ink-2"
+            v-html="target.content_html"
+          ></div>
           <AttachmentGallery :attachments="target.attachments" />
 
-          <blockquote v-if="target.quoted_post" class="quote">
+          <blockquote v-if="target.quoted_post" class="m-0 rounded-[10px] border border-solid border-border bg-surface-subtle px-3 py-2.5">
             <template v-if="target.quoted_post.available && target.quoted_post.post">
-              <RouterLink :to="`/posts/${target.quoted_post.post.id}`" class="quote-head">
+              <RouterLink :to="`/posts/${target.quoted_post.post.id}`" class="mb-1.5 flex items-center gap-2 text-[13.5px] text-ink hover:no-underline">
                 <UserAvatar :user="target.quoted_post.post.author" size="sm" />
                 <strong>{{ target.quoted_post.post.author.nickname || target.quoted_post.post.author.username }}</strong>
-                <span class="handle">@{{ target.quoted_post.post.author.username }}</span>
+                <span class="text-[12.5px] text-ink-3">@{{ target.quoted_post.post.author.username }}</span>
               </RouterLink>
-              <div class="content" v-html="target.quoted_post.post.content_html"></div>
+              <div
+                class="text-[14px] leading-[1.85] [word-break:break-word] [&_a.tl-tag]:font-semibold [&_a.tl-tag]:text-primary [&_a.tl-mention]:font-semibold [&_a.tl-mention]:text-primary [&_img]:max-w-full [&_img]:rounded-lg [&_pre]:m-0 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-soft [&_pre]:p-3 [&_pre]:text-[13px] [&_blockquote]:m-0 [&_blockquote]:border-l-[3px] [&_blockquote]:border-solid [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-ink-2"
+                v-html="target.quoted_post.post.content_html"
+              ></div>
             </template>
-            <p v-else class="muted">原内容不可见</p>
+            <p v-else :class="[ui.muted]">原内容不可见</p>
           </blockquote>
 
           <AlertNote v-if="actionNotice" kind="warning">{{ actionNotice }}</AlertNote>
 
-          <footer v-if="!authorSuspended" class="actions">
+          <footer v-if="!authorSuspended" class="flex gap-4 border-t border-solid border-border pt-2">
             <button
               type="button"
-              class="act"
-              :class="{ 'is-on': liked }"
+              class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-[5px] text-[13.5px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+              :class="liked && 'font-bold text-primary'"
               :disabled="busy"
               :title="my ? '点赞' : '登录后可点赞'"
               @click="toggleLike"
@@ -429,8 +436,8 @@ watch(postId, () => void loadPost(), { immediate: true })
             </button>
             <button
               type="button"
-              class="act"
-              :class="{ 'is-on': reposted }"
+              class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-[5px] text-[13.5px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+              :class="reposted && 'font-bold text-primary'"
               :disabled="busy || !canShare"
               :title="shareHint || '转发'"
               @click="toggleRepost"
@@ -440,7 +447,7 @@ watch(postId, () => void loadPost(), { immediate: true })
             </button>
             <button
               type="button"
-              class="act"
+              class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-[5px] text-[13.5px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-ink disabled:cursor-not-allowed disabled:opacity-60"
               :disabled="busy || !canShare"
               :title="shareHint || '引用并附加你的看法'"
               @click="quotePost"
@@ -449,61 +456,61 @@ watch(postId, () => void loadPost(), { immediate: true })
               <span>引用</span>
             </button>
           </footer>
-          <p v-else class="readonly-note">
+          <p v-else class="m-0 flex items-center gap-1.5 rounded-lg border-t border-solid border-border bg-soft px-2.5 py-2 text-[13px] text-ink-3">
             <AppIcon name="lock" :size="15" />
             作者已停用，互动入口已关闭
           </p>
         </article>
 
-        <section class="card card--pad comments">
-          <h2 class="page-head page-title">评论（{{ target.comment_count }}）</h2>
+        <section :class="[ui.card, ui.cardPad, 'grid gap-3']">
+          <h2 :class="[ui.pageHead, ui.pageTitle]">评论（{{ target.comment_count }}）</h2>
 
-          <p v-if="authorSuspended" class="readonly-note">
+          <p v-if="authorSuspended" class="m-0 flex items-center gap-1.5 rounded-lg border-t border-solid border-border bg-soft px-2.5 py-2 text-[13px] text-ink-3">
             <AppIcon name="lock" :size="15" />
             作者已停用，评论区只读展示，不再接受新的评论或回复。
           </p>
           <template v-else-if="my">
-            <div v-if="replyTarget" class="reply-banner">
+            <div v-if="replyTarget" class="mt-3 flex items-center gap-2 rounded-lg bg-primary-soft px-3 py-1.5 text-[13px] text-ink">
               <span>回复 @{{ replyTarget.author.username }}</span>
-              <button type="button" class="cancel" @click="replyTarget = null">
+              <button type="button" class="ml-auto inline-flex items-center gap-[3px] text-[12.5px] text-ink-2" @click="replyTarget = null">
                 <AppIcon name="x" :size="14" /> 取消
               </button>
             </div>
-            <div class="comment-form">
+            <div class="mt-3 grid gap-2">
               <textarea
                 ref="commentBox"
                 v-model="commentText"
-                class="textarea"
+                :class="[ui.input, ui.textarea]"
                 rows="3"
                 placeholder="友善地表达你的看法…"
                 aria-label="评论内容"
               ></textarea>
-              <AlertNote v-if="commentError" kind="error">{{ commentError }}</AlertNote>
-              <div class="comment-foot">
+              <AlertNote v-if="commentError" kind="error" class="m-0!">{{ commentError }}</AlertNote>
+              <div class="flex justify-end">
                 <button
-                  class="btn btn--primary btn--sm"
+                  :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]"
                   type="button"
                   :disabled="commentSubmitting"
                   @click="submitComment"
                 >
-                  <span v-if="commentSubmitting" class="spinner" aria-hidden="true"></span>
+                  <span v-if="commentSubmitting" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
                   {{ commentSubmitting ? '发送中…' : '发表评论' }}
                 </button>
               </div>
             </div>
           </template>
-          <div v-else class="login-hint">
-            <p class="muted">登录后可以参与评论与回复。</p>
+          <div v-else class="mt-3 flex flex-wrap items-center justify-between gap-2.5 rounded-[10px] border border-solid border-border bg-surface-subtle px-3.5 py-3">
+            <p :class="[ui.muted, 'm-0']">登录后可以参与评论与回复。</p>
             <RouterLink
-              class="btn btn--primary btn--sm"
+              :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]"
               :to="{ name: 'login', query: { redirect: route.fullPath } }"
             >
               登录
             </RouterLink>
           </div>
 
-          <p v-if="commentsLoading" class="loading-row">
-            <span class="spinner" aria-hidden="true"></span> 加载评论中…
+          <p v-if="commentsLoading" :class="[ui.loadingRow]">
+            <span :class="[ui.spinner]" aria-hidden="true"></span> 加载评论中…
           </p>
           <EmptyState
             v-else-if="commentsLoaded && commentItems.length === 0"
@@ -511,7 +518,7 @@ watch(postId, () => void loadPost(), { immediate: true })
             title="还没有评论"
             description="成为第一个评论的人。"
           />
-          <ul v-else class="comment-list">
+          <ul v-else class="m-0 list-none p-0">
             <CommentItem
               v-for="comment in commentItems"
               :key="comment.id"
@@ -521,17 +528,17 @@ watch(postId, () => void loadPost(), { immediate: true })
             />
           </ul>
 
-          <div class="list-foot">
+          <div class="flex justify-center py-1">
             <button
               v-if="commentsHasMore && !commentsLoadingMore"
-              class="btn btn--secondary btn--sm"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
               type="button"
               @click="loadMoreComments"
             >
               加载更多评论
             </button>
-            <p v-else-if="commentsLoadingMore" class="loading-row foot-loading">
-              <span class="spinner" aria-hidden="true"></span> 正在加载…
+            <p v-else-if="commentsLoadingMore" :class="[ui.loadingRow, 'p-0!']">
+              <span :class="[ui.spinner]" aria-hidden="true"></span> 正在加载…
             </p>
           </div>
 
@@ -541,218 +548,3 @@ watch(postId, () => void loadPost(), { immediate: true })
     </div>
   </div>
 </template>
-
-<style scoped>
-.detail {
-  display: grid;
-  gap: 12px;
-}
-.head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.who {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  color: var(--ink);
-}
-.who:hover {
-  text-decoration: none;
-}
-.names {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.35;
-}
-.row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 15px;
-}
-.handle {
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.follow {
-  margin-left: auto;
-}
-.meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.meta .time {
-  color: var(--ink-3);
-}
-.manage {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-.content {
-  font-size: 15.5px;
-  line-height: 1.85;
-  word-break: break-word;
-}
-.content :deep(a.tl-tag),
-.content :deep(a.tl-mention) {
-  color: var(--primary);
-  font-weight: 600;
-}
-.content :deep(img) {
-  max-width: 100%;
-  border-radius: 8px;
-}
-.content :deep(pre) {
-  overflow: auto;
-  margin: 0;
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--soft);
-  font-size: 13px;
-}
-.content :deep(blockquote) {
-  margin: 0;
-  padding-left: 12px;
-  border-left: 3px solid var(--border);
-  color: var(--ink-2);
-}
-.quote {
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-}
-.quote-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  font-size: 13.5px;
-  color: var(--ink);
-}
-.quote .content {
-  font-size: 14px;
-}
-.actions {
-  display: flex;
-  gap: 16px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-.act {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 8px;
-  font-size: 13.5px;
-  color: var(--ink-3);
-}
-.act:hover:not(:disabled) {
-  background: var(--hover);
-  color: var(--ink);
-}
-.act.is-on {
-  color: var(--primary);
-  font-weight: 700;
-}
-.act:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-.readonly-note {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 8px 10px;
-  border-top: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--soft);
-  font-size: 13px;
-  color: var(--ink-3);
-}
-.comments {
-  display: grid;
-  gap: 12px;
-}
-.reply-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  background: var(--primary-soft);
-  color: var(--ink);
-  font-size: 13px;
-}
-.reply-banner .cancel {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-left: auto;
-  color: var(--ink-2);
-  font-size: 12.5px;
-}
-.comment-form {
-  display: grid;
-  gap: 8px;
-  margin-top: 12px;
-}
-.comment-form .alert {
-  margin: 0;
-}
-.comment-foot {
-  display: flex;
-  justify-content: flex-end;
-}
-.login-hint {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-}
-.login-hint .muted {
-  margin: 0;
-}
-.comment-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.self-start {
-  align-self: flex-start;
-}
-.empty-action {
-  margin-top: 12px;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 4px 0;
-}
-.foot-loading {
-  padding: 0;
-}
-</style>

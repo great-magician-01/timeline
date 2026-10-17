@@ -6,6 +6,7 @@ import AlertNote from '../components/AlertNote.vue'
 import FormField from '../components/FormField.vue'
 import { login } from '../stores/auth'
 import { siteState } from '../stores/site'
+import { ui } from '../styles/ui'
 
 const route = useRoute()
 const router = useRouter()
@@ -62,19 +63,19 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <div class="constrain">
-    <section class="card card--pad">
-      <h1 class="page-title">登录</h1>
-      <p class="page-desc">使用用户名或邮箱登录，继续管理你的资料与账号。</p>
+  <div :class="[ui.constrain]">
+    <section :class="[ui.card, ui.cardPad]">
+      <h1 :class="[ui.pageTitle]">登录</h1>
+      <p :class="[ui.pageDesc]">使用用户名或邮箱登录，继续管理你的资料与账号。</p>
 
       <AlertNote v-if="registeredNotice" kind="success">注册成功，请使用新账号登录。</AlertNote>
 
-      <form class="form" novalidate @submit.prevent="onSubmit">
+      <form :class="[ui.form]" novalidate @submit.prevent="onSubmit">
         <FormField label="用户名或邮箱" input-id="login-identifier" :error="errors.identifier">
           <input
             id="login-identifier"
             v-model="form.identifier"
-            class="input"
+            :class="[ui.input]"
             type="text"
             name="identifier"
             autocomplete="username"
@@ -87,7 +88,7 @@ async function onSubmit(): Promise<void> {
           <input
             id="login-password"
             v-model="form.password"
-            class="input"
+            :class="[ui.input]"
             type="password"
             name="password"
             autocomplete="current-password"
@@ -98,21 +99,15 @@ async function onSubmit(): Promise<void> {
 
         <AlertNote v-if="formError" kind="error">{{ formError }}</AlertNote>
 
-        <button class="btn btn--primary btn--block" type="submit" :disabled="submitting">
-          <span v-if="submitting" class="spinner" aria-hidden="true"></span>
+        <button :class="[ui.button, ui.buttonPrimary, ui.buttonBlock]" type="submit" :disabled="submitting">
+          <span v-if="submitting" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
           {{ submitting ? '登录中…' : '登录' }}
         </button>
       </form>
 
-      <p v-if="siteState.registrationEnabled" class="muted switch-link">
+      <p v-if="siteState.registrationEnabled" :class="[ui.muted, 'mt-4 mb-0']">
         还没有账号？<RouterLink to="/register">注册新账号</RouterLink>
       </p>
     </section>
   </div>
 </template>
-
-<style scoped>
-.switch-link {
-  margin: 16px 0 0;
-}
-</style>

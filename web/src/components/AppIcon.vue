@@ -10,7 +10,7 @@ const shape = computed(() => icons[props.name])
 
 <template>
   <svg
-    class="icon"
+    class="block flex-none"
     :width="props.size"
     :height="props.size"
     viewBox="0 0 24 24"
@@ -41,10 +41,3 @@ const shape = computed(() => icons[props.name])
     />
   </svg>
 </template>
-
-<style scoped>
-.icon {
-  display: block;
-  flex: none;
-}
-</style>
