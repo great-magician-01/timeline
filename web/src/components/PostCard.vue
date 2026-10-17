@@ -5,9 +5,10 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import AttachmentGallery from './AttachmentGallery.vue'
+import PostActionMenu from './PostActionMenu.vue'
 import UserAvatar from './UserAvatar.vue'
 import type { PostBrief } from '../api/types'
-import { apiRequest, errorMessage } from '../api/client'
+import { errorMessage } from '../api/client'
 import { likePost, repostPost, unlikePost, unrepostPost } from '../api/social'
 import { authState } from '../stores/auth'
 import { relativeTime, timeTitle } from '../utils/format'
@@ -106,17 +107,13 @@ async function toggleRepost(): Promise<void> {
   }
 }
 
-async function removePost(): Promise<void> {
-  if (!window.confirm('删除后内容不再通过普通页面展示，历史版本与附件记录仍会保留。确认删除？')) return
-  busy.value = true
-  try {
-    await apiRequest(`/posts/${target.value.id}/delete`, { method: 'POST' })
-    emit('removed', props.post.id)
-  } catch (err) {
-    notice.value = errorMessage(err)
-  } finally {
-    busy.value = false
-  }
+/** 更多菜单删除成功：转发卡片删除的是原帖，父列表按卡片自身 id 移除 */
+function handleRemoved(): void {
+  emit('removed', props.post.id)
+}
+
+function handleMenuError(message: string): void {
+  notice.value = message
 }
 
 function openDetail(): void {
@@ -138,8 +135,6 @@ watch(
   () => [props.post.content_html, props.detail],
   () => void nextTick(updateClamped),
 )
-
-const menuOpen = ref(false)
 
 // 富文本正文的容器级样式（含原有后代选择器的等价 utility）
 const richContentClass =
@@ -176,36 +171,15 @@ const richContentClass =
         <span v-if="target.visibility === 'private'" :class="[ui.badge, ui.badgeMuted]">仅自己</span>
       </span>
 
-      <div v-if="isOwner && actions" class="relative">
-        <button type="button" aria-label="更多操作" @click="menuOpen = !menuOpen">
-          <AppIcon name="more" :size="18" />
-        </button>
-        <div
-          v-if="menuOpen"
-          class="absolute right-0 top-8 z-20 grid min-w-[150px] rounded-[10px] border border-solid border-border bg-surface p-[6px] shadow-[var(--shadow-pop)]"
-          @click="menuOpen = false"
-        >
-          <RouterLink
-            :to="{ name: 'post-edit', params: { postId: target.id } }"
-            class="flex items-center gap-2 rounded-[8px] px-[10px] py-[7px] text-left text-[13.5px] text-ink hover:bg-hover hover:no-underline"
-          >
-            <AppIcon name="pencil" :size="15" /> 编辑
-          </RouterLink>
-          <RouterLink
-            :to="{ name: 'post-history', params: { postId: target.id } }"
-            class="flex items-center gap-2 rounded-[8px] px-[10px] py-[7px] text-left text-[13.5px] text-ink hover:bg-hover hover:no-underline"
-          >
-            <AppIcon name="clock" :size="15" /> 历史版本
-          </RouterLink>
-          <button
-            type="button"
-            class="flex items-center gap-2 rounded-[8px] px-[10px] py-[7px] text-left text-[13.5px] text-red hover:bg-hover"
-            @click="removePost"
-          >
-            <AppIcon name="trash" :size="15" /> 删除
-          </button>
-        </div>
-      </div>
+      <PostActionMenu
+        v-if="isOwner && actions"
+        :post-id="target.id"
+        :can-edit="isOwner"
+        :can-view-history="isOwner"
+        :can-delete="isOwner"
+        @removed="handleRemoved"
+        @error="handleMenuError"
+      />
     </header>
 
     <div class="grid gap-2" @click.self="openDetail">

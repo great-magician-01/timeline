@@ -4,7 +4,7 @@ import { ui } from '../../styles/ui'
 </script>
 
 <template>
-  <div :class="[ui.constrain]">
+  <div :class="[ui.narrow]">
     <div :class="[ui.stack]">
       <header :class="[ui.pageHead]">
         <h1 :class="[ui.pageTitle]">设置</h1>

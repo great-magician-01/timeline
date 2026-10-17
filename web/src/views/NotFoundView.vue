@@ -12,7 +12,7 @@ function goBack(): void {
 </script>
 
 <template>
-  <div :class="[ui.constrain]">
+  <div :class="[ui.narrow]">
     <section :class="[ui.card, ui.cardPad]">
       <div :class="[ui.empty]">
         <AppIcon name="alert" :size="26" :class="[ui.emptyIcon]" />

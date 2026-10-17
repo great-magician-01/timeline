@@ -63,7 +63,7 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <div :class="[ui.constrain]">
+  <div :class="[ui.narrow]">
     <section :class="[ui.card, ui.cardPad]">
       <h1 :class="[ui.pageTitle]">登录</h1>
       <p :class="[ui.pageDesc]">使用用户名或邮箱登录，继续管理你的资料与账号。</p>

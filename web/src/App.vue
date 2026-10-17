@@ -99,7 +99,8 @@ function isActive(to: string): boolean {
 
 <template>
   <div>
-    <div class="mx-auto grid max-w-[940px] grid-cols-[236px_minmax(0,1fr)] items-start gap-5 px-4 shell-down:block shell-down:max-w-none shell-down:p-0">
+    <!-- 壳宽度：宽屏约 3/5 视口（上限 1760px），中等屏保持 940px；移动端由 shell-down 改为单列全宽 -->
+    <div class="mx-auto grid w-full max-w-[clamp(940px,60vw,1760px)] grid-cols-[236px_minmax(0,1fr)] items-start gap-5 px-4 shell-down:block shell-down:max-w-none shell-down:p-0">
       <aside class="sticky top-0 flex h-screen flex-col pb-3 pt-[14px] shell-down:hidden">
         <div class="flex items-center gap-2 px-[10px] py-[6px]">
           <RouterLink to="/" class="flex min-w-0 items-center gap-[10px] text-ink hover:no-underline" aria-label="时间线首页">

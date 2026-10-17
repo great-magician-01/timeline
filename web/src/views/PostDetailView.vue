@@ -4,7 +4,7 @@
 // 所有权限提示只做展示，实际授权由后端逐个接口执行。
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ApiError, apiRequest, errorMessage } from '../api/client'
+import { ApiError, errorMessage } from '../api/client'
 import { getPost } from '../api/posts'
 import {
   createComment,
@@ -23,6 +23,7 @@ import AppIcon from '../components/AppIcon.vue'
 import AttachmentGallery from '../components/AttachmentGallery.vue'
 import CommentItem from '../components/CommentItem.vue'
 import EmptyState from '../components/EmptyState.vue'
+import PostActionMenu from '../components/PostActionMenu.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useCursorList } from '../composables/useCursorList'
 import { authState } from '../stores/auth'
@@ -224,19 +225,9 @@ function quotePost(): void {
   void router.push({ name: 'compose', query: { quote: current.id } })
 }
 
-async function removePost(): Promise<void> {
-  const current = post.value
-  if (!current) return
-  if (!window.confirm('删除后内容不再通过普通页面展示，历史版本与附件记录仍会保留。确认删除？')) return
-  busy.value = true
-  actionNotice.value = ''
-  try {
-    await apiRequest(`/posts/${current.id}/delete`, { method: 'POST' })
-    await router.push('/')
-  } catch (err) {
-    actionNotice.value = errorMessage(err)
-    busy.value = false
-  }
+/** 更多菜单删除成功：详情页不再存在，返回首页 */
+async function onPostRemoved(): Promise<void> {
+  await router.push('/')
 }
 
 // ---------- 评论 ----------
@@ -340,22 +331,33 @@ watch(postId, () => void loadPost(), { immediate: true })
               </span>
             </RouterLink>
 
-            <button
-              v-if="showFollowButton"
-              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'ml-auto']"
-              type="button"
-              :disabled="followBusy"
-              @click="toggleFollow"
-            >
-              {{ followLabel }}
-            </button>
-            <RouterLink
-              v-else-if="my && !isAuthor && authorFollow === 'incoming_pending'"
-              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'ml-auto']"
-              to="/follow-requests"
-            >
-              对方申请关注你
-            </RouterLink>
+            <div class="ml-auto flex items-center gap-2">
+              <button
+                v-if="showFollowButton"
+                :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
+                type="button"
+                :disabled="followBusy"
+                @click="toggleFollow"
+              >
+                {{ followLabel }}
+              </button>
+              <RouterLink
+                v-else-if="my && !isAuthor && authorFollow === 'incoming_pending'"
+                :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
+                to="/follow-requests"
+              >
+                对方申请关注你
+              </RouterLink>
+              <PostActionMenu
+                v-if="canManage"
+                :post-id="post.id"
+                :can-edit="post.can_edit"
+                :can-view-history="post.can_view_history"
+                :can-delete="post.can_delete"
+                @removed="onPostRemoved"
+                @error="actionNotice = $event"
+              />
+            </div>
           </header>
 
           <p class="m-0 flex flex-wrap items-center gap-1.5 text-[12.5px] text-ink-3">
@@ -372,32 +374,6 @@ watch(postId, () => void loadPost(), { immediate: true })
           <AlertNote v-if="authorSuspended" kind="warning">
             该内容作者已停用，正文与评论只读展示，点赞、评论、转发与引用入口已关闭。
           </AlertNote>
-
-          <div v-if="canManage" class="flex flex-wrap gap-2 border-y border-solid border-border py-2.5">
-            <RouterLink
-              v-if="post.can_edit"
-              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
-              :to="{ name: 'post-edit', params: { postId: post.id } }"
-            >
-              <AppIcon name="pencil" :size="16" /> 编辑
-            </RouterLink>
-            <RouterLink
-              v-if="post.can_view_history"
-              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
-              :to="{ name: 'post-history', params: { postId: post.id } }"
-            >
-              <AppIcon name="clock" :size="16" /> 历史版本
-            </RouterLink>
-            <button
-              v-if="post.can_delete"
-              :class="[ui.button, ui.buttonDanger, ui.buttonSmall]"
-              type="button"
-              :disabled="busy"
-              @click="removePost"
-            >
-              <AppIcon name="trash" :size="16" /> 删除
-            </button>
-          </div>
 
           <div
             class="text-[15.5px] leading-[1.85] [word-break:break-word] [&_a.tl-tag]:font-semibold [&_a.tl-tag]:text-primary [&_a.tl-mention]:font-semibold [&_a.tl-mention]:text-primary [&_img]:max-w-full [&_img]:rounded-lg [&_pre]:m-0 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-soft [&_pre]:p-3 [&_pre]:text-[13px] [&_blockquote]:m-0 [&_blockquote]:border-l-[3px] [&_blockquote]:border-solid [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-ink-2"

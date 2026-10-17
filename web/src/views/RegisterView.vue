@@ -71,7 +71,7 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <div :class="[ui.constrain]">
+  <div :class="[ui.narrow]">
     <section :class="[ui.card, ui.cardPad]">
       <h1 :class="[ui.pageTitle]">注册</h1>
 

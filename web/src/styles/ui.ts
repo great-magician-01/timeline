@@ -2,7 +2,10 @@
 // 仅使用完整静态类名，保证 Tailwind 内容扫描不会遗漏；颜色仍来自 tokens.css。
 export const ui = {
   stack: 'flex flex-col gap-[14px]',
-  constrain: 'mx-auto w-full max-w-[620px]',
+  // 信息流与列表主列：随壳宽自适应（宽屏约 3/5 视口），不再固定 620px 上限
+  constrain: 'mx-auto w-full',
+  // 窄栏：登录、注册、404 与设置等表单页面保持常规阅读宽度
+  narrow: 'mx-auto w-full max-w-[620px]',
   card: 'rounded-[14px] border border-solid border-border bg-surface',
   cardPad: 'px-[22px] py-5',
   pageHead: 'm-0',

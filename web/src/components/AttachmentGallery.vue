@@ -71,13 +71,18 @@ function videoPoster(item: Attachment): string | undefined {
 
 const previewing = ref<Attachment | null>(null)
 
-/** 图片 1–4 张时的完整静态网格映射 */
+/** 图片 1–4 张时的完整静态网格映射；单图按列宽比例展示，移动端恢复全宽 */
 const gridClasses: Record<number, string> = {
-  1: 'grid grid-cols-1 gap-[6px] max-w-[420px]',
+  1: 'grid grid-cols-1 gap-[6px] max-w-[72%] shell-down:max-w-full',
   2: 'grid grid-cols-2 gap-[6px]',
   3: 'grid grid-cols-2 gap-[6px]',
   4: 'grid grid-cols-2 gap-[6px]',
 }
+
+// 媒体高度随视口缩放：窄屏保持原尺寸，宽屏信息流列变宽时同步放大，避免缩略图显得过小
+const compactImageClass = 'max-h-[clamp(180px,13vw,372px)]'
+const detailImageClass = 'max-h-[clamp(320px,22vw,560px)]'
+const videoClass = 'max-h-[clamp(420px,28vw,780px)]'
 </script>
 
 <template>
@@ -96,7 +101,7 @@ const gridClasses: Record<number, string> = {
           :src="imageSrc(item)"
           :alt="item.original_filename"
           class="block w-full object-cover"
-          :class="compact ? 'max-h-[180px]' : 'max-h-[320px]'"
+          :class="compact ? compactImageClass : detailImageClass"
           loading="lazy"
           @error="onImageError(item)"
         />
@@ -118,7 +123,8 @@ const gridClasses: Record<number, string> = {
         v-if="!videoFailed[item.id]"
         controls
         preload="metadata"
-        class="block max-h-[420px] w-full rounded-[10px] border border-solid border-border bg-media-bg"
+        class="block w-full rounded-[10px] border border-solid border-border bg-media-bg"
+        :class="videoClass"
         :poster="videoPoster(item)"
         :src="item.content_url"
         @error="videoFailed[item.id] = true"

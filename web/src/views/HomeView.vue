@@ -12,6 +12,7 @@ import AlertNote from '../components/AlertNote.vue'
 import AppIcon from '../components/AppIcon.vue'
 import EmptyState from '../components/EmptyState.vue'
 import MediaUploader from '../components/MediaUploader.vue'
+import MoreMenu from '../components/MoreMenu.vue'
 import PostCard from '../components/PostCard.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useCursorList } from '../composables/useCursorList'
@@ -160,47 +161,72 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
           :disabled="posting"
         ></textarea>
 
-        <div class="flex flex-wrap items-center gap-2.5">
-          <label class="inline-flex items-center gap-1.5 text-[13px]">
-            <span :class="[ui.muted]">可见性</span>
-            <select v-model="visibility" :class="[ui.input, 'w-auto! min-w-[130px]']" :disabled="posting" aria-label="快速发布可见性">
-              <option value="public">公开</option>
-              <option value="followers">仅关注者</option>
-              <option value="private">仅自己</option>
-            </select>
-          </label>
-        </div>
-
+        <!-- 可见性、添加附件、存草稿、发布同排；完整编辑器入口收进“更多”菜单 -->
         <MediaUploader
           :attachments="attachments"
           :disabled="posting"
           @added="onQuickAttachmentAdded"
           @removed="onQuickAttachmentRemoved"
-        />
-
-        <div class="flex flex-wrap items-center justify-between gap-2.5">
-          <RouterLink :class="[ui.muted, 'hover:text-ink hover:no-underline']" to="/compose">去完整编辑器</RouterLink>
-          <div class="ml-auto flex items-center gap-2">
-            <button
-              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
-              type="button"
-              :disabled="posting"
-              @click="submitQuickPost('draft')"
-            >
-              <AppIcon name="file-text" :size="15" />
-              {{ postingMode === 'draft' ? '保存中…' : '存草稿' }}
-            </button>
-            <button
-              :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]"
-              type="button"
-              :disabled="posting"
-              @click="submitQuickPost('publish')"
-            >
-              <span v-if="postingMode === 'publish'" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
-              {{ postingMode === 'publish' ? '发布中…' : '发布' }}
-            </button>
-          </div>
-        </div>
+        >
+          <template #toolbar="{ pick, dragging }">
+            <div class="flex flex-wrap items-center gap-2.5">
+              <label class="inline-flex items-center gap-1.5 text-[13px]">
+                <span :class="[ui.muted]">可见性</span>
+                <select
+                  v-model="visibility"
+                  :class="[ui.input, 'w-auto! min-w-[130px]']"
+                  :disabled="posting"
+                  aria-label="快速发布可见性"
+                >
+                  <option value="public">公开</option>
+                  <option value="followers">仅关注者</option>
+                  <option value="private">仅自己</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                :class="[
+                  ui.button,
+                  ui.buttonSmall,
+                  dragging ? 'border-primary! bg-primary-soft! text-primary!' : ui.buttonSecondary,
+                ]"
+                :disabled="posting"
+                @click="pick"
+              >
+                <AppIcon name="upload" :size="15" />
+                添加附件
+              </button>
+              <div class="ml-auto flex items-center gap-2">
+                <button
+                  :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
+                  type="button"
+                  :disabled="posting"
+                  @click="submitQuickPost('draft')"
+                >
+                  <AppIcon name="file-text" :size="15" />
+                  {{ postingMode === 'draft' ? '保存中…' : '存草稿' }}
+                </button>
+                <button
+                  :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]"
+                  type="button"
+                  :disabled="posting"
+                  @click="submitQuickPost('publish')"
+                >
+                  <span v-if="postingMode === 'publish'" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
+                  {{ postingMode === 'publish' ? '发布中…' : '发布' }}
+                </button>
+                <MoreMenu>
+                  <template #default="{ itemClass }">
+                    <RouterLink :class="itemClass" to="/compose">
+                      <AppIcon name="pencil" :size="15" />
+                      去完整编辑器
+                    </RouterLink>
+                  </template>
+                </MoreMenu>
+              </div>
+            </div>
+          </template>
+        </MediaUploader>
         <AlertNote v-if="draftNotice" kind="success">
           {{ draftNotice }}
           <RouterLink to="/drafts">前往草稿列表继续编辑</RouterLink>

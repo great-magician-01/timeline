@@ -6,6 +6,7 @@ import AppIcon from './AppIcon.vue'
 import { deleteAttachment, uploadAttachment } from '../api/media'
 import { errorMessage } from '../api/client'
 import type { Attachment } from '../api/types'
+import { ui } from '../styles/ui'
 import { formatBytes } from '../utils/format'
 
 const props = defineProps<{
@@ -17,6 +18,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'added', attachment: Attachment): void
   (event: 'removed', id: string): void
+}>()
+
+defineSlots<{
+  /** 自定义工具行：默认渲染“添加附件”按钮与说明文案；快速发布用它把工具栏并入外层一行 */
+  toolbar?: (props: { pick: () => void; dragging: boolean; disabled: boolean }) => unknown
 }>()
 
 interface UploadTask {
@@ -31,6 +37,7 @@ const dragging = ref(false)
 const input = ref<HTMLInputElement | null>(null)
 const previewFailed = ref<Record<string, boolean>>({})
 let counter = 0
+let dragDepth = 0
 
 function statusLabel(attachment: Attachment): string {
   if (attachment.status === 'processing') return '处理中'
@@ -60,8 +67,32 @@ async function upload(files: FileList | File[]): Promise<void> {
   }
 }
 
-function onDrop(event: DragEvent): void {
+function onDragEnter(event: DragEvent): void {
+  if (props.disabled) return
+  // 只对文件拖拽做高亮，避免拖动页面内文本时误触发
+  if (!event.dataTransfer?.types || !Array.from(event.dataTransfer.types).includes('Files')) return
+  dragDepth += 1
+  dragging.value = true
+}
+
+function onDragOver(event: DragEvent): void {
+  if (!event.dataTransfer) return
+  event.dataTransfer.dropEffect = props.disabled ? 'none' : 'copy'
+}
+
+function onDragLeave(): void {
+  if (dragDepth === 0) return
+  dragDepth -= 1
+  if (dragDepth === 0) dragging.value = false
+}
+
+function resetDrag(): void {
+  dragDepth = 0
   dragging.value = false
+}
+
+function onDrop(event: DragEvent): void {
+  resetDrag()
   if (props.disabled) return
   const files = event.dataTransfer?.files
   if (files && files.length > 0) void upload(files)
@@ -99,23 +130,37 @@ function previewURL(attachment: Attachment): string {
 </script>
 
 <template>
-  <div class="grid gap-2">
-    <div
-      :class="[
-        'flex cursor-pointer flex-col items-center gap-1 rounded-[10px] border border-dashed border-border bg-surface-subtle p-[18px] text-center text-[13.5px] text-ink-2',
-        disabled ? 'cursor-not-allowed! opacity-70' : 'hover:border-primary hover:text-ink',
-        dragging ? 'border-primary! bg-primary-soft!' : '',
-      ]"
-      @dragover.prevent="dragging = true"
-      @dragleave.prevent="dragging = false"
-      @drop.prevent="onDrop"
-      @click="pick"
-    >
-      <input ref="input" type="file" multiple hidden @change="onSelect" />
-      <AppIcon name="upload" :size="20" />
-      <span>点击选择文件，或拖放到此处</span>
-      <small class="text-[12px] text-ink-3">支持图片、视频与其他文件；单文件上限由服务端配置</small>
-    </div>
+  <div
+    class="grid gap-2"
+    @dragenter.prevent="onDragEnter"
+    @dragover.prevent="onDragOver"
+    @dragleave="onDragLeave"
+    @drop.prevent="onDrop"
+  >
+    <input ref="input" type="file" multiple hidden @change="onSelect" />
+    <slot name="toolbar" :pick="pick" :dragging="dragging" :disabled="disabled ?? false">
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          :class="[
+            ui.button,
+            ui.buttonSmall,
+            dragging ? 'border-primary! bg-primary-soft! text-primary!' : ui.buttonSecondary,
+          ]"
+          :disabled="disabled"
+          @click="pick"
+        >
+          <AppIcon name="upload" :size="15" />
+          添加附件
+        </button>
+        <span
+          :class="['text-[12.5px]', dragging ? 'font-semibold text-primary' : 'text-ink-3']"
+          aria-live="polite"
+        >
+          {{ dragging ? '松开鼠标即可上传' : '支持图片、视频与其他文件，可拖拽上传' }}
+        </span>
+      </div>
+    </slot>
 
     <ul v-if="attachments.length > 0" class="m-0 grid list-none gap-[6px] p-0">
       <li
