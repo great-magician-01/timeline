@@ -6,6 +6,7 @@ import AppIcon from './AppIcon.vue'
 import { API_BASE } from '../api/client'
 import type { Attachment } from '../api/types'
 import { formatBytes, formatDuration } from '../utils/format'
+import { ui } from '../styles/ui'
 
 const props = withDefaults(defineProps<{ attachments: Attachment[]; compact?: boolean }>(), {
   compact: false,
@@ -69,16 +70,24 @@ function videoPoster(item: Attachment): string | undefined {
 }
 
 const previewing = ref<Attachment | null>(null)
+
+/** 图片 1–4 张时的完整静态网格映射 */
+const gridClasses: Record<number, string> = {
+  1: 'grid grid-cols-1 gap-[6px] max-w-[420px]',
+  2: 'grid grid-cols-2 gap-[6px]',
+  3: 'grid grid-cols-2 gap-[6px]',
+  4: 'grid grid-cols-2 gap-[6px]',
+}
 </script>
 
 <template>
-  <div v-if="attachments.length > 0" class="attachments" :class="{ 'is-compact': compact }">
-    <div v-if="images.length > 0" class="grid" :class="`grid--${Math.min(images.length, 4)}`">
+  <div v-if="attachments.length > 0" class="mt-[10px] grid gap-[10px]">
+    <div v-if="images.length > 0" :class="gridClasses[Math.min(images.length, 4)]">
       <button
         v-for="item in images"
         :key="item.id"
         type="button"
-        class="thumb"
+        class="relative cursor-zoom-in overflow-hidden rounded-[10px] border border-solid border-border bg-soft p-0"
         :aria-label="`查看图片 ${item.original_filename}`"
         @click="previewing = item"
       >
@@ -86,180 +95,93 @@ const previewing = ref<Attachment | null>(null)
           v-if="!imageFailed[item.id]"
           :src="imageSrc(item)"
           :alt="item.original_filename"
+          class="block w-full object-cover"
+          :class="compact ? 'max-h-[180px]' : 'max-h-[320px]'"
           loading="lazy"
           @error="onImageError(item)"
         />
-        <span v-else class="placeholder">图片加载失败</span>
-        <span v-if="imageProcessing(item)" class="status-tag">处理中</span>
+        <span
+          v-else
+          class="flex min-h-[120px] items-center justify-center rounded-[10px] border border-dashed border-border bg-surface-subtle p-4 text-center text-[13px] text-ink-3"
+          >图片加载失败</span
+        >
+        <span
+          v-if="imageProcessing(item)"
+          class="absolute bottom-2 left-2 rounded-[999px] bg-glass px-2 py-[2px] text-[11.5px] font-semibold text-ink-2 backdrop-blur-[4px]"
+          >处理中</span
+        >
       </button>
     </div>
 
-    <div v-for="item in videos" :key="item.id" class="video">
+    <div v-for="item in videos" :key="item.id">
       <video
         v-if="!videoFailed[item.id]"
         controls
         preload="metadata"
+        class="block max-h-[420px] w-full rounded-[10px] border border-solid border-border bg-media-bg"
         :poster="videoPoster(item)"
         :src="item.content_url"
         @error="videoFailed[item.id] = true"
       ></video>
-      <div v-else class="media-placeholder">视频加载失败，请稍后重试</div>
-      <p class="meta">
+      <div
+        v-else
+        class="flex min-h-[120px] items-center justify-center rounded-[10px] border border-dashed border-border bg-surface-subtle p-4 text-center text-[13px] text-ink-3"
+      >
+        视频加载失败，请稍后重试
+      </div>
+      <p class="mb-0 mt-[6px] flex items-center gap-[6px] text-[12.5px] text-ink-3">
         <AppIcon name="clock" :size="14" />
         <span>{{ item.original_filename }}</span>
         <span v-if="formatDuration(item.duration_ms)">· {{ formatDuration(item.duration_ms) }}</span>
-        <span v-if="videoCoverState(item) === 'processing'" class="muted">· 封面处理中</span>
-        <span v-else-if="videoCoverState(item) === 'failed'" class="muted">· 封面生成失败，可播放原视频</span>
-        <span v-if="attachmentStatusLabel(item)" class="muted">· {{ attachmentStatusLabel(item) }}</span>
+        <span v-if="videoCoverState(item) === 'processing'" :class="ui.muted">· 封面处理中</span>
+        <span v-else-if="videoCoverState(item) === 'failed'" :class="ui.muted">· 封面生成失败，可播放原视频</span>
+        <span v-if="attachmentStatusLabel(item)" :class="ui.muted">· {{ attachmentStatusLabel(item) }}</span>
       </p>
     </div>
 
-    <ul v-if="files.length > 0" class="files">
-      <li v-for="item in files" :key="item.id">
+    <ul v-if="files.length > 0" class="m-0 grid list-none gap-[6px] p-0">
+      <li
+        v-for="item in files"
+        :key="item.id"
+        class="mt-[6px] flex items-center gap-[6px] text-[12.5px] text-ink-3"
+      >
         <AppIcon name="file-text" :size="16" />
-        <a :href="item.content_url" :download="item.original_filename" rel="noopener">
+        <a
+          :href="item.content_url"
+          :download="item.original_filename"
+          class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-primary"
+          rel="noopener"
+        >
           {{ item.original_filename }}
         </a>
-        <span class="muted">{{ formatBytes(item.size_bytes) }}</span>
-        <span v-if="attachmentStatusLabel(item)" class="muted">· {{ attachmentStatusLabel(item) }}</span>
+        <span :class="ui.muted">{{ formatBytes(item.size_bytes) }}</span>
+        <span v-if="attachmentStatusLabel(item)" :class="ui.muted">· {{ attachmentStatusLabel(item) }}</span>
       </li>
     </ul>
   </div>
 
-  <div v-if="previewing" class="lightbox" role="dialog" aria-modal="true" @click.self="previewing = null">
-    <button type="button" class="close" aria-label="关闭" @click="previewing = null">
+  <div
+    v-if="previewing"
+    class="fixed inset-0 z-[60] flex items-center justify-center bg-overlay p-6"
+    role="dialog"
+    aria-modal="true"
+    @click.self="previewing = null"
+  >
+    <button
+      type="button"
+      class="absolute right-[18px] top-[18px] flex size-9 items-center justify-center rounded-[50%] bg-on-media-soft text-on-media"
+      aria-label="关闭"
+      @click="previewing = null"
+    >
       <AppIcon name="x" :size="20" />
     </button>
     <img
       v-if="!imageFailed[previewing.id]"
       :src="previewing.content_url"
       :alt="previewing.original_filename"
+      class="max-h-full max-w-full rounded-[8px]"
       @error="imageFailed[previewing.id] = true"
     />
-    <p v-else class="alert alert--error">图片加载失败</p>
+    <p v-else :class="[ui.alert, ui.alertVariants.error.root]">图片加载失败</p>
   </div>
 </template>
-
-<style scoped>
-.attachments {
-  display: grid;
-  gap: 10px;
-  margin-top: 10px;
-}
-.grid {
-  display: grid;
-  gap: 6px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.grid--1 {
-  grid-template-columns: minmax(0, 1fr);
-  max-width: 420px;
-}
-.grid--3,
-.grid--4 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.thumb {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--soft);
-  padding: 0;
-  cursor: zoom-in;
-}
-.thumb img {
-  display: block;
-  width: 100%;
-  max-height: 320px;
-  object-fit: cover;
-}
-.thumb .placeholder,
-.media-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 120px;
-  padding: 16px;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-  color: var(--ink-3);
-  font-size: 13px;
-  text-align: center;
-}
-.status-tag {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--glass);
-  color: var(--ink-2);
-  font-size: 11.5px;
-  font-weight: 600;
-  backdrop-filter: blur(4px);
-}
-.is-compact .thumb img {
-  max-height: 180px;
-}
-.video video {
-  display: block;
-  width: 100%;
-  max-height: 420px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--media-bg);
-}
-.video .meta,
-.files li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 6px 0 0;
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.files {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.files a {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--primary);
-}
-.lightbox {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: var(--overlay);
-}
-.lightbox img {
-  max-width: 100%;
-  max-height: 100%;
-  border-radius: 8px;
-}
-.lightbox .close {
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--on-media-soft);
-  color: var(--on-media);
-}
-</style>

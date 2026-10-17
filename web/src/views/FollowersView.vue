@@ -12,6 +12,7 @@ import EmptyState from '../components/EmptyState.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useCursorList } from '../composables/useCursorList'
 import { authState } from '../stores/auth'
+import { ui } from '../styles/ui'
 
 const route = useRoute()
 const username = computed(() => String(route.params.username ?? ''))
@@ -49,22 +50,22 @@ async function remove(user: PublicUser): Promise<void> {
 </script>
 
 <template>
-  <div class="constrain">
-    <div class="stack">
-      <section class="card card--pad">
-        <h1 class="page-head page-title">@{{ username }} 的粉丝</h1>
-        <p class="page-desc">这里只显示已生效的关注关系，待批准的申请不算粉丝。</p>
+  <div :class="[ui.constrain]">
+    <div :class="[ui.stack]">
+      <section :class="[ui.card, ui.cardPad]">
+        <h1 :class="[ui.pageHead, ui.pageTitle]">@{{ username }} 的粉丝</h1>
+        <p :class="[ui.pageDesc]">这里只显示已生效的关注关系，待批准的申请不算粉丝。</p>
       </section>
 
       <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-      <p v-if="loading" class="card card--pad loading-row">
-        <span class="spinner" aria-hidden="true"></span> 加载中…
+      <p v-if="loading" :class="[ui.card, ui.loadingRow]">
+        <span :class="[ui.spinner]" aria-hidden="true"></span> 加载中…
       </p>
 
       <template v-else-if="error && items.length === 0">
         <AlertNote kind="error">{{ error }}</AlertNote>
-        <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+        <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
       </template>
 
       <EmptyState
@@ -75,44 +76,48 @@ async function remove(user: PublicUser): Promise<void> {
       />
 
       <template v-else>
-        <section class="card user-list">
-          <div v-for="item in items" :key="item.id" class="user-row">
-            <RouterLink :to="`/users/${item.username}`" class="user-link">
+        <section :class="[ui.card, 'overflow-hidden']">
+          <div
+            v-for="item in items"
+            :key="item.id"
+            class="flex items-center gap-3 border-b border-solid border-border px-4 py-3 last:border-b-0"
+          >
+            <RouterLink :to="`/users/${item.username}`" class="flex min-w-0 flex-1 items-center gap-3 text-ink hover:no-underline">
               <UserAvatar :user="item" size="md" />
-              <span class="user-main">
-                <span class="user-name">
+              <span class="flex min-w-0 flex-col gap-0.5">
+                <span class="flex flex-wrap items-center gap-1.5 text-[14.5px]">
                   <strong>{{ item.nickname || item.username }}</strong>
-                  <span v-if="item.is_ai" class="badge badge--ai">AI</span>
-                  <span v-if="item.is_suspended" class="badge badge--muted">已停用</span>
+                  <span v-if="item.is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
+                  <span v-if="item.is_suspended" :class="[ui.badge, ui.badgeMuted]">已停用</span>
                 </span>
-                <span class="handle">@{{ item.username }}</span>
-                <span v-if="item.bio" class="user-bio">{{ item.bio }}</span>
+                <span class="text-[12.5px] text-ink-3">@{{ item.username }}</span>
+                <span v-if="item.bio" class="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-ink-2">{{ item.bio }}</span>
               </span>
             </RouterLink>
 
             <button
               v-if="isOwner"
-              class="btn btn--secondary btn--sm"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
               type="button"
               :disabled="Boolean(busyId)"
               @click="remove(item)"
             >
               移除
             </button>
-            <AppIcon v-else name="chevron-right" :size="17" class="arrow" />
+            <AppIcon v-else name="chevron-right" :size="17" class="text-ink-3" />
           </div>
 
-          <div class="list-foot">
+          <div class="flex justify-center py-3">
             <button
               v-if="hasMore && !loadingMore"
-              class="btn btn--secondary btn--sm"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
               type="button"
               @click="loadMore"
             >
               加载更多
             </button>
-            <p v-else-if="loadingMore" class="loading-row foot-loading">
-              <span class="spinner" aria-hidden="true"></span> 正在加载…
+            <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+              <span :class="[ui.spinner]" aria-hidden="true"></span> 正在加载…
             </p>
           </div>
         </section>
@@ -122,68 +127,3 @@ async function remove(user: PublicUser): Promise<void> {
     </div>
   </div>
 </template>
-
-<style scoped>
-.user-list {
-  overflow: hidden;
-}
-.user-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.user-row:last-of-type {
-  border-bottom: none;
-}
-.user-link {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  flex: 1;
-  color: var(--ink);
-}
-.user-link:hover {
-  text-decoration: none;
-}
-.user-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.user-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-size: 14.5px;
-}
-.handle {
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.user-bio {
-  overflow: hidden;
-  font-size: 13px;
-  color: var(--ink-2);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.arrow {
-  color: var(--ink-3);
-}
-.self-start {
-  align-self: flex-start;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 12px 0;
-}
-.foot-loading {
-  padding: 0;
-}
-</style>

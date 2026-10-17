@@ -318,7 +318,7 @@ timeline/
 │   ├── ratelimit/           # 单实例内存固定窗口限频
 │   └── config · db · migrate · logging · id · api · model · audit
 ├── 🗄️ migrations/            # 只允许追加的 SQL 迁移（NNNN_描述.sql）
-├── 🎨 web/                   # Vue 3 + Vite 前端；构建产物由 Go 嵌入
+├── 🎨 web/                   # Vue 3 + Vite + Tailwind CSS 4 前端；构建产物由 Go 嵌入
 ├── 🐳 deploy/scripts/        # prepare.sh / backup.sh / restore.sh
 ├── 🖼️ demo/                  # 早期视觉方案（E 版为选定方向）与品牌图标
 ├── 📚 docs/                  # 需求、权限、流程、数据、API、部署、验收、设计
@@ -332,7 +332,7 @@ timeline/
 
 视觉方向先放在 `demo/` 里：直接打开 [`demo/home-e-social.html`](demo/home-e-social.html) 就能看到选定的 E 版主页方案，[`demo/logo.svg`](demo/logo.svg) 是品牌图标源文件。
 
-实际实现以 [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) 为准：颜色来自 CSS 自定义属性，GitHub 式按钮，4px 间距体系，880px 响应式断点，深浅色主题通过 `<html data-theme>` 切换并记住偏好。图标一律用内联 SVG 或本地 sprite，不引入图标字体、位图图标或外链图标。
+实际实现以 [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) 为准：Vue 模板使用 Tailwind CSS 4 utility，颜色仍统一来自 `web/src/styles/tokens.css` 的 CSS 自定义属性；GitHub 式按钮、4px 间距体系、880px 响应式断点和深浅色主题行为不变。主题通过 `<html data-theme>` 切换并记住偏好。图标一律用内联 SVG 或本地 sprite，不引入图标字体、位图图标或外链图标。
 
 ## 📚 文档地图
 

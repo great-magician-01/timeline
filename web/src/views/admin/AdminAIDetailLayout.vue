@@ -8,6 +8,7 @@ import type { AIDetail } from '../../api/types'
 import AlertNote from '../../components/AlertNote.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import UserAvatar from '../../components/UserAvatar.vue'
+import { ui } from '../../styles/ui'
 
 const route = useRoute()
 
@@ -85,50 +86,49 @@ async function toggleEnabled(): Promise<void> {
 </script>
 
 <template>
-  <div class="stack">
-    <RouterLink to="/admin/ai" class="back-link">
+  <div :class="ui.stack">
+    <RouterLink to="/admin/ai" class="inline-flex items-center gap-[6px] self-start text-[13.5px] text-ink-2 hover:text-ink hover:no-underline">
       <AppIcon name="arrow-left" :size="16" />
       返回 AI 列表
     </RouterLink>
 
-    <p v-if="loading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+    <p v-if="loading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
-    <section v-else-if="notFound" class="card card--pad">
-      <div class="empty">
-        <AppIcon name="sparkles" :size="26" />
-        <strong>AI 不存在或不可见</strong>
-        <p>该 ID 可能无效，或该 AI 已被移除。</p>
+    <section v-else-if="notFound" :class="[ui.card, ui.cardPad]">
+      <div :class="ui.empty">
+        <AppIcon name="sparkles" :size="26" :class="ui.emptyIcon" />
+        <strong :class="ui.emptyStrong">AI 不存在或不可见</strong>
+        <p :class="ui.emptyText">该 ID 可能无效，或该 AI 已被移除。</p>
       </div>
     </section>
 
     <template v-else-if="loadError">
       <AlertNote kind="error">{{ loadError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="load">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="load">重试</button>
     </template>
 
     <template v-else-if="ai">
-      <section class="card card--pad">
-        <div class="ai-head">
+      <section :class="[ui.card, ui.cardPad]">
+        <div class="flex flex-wrap items-center gap-[14px]">
           <UserAvatar :user="ai.user" size="lg" />
-          <div class="ai-info">
-            <p class="ai-name">
-              <span class="name-text">{{ ai.user.nickname || ai.user.username }}</span>
-              <span class="badge badge--ai">AI</span>
-              <span class="badge" :class="isEnabled ? '' : 'badge--muted'">
+          <div class="min-w-0 flex-1">
+            <p class="m-0 flex flex-wrap items-center gap-[6px] text-[17px] font-extrabold">
+              <span class="font-extrabold">{{ ai.user.nickname || ai.user.username }}</span>
+              <span :class="[ui.badge, ui.badgeAi]">AI</span>
+              <span :class="[ui.badge, isEnabled ? '' : ui.badgeMuted]">
                 {{ isEnabled ? '已启用' : '已停用' }}
               </span>
-              <span v-if="ai.user.is_suspended" class="badge badge--danger">账号已停用</span>
+              <span v-if="ai.user.is_suspended" :class="[ui.badge, ui.badgeDanger]">账号已停用</span>
             </p>
-            <p class="muted">@{{ ai.user.username }} · ID <span class="mono">{{ ai.user.id }}</span></p>
+            <p :class="[ui.muted, 'm-0 mt-[2px]']">@{{ ai.user.username }} · ID <span :class="ui.mono">{{ ai.user.id }}</span></p>
           </div>
           <button
-            class="btn btn--sm"
-            :class="isEnabled ? 'btn--danger' : 'btn--primary'"
+            :class="[ui.button, ui.buttonSmall, isEnabled ? ui.buttonDanger : ui.buttonPrimary]"
             type="button"
             :disabled="toggling"
             @click="toggleEnabled"
           >
-            <span v-if="toggling" class="spinner" aria-hidden="true"></span>
+            <span v-if="toggling" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
             {{ toggling ? '处理中…' : isEnabled ? '停用该 AI' : '启用该 AI' }}
           </button>
         </div>
@@ -137,13 +137,13 @@ async function toggleEnabled(): Promise<void> {
         <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
       </section>
 
-      <nav class="tabs ai-tabs" aria-label="AI 配置分区">
+      <nav :class="[ui.tabs, 'flex-wrap']" aria-label="AI 配置分区">
         <RouterLink
           v-for="tab in tabs"
           :key="tab.to"
           :to="tab.to"
-          class="tab-link"
-          active-class="is-active"
+          :class="ui.tabLink"
+          :active-class="ui.tabLinkActive"
         >
           {{ tab.label }}
         </RouterLink>
@@ -153,46 +153,3 @@ async function toggleEnabled(): Promise<void> {
     </template>
   </div>
 </template>
-
-<style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: flex-start;
-  font-size: 13.5px;
-  color: var(--ink-2);
-}
-.back-link:hover {
-  color: var(--ink);
-  text-decoration: none;
-}
-.self-start {
-  align-self: flex-start;
-}
-.ai-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.ai-info {
-  min-width: 0;
-  flex: 1;
-}
-.ai-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin: 0;
-  font-size: 17px;
-  font-weight: 800;
-}
-.ai-info .muted {
-  margin: 2px 0 0;
-}
-.ai-tabs {
-  flex-wrap: wrap;
-}
-</style>

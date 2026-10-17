@@ -16,6 +16,7 @@ import PostCard from '../components/PostCard.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useCursorList } from '../composables/useCursorList'
 import { authState } from '../stores/auth'
+import { ui } from '../styles/ui'
 import { plainSummary, relativeTime, timeTitle } from '../utils/format'
 
 const route = useRoute()
@@ -170,42 +171,42 @@ async function toggleFollow(): Promise<void> {
 </script>
 
 <template>
-  <div class="constrain">
-    <div class="stack">
-      <p v-if="loading" class="card card--pad loading-row">
-        <span class="spinner" aria-hidden="true"></span> 加载中…
+  <div :class="[ui.constrain]">
+    <div :class="[ui.stack]">
+      <p v-if="loading" :class="[ui.card, ui.loadingRow]">
+        <span :class="[ui.spinner]" aria-hidden="true"></span> 加载中…
       </p>
 
-      <section v-else-if="notFound" class="card card--pad">
+      <section v-else-if="notFound" :class="[ui.card, ui.cardPad]">
         <EmptyState icon="user" title="用户不存在或不可见" description="该用户名可能未被注册，或账号不应被展示。">
-          <RouterLink class="btn btn--secondary btn--sm empty-action" to="/">返回首页</RouterLink>
+          <RouterLink :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'mt-3']" to="/">返回首页</RouterLink>
         </EmptyState>
       </section>
 
       <template v-else-if="loadError">
         <AlertNote kind="error">{{ loadError }}</AlertNote>
-        <button class="btn btn--secondary btn--sm self-start" type="button" @click="loadProfile">重试</button>
+        <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="loadProfile">重试</button>
       </template>
 
       <template v-else-if="profile">
-        <section class="card card--pad">
-          <div class="profile-head">
+        <section :class="[ui.card, ui.cardPad]">
+          <div class="flex items-center gap-3.5 shell-down:flex-wrap">
             <UserAvatar :user="profile.user" size="lg" />
-            <div class="profile-info">
-              <p class="profile-name">
-                <span class="name-text">{{ profile.user.nickname || profile.user.username }}</span>
-                <span v-if="profile.user.is_ai" class="badge badge--ai">AI</span>
-                <span v-if="profile.user.is_suspended" class="badge badge--danger">已停用</span>
-                <span v-else-if="isSelf" class="badge badge--muted">这是你</span>
+            <div class="min-w-0">
+              <p class="m-0 flex flex-wrap items-center gap-1.5 text-[17px] font-extrabold">
+                <span>{{ profile.user.nickname || profile.user.username }}</span>
+                <span v-if="profile.user.is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
+                <span v-if="profile.user.is_suspended" :class="[ui.badge, ui.badgeDanger]">已停用</span>
+                <span v-else-if="isSelf" :class="[ui.badge, ui.badgeMuted]">这是你</span>
               </p>
-              <p class="muted">@{{ profile.user.username }}</p>
+              <p :class="[ui.muted, 'm-0 mt-0.5']">@{{ profile.user.username }}</p>
             </div>
 
-            <div class="profile-actions">
+            <div class="ml-auto flex flex-wrap gap-2 shell-down:ml-0 shell-down:w-full">
               <template v-if="!isSelf && !isSuspended">
                 <button
                   v-if="profile.follow_state !== 'incoming_pending'"
-                  class="btn btn--secondary btn--sm"
+                  :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
                   type="button"
                   :disabled="followBusy"
                   @click="toggleFollow"
@@ -216,36 +217,36 @@ async function toggleFollow(): Promise<void> {
                 </button>
                 <RouterLink
                   v-else-if="my"
-                  class="btn btn--secondary btn--sm"
+                  :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
                   :to="{ name: 'follow-requests' }"
                 >
                   对方申请关注你
                 </RouterLink>
               </template>
-              <RouterLink v-if="isSelf" class="btn btn--secondary btn--sm" to="/settings/profile">
+              <RouterLink v-if="isSelf" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" to="/settings/profile">
                 <AppIcon name="pencil" :size="16" /> 编辑资料
               </RouterLink>
             </div>
           </div>
 
-          <p v-if="profile.bio" class="profile-bio">{{ profile.bio }}</p>
-          <p v-else class="muted no-bio">还没有填写简介。</p>
+          <p v-if="profile.bio" class="m-0 mt-3.5 text-[14.5px] leading-[1.8] whitespace-pre-wrap [word-break:break-word]">{{ profile.bio }}</p>
+          <p v-else :class="[ui.muted, 'm-0 mt-3.5']">还没有填写简介。</p>
 
-          <ul class="stats">
-            <li class="stat">
-              <strong>{{ profile.post_count }}</strong>
-              <span>帖子</span>
+          <ul class="m-0 mt-4 flex list-none gap-[22px] p-0 shell-down:gap-[18px]">
+            <li>
+              <strong class="block text-[17px] font-extrabold leading-[1.3]">{{ profile.post_count }}</strong>
+              <span class="text-[12.5px] text-ink-3">帖子</span>
             </li>
-            <li class="stat">
-              <RouterLink :to="`/users/${profile.user.username}/following`">
-                <strong>{{ profile.following_count }}</strong>
-                <span>关注</span>
+            <li>
+              <RouterLink :to="`/users/${profile.user.username}/following`" class="text-ink hover:text-primary hover:no-underline">
+                <strong class="block text-[17px] font-extrabold leading-[1.3]">{{ profile.following_count }}</strong>
+                <span class="text-[12.5px] text-ink-3">关注</span>
               </RouterLink>
             </li>
-            <li class="stat">
-              <RouterLink :to="`/users/${profile.user.username}/followers`">
-                <strong>{{ profile.follower_count }}</strong>
-                <span>粉丝</span>
+            <li>
+              <RouterLink :to="`/users/${profile.user.username}/followers`" class="text-ink hover:text-primary hover:no-underline">
+                <strong class="block text-[17px] font-extrabold leading-[1.3]">{{ profile.follower_count }}</strong>
+                <span class="text-[12.5px] text-ink-3">粉丝</span>
               </RouterLink>
             </li>
           </ul>
@@ -257,14 +258,13 @@ async function toggleFollow(): Promise<void> {
 
         <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-        <section class="card card--pad tabs-card">
-          <div class="tabs" role="tablist">
+        <section :class="[ui.card, 'px-[22px] pt-2.5 pb-2.5']">
+          <div :class="[ui.tabs]" role="tablist">
             <button
               v-for="option in TABS"
               :key="option.value"
               type="button"
-              class="tab-link"
-              :class="{ 'is-active': tab === option.value }"
+              :class="[ui.tabLink, tab === option.value && ui.tabLinkActive]"
               @click="setTab(option.value)"
             >
               {{ option.label }}
@@ -272,13 +272,13 @@ async function toggleFollow(): Promise<void> {
           </div>
         </section>
 
-        <p v-if="listLoading" class="card card--pad loading-row">
-          <span class="spinner" aria-hidden="true"></span> 加载中…
+        <p v-if="listLoading" :class="[ui.card, ui.loadingRow]">
+          <span :class="[ui.spinner]" aria-hidden="true"></span> 加载中…
         </p>
 
         <template v-else-if="listError && rows.length === 0">
           <AlertNote kind="error">{{ listError }}</AlertNote>
-          <button class="btn btn--secondary btn--sm self-start" type="button" @click="reloadList">重试</button>
+          <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reloadList">重试</button>
         </template>
 
         <EmptyState
@@ -293,41 +293,44 @@ async function toggleFollow(): Promise<void> {
             <PostCard v-if="row.type === 'post'" :post="row.item" @removed="removeItem" />
             <div
               v-else
-              class="reply-row card card--pad"
+              :class="[ui.card, ui.cardPad, 'grid cursor-pointer gap-2 text-ink hover:border-soft-hover']"
               role="link"
               tabindex="0"
               aria-label="查看评论所属帖子"
               @click="openPost(row.item.post.id)"
               @keydown.enter="openPost(row.item.post.id)"
             >
-              <div class="reply-head">
+              <div class="flex flex-wrap items-center gap-2 text-[14px]">
                 <UserAvatar :user="row.item.author" size="sm" />
                 <strong>{{ row.item.author.nickname || row.item.author.username }}</strong>
-                <span class="handle">@{{ row.item.author.username }}</span>
-                <span v-if="row.item.author.is_ai" class="badge badge--ai">AI</span>
-                <span :title="timeTitle(row.item.created_at)" class="muted">
+                <span class="text-[12.5px] text-ink-3">@{{ row.item.author.username }}</span>
+                <span v-if="row.item.author.is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
+                <span :title="timeTitle(row.item.created_at)" :class="[ui.muted]">
                   {{ relativeTime(row.item.created_at) }}
                 </span>
               </div>
-              <div class="reply-content" v-html="row.item.content_html"></div>
-              <p class="reply-context">
+              <div
+                class="text-[14.5px] leading-[1.7] [word-break:break-word] [&_a.tl-tag]:font-semibold [&_a.tl-tag]:text-primary [&_a.tl-mention]:font-semibold [&_a.tl-mention]:text-primary"
+                v-html="row.item.content_html"
+              ></div>
+              <p class="m-0 flex items-center gap-1.5 rounded-lg bg-soft px-2.5 py-2 text-[12.5px] text-ink-3">
                 <AppIcon name="message" :size="14" />
                 <span>评论了「{{ plainSummary(row.item.post.content_html) }}」</span>
               </p>
             </div>
           </template>
 
-          <div class="list-foot">
+          <div class="flex justify-center py-1">
             <button
               v-if="hasMore && !loadingMore"
-              class="btn btn--secondary btn--sm"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
               type="button"
               @click="loadMore"
             >
               加载更多
             </button>
-            <p v-else-if="loadingMore" class="loading-row foot-loading">
-              <span class="spinner" aria-hidden="true"></span> 正在加载…
+            <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+              <span :class="[ui.spinner]" aria-hidden="true"></span> 正在加载…
             </p>
           </div>
 
@@ -337,137 +340,3 @@ async function toggleFollow(): Promise<void> {
     </div>
   </div>
 </template>
-
-<style scoped>
-.profile-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.profile-info {
-  min-width: 0;
-}
-.profile-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin: 0;
-  font-size: 17px;
-  font-weight: 800;
-}
-.profile-info .muted {
-  margin: 2px 0 0;
-}
-.profile-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-left: auto;
-}
-.profile-bio {
-  margin: 14px 0 0;
-  font-size: 14.5px;
-  line-height: 1.8;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.no-bio {
-  margin: 14px 0 0;
-}
-.stats {
-  display: flex;
-  gap: 22px;
-  margin: 16px 0 0;
-  padding: 0;
-  list-style: none;
-}
-.stat strong {
-  display: block;
-  font-size: 17px;
-  font-weight: 800;
-  line-height: 1.3;
-}
-.stat span {
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.stat a {
-  color: var(--ink);
-}
-.stat a:hover {
-  text-decoration: none;
-  color: var(--primary);
-}
-.tabs-card {
-  padding-top: 10px;
-  padding-bottom: 10px;
-}
-.reply-row {
-  display: grid;
-  gap: 8px;
-  color: var(--ink);
-  cursor: pointer;
-}
-.reply-row:hover {
-  border-color: var(--soft-hover);
-}
-.reply-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-size: 14px;
-}
-.handle {
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.reply-content {
-  font-size: 14.5px;
-  line-height: 1.7;
-  word-break: break-word;
-}
-.reply-content :deep(a.tl-tag),
-.reply-content :deep(a.tl-mention) {
-  color: var(--primary);
-  font-weight: 600;
-}
-.reply-context {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--soft);
-  color: var(--ink-3);
-  font-size: 12.5px;
-}
-.self-start {
-  align-self: flex-start;
-}
-.empty-action {
-  margin-top: 12px;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 4px 0;
-}
-.foot-loading {
-  padding: 0;
-}
-@media (max-width: 880px) {
-  .profile-head {
-    flex-wrap: wrap;
-  }
-  .profile-actions {
-    margin-left: 0;
-    width: 100%;
-  }
-  .stats {
-    gap: 18px;
-  }
-}
-</style>

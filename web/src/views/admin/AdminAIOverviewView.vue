@@ -8,6 +8,7 @@ import type { AIDetail, AITask, AITaskStatus, ModelProvider } from '../../api/ty
 import AlertNote from '../../components/AlertNote.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import { formatDateTime } from '../../utils/datetime'
+import { ui } from '../../styles/ui'
 
 const route = useRoute()
 const aiId = computed(() => String(route.params.id ?? ''))
@@ -107,9 +108,9 @@ function taskStatusLabel(status: AITaskStatus): string {
 }
 
 function taskStatusClass(status: AITaskStatus): string {
-  if (status === 'failed' || status === 'rejected') return 'badge--danger'
+  if (status === 'failed' || status === 'rejected') return ui.badgeDanger
   if (status === 'succeeded') return ''
-  return 'badge--muted'
+  return ui.badgeMuted
 }
 
 function triggerLabel(value: string): string {
@@ -147,152 +148,152 @@ const quickLinks = computed(() => [
 </script>
 
 <template>
-  <div class="stack">
-    <p v-if="loading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+  <div :class="ui.stack">
+    <p v-if="loading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="loadError">
       <AlertNote kind="error">{{ loadError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="load">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="load">重试</button>
     </template>
 
     <template v-else-if="ai">
-      <section class="card card--pad">
-        <h2 class="page-title">身份摘要</h2>
-        <p class="page-desc">AI 的设定会与 system prompt 一同进入模型请求。</p>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">身份摘要</h2>
+        <p :class="ui.pageDesc">AI 的设定会与 system prompt 一同进入模型请求。</p>
 
-        <p v-if="bio" class="bio">{{ bio }}</p>
+        <p v-if="bio" class="m-0 mt-[14px] whitespace-pre-wrap text-[14px] leading-[1.8]">{{ bio }}</p>
 
-        <dl class="info-list detail-info">
-          <dt>身份背景</dt>
-          <dd>{{ ai.profile.background || '—' }}</dd>
-          <dt>性格</dt>
-          <dd>{{ ai.profile.personality || '—' }}</dd>
-          <dt>价值观</dt>
-          <dd>{{ ai.profile.core_values || '—' }}</dd>
-          <dt>语言风格</dt>
-          <dd>{{ ai.profile.language_style || '—' }}</dd>
-          <dt>关注领域</dt>
-          <dd>{{ ai.profile.topics || '—' }}</dd>
-          <dt>目标语言</dt>
-          <dd>{{ ai.profile.target_language || '—' }}</dd>
-          <dt>禁忌</dt>
-          <dd>{{ ai.profile.taboos || '—' }}</dd>
+        <dl :class="[ui.infoList, 'mt-[14px]']">
+          <dt :class="ui.infoTerm">身份背景</dt>
+          <dd :class="ui.infoDetails">{{ ai.profile.background || '—' }}</dd>
+          <dt :class="ui.infoTerm">性格</dt>
+          <dd :class="ui.infoDetails">{{ ai.profile.personality || '—' }}</dd>
+          <dt :class="ui.infoTerm">价值观</dt>
+          <dd :class="ui.infoDetails">{{ ai.profile.core_values || '—' }}</dd>
+          <dt :class="ui.infoTerm">语言风格</dt>
+          <dd :class="ui.infoDetails">{{ ai.profile.language_style || '—' }}</dd>
+          <dt :class="ui.infoTerm">关注领域</dt>
+          <dd :class="ui.infoDetails">{{ ai.profile.topics || '—' }}</dd>
+          <dt :class="ui.infoTerm">目标语言</dt>
+          <dd :class="ui.infoDetails">{{ ai.profile.target_language || '—' }}</dd>
+          <dt :class="ui.infoTerm">禁忌</dt>
+          <dd :class="ui.infoDetails">{{ ai.profile.taboos || '—' }}</dd>
         </dl>
 
         <template v-if="ai.profile.system_prompt">
-          <h3 class="sub-title">System Prompt</h3>
-          <pre class="mono block-body">{{ ai.profile.system_prompt }}</pre>
+          <h3 class="mx-0 mb-[6px] mt-[18px] text-[13.5px] font-bold">System Prompt</h3>
+          <pre :class="[ui.mono, 'm-0 max-h-[280px] overflow-auto rounded-[10px] border border-solid border-border bg-surface-subtle px-[14px] py-3 text-[13px] leading-[1.7] whitespace-pre-wrap [word-break:break-word]']">{{ ai.profile.system_prompt }}</pre>
         </template>
       </section>
 
-      <section class="card card--pad">
-        <h2 class="page-title">模型配置</h2>
-        <p class="page-desc">调用记录中展示预设与模型，但绝不包含 API Key。</p>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">模型配置</h2>
+        <p :class="ui.pageDesc">调用记录中展示预设与模型，但绝不包含 API Key。</p>
 
-        <dl class="info-list detail-info">
-          <dt>接口预设</dt>
-          <dd>{{ providerName }}</dd>
-          <dt>模型覆盖</dt>
-          <dd class="mono">{{ ai.model.model_override || '（使用预设默认模型）' }}</dd>
-          <dt>max_tokens</dt>
-          <dd class="mono">{{ ai.model.generation_params.max_tokens ?? '—' }}</dd>
-          <dt>temperature</dt>
-          <dd class="mono">{{ ai.model.generation_params.temperature ?? '—' }}</dd>
-          <dt>top_p</dt>
-          <dd class="mono">{{ ai.model.generation_params.top_p ?? '—' }}</dd>
-          <dt>请求超时</dt>
-          <dd class="mono">{{ ai.model.request_timeout_seconds }} 秒</dd>
+        <dl :class="[ui.infoList, 'mt-[14px]']">
+          <dt :class="ui.infoTerm">接口预设</dt>
+          <dd :class="ui.infoDetails">{{ providerName }}</dd>
+          <dt :class="ui.infoTerm">模型覆盖</dt>
+          <dd :class="[ui.infoDetails, ui.mono]">{{ ai.model.model_override || '（使用预设默认模型）' }}</dd>
+          <dt :class="ui.infoTerm">max_tokens</dt>
+          <dd :class="[ui.infoDetails, ui.mono]">{{ ai.model.generation_params.max_tokens ?? '—' }}</dd>
+          <dt :class="ui.infoTerm">temperature</dt>
+          <dd :class="[ui.infoDetails, ui.mono]">{{ ai.model.generation_params.temperature ?? '—' }}</dd>
+          <dt :class="ui.infoTerm">top_p</dt>
+          <dd :class="[ui.infoDetails, ui.mono]">{{ ai.model.generation_params.top_p ?? '—' }}</dd>
+          <dt :class="ui.infoTerm">请求超时</dt>
+          <dd :class="[ui.infoDetails, ui.mono]">{{ ai.model.request_timeout_seconds }} 秒</dd>
         </dl>
 
-        <RouterLink :to="`/admin/ai/${ai.user.id}/identity`" class="btn btn--secondary btn--sm section-action">
+        <RouterLink :to="`/admin/ai/${ai.user.id}/identity`" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'mt-4']">
           调整模型配置
         </RouterLink>
       </section>
 
-      <section class="card card--pad">
-        <h2 class="page-title">行为策略摘要</h2>
-        <p class="page-desc">候选范围未配置有效目标时不会主动扫描全站。</p>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">行为策略摘要</h2>
+        <p :class="ui.pageDesc">候选范围未配置有效目标时不会主动扫描全站。</p>
 
-        <div class="chips">
-          <span v-for="label in enabledActions" :key="label" class="badge">{{ label }}</span>
-          <span v-if="enabledActions.length === 0" class="badge badge--muted">全部动作已关闭</span>
+        <div class="mt-[14px] flex flex-wrap gap-[6px]">
+          <span v-for="label in enabledActions" :key="label" :class="ui.badge">{{ label }}</span>
+          <span v-if="enabledActions.length === 0" :class="[ui.badge, ui.badgeMuted]">全部动作已关闭</span>
         </div>
-        <p v-if="disabledActions.length > 0" class="muted chips-hint">
+        <p v-if="disabledActions.length > 0" :class="[ui.muted, 'm-0 mt-2']">
           未开启：{{ disabledActions.join('、') }}
         </p>
 
-        <dl class="info-list detail-info">
-          <dt>候选范围</dt>
-          <dd>{{ SCOPE_LABELS[ai.behavior.candidate_scope_type] ?? ai.behavior.candidate_scope_type }}</dd>
-          <dt>AI 间互动</dt>
-          <dd>{{ ai.behavior.allow_ai_to_ai ? '允许' : '不允许' }}</dd>
-          <dt>冷却时间</dt>
-          <dd class="mono">{{ ai.behavior.cooldown_seconds }} 秒</dd>
-          <dt>活跃时段</dt>
-          <dd class="mono">{{ ai.behavior.active_hours_start }}:00 - {{ ai.behavior.active_hours_end }}:00</dd>
-          <dt>最大回复深度</dt>
-          <dd class="mono">{{ ai.behavior.max_reply_depth }}</dd>
+        <dl :class="[ui.infoList, 'mt-[14px]']">
+          <dt :class="ui.infoTerm">候选范围</dt>
+          <dd :class="ui.infoDetails">{{ SCOPE_LABELS[ai.behavior.candidate_scope_type] ?? ai.behavior.candidate_scope_type }}</dd>
+          <dt :class="ui.infoTerm">AI 间互动</dt>
+          <dd :class="ui.infoDetails">{{ ai.behavior.allow_ai_to_ai ? '允许' : '不允许' }}</dd>
+          <dt :class="ui.infoTerm">冷却时间</dt>
+          <dd :class="[ui.infoDetails, ui.mono]">{{ ai.behavior.cooldown_seconds }} 秒</dd>
+          <dt :class="ui.infoTerm">活跃时段</dt>
+          <dd :class="[ui.infoDetails, ui.mono]">{{ ai.behavior.active_hours_start }}:00 - {{ ai.behavior.active_hours_end }}:00</dd>
+          <dt :class="ui.infoTerm">最大回复深度</dt>
+          <dd :class="[ui.infoDetails, ui.mono]">{{ ai.behavior.max_reply_depth }}</dd>
         </dl>
 
-        <RouterLink :to="`/admin/ai/${ai.user.id}/behavior`" class="btn btn--secondary btn--sm section-action">
+        <RouterLink :to="`/admin/ai/${ai.user.id}/behavior`" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'mt-4']">
           调整行为策略
         </RouterLink>
       </section>
 
-      <section class="card card--pad">
-        <div class="head-row">
+      <section :class="[ui.card, ui.cardPad]">
+        <div class="flex items-start gap-3">
           <div>
-            <h2 class="page-title">记忆</h2>
-            <p class="page-desc">近期记忆用于短期上下文，长期记忆为固化结论。</p>
+            <h2 :class="ui.pageTitle">记忆</h2>
+            <p :class="ui.pageDesc">近期记忆用于短期上下文，长期记忆为固化结论。</p>
           </div>
-          <RouterLink :to="`/admin/ai/${ai.user.id}/memory`" class="btn btn--secondary btn--sm">
+          <RouterLink :to="`/admin/ai/${ai.user.id}/memory`" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'ml-auto']">
             管理记忆
           </RouterLink>
         </div>
 
-        <div class="stat-grid">
-          <div class="stat">
-            <p class="stat-label">近期记忆</p>
-            <p class="stat-value mono">{{ ai.memory_counts.recent }}</p>
+        <div class="mt-4 grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-[10px]">
+          <div class="rounded-[10px] border border-solid border-border bg-surface-subtle px-[14px] py-3">
+            <p class="m-0 text-[12.5px] text-ink-3">近期记忆</p>
+            <p :class="[ui.mono, 'm-0 mt-[2px] text-[20px] font-extrabold']">{{ ai.memory_counts.recent }}</p>
           </div>
-          <div class="stat">
-            <p class="stat-label">长期记忆</p>
-            <p class="stat-value mono">{{ ai.memory_counts.long_term }}</p>
+          <div class="rounded-[10px] border border-solid border-border bg-surface-subtle px-[14px] py-3">
+            <p class="m-0 text-[12.5px] text-ink-3">长期记忆</p>
+            <p :class="[ui.mono, 'm-0 mt-[2px] text-[20px] font-extrabold']">{{ ai.memory_counts.long_term }}</p>
           </div>
         </div>
       </section>
 
-      <section class="card card--pad">
-        <div class="head-row">
+      <section :class="[ui.card, ui.cardPad]">
+        <div class="flex items-start gap-3">
           <div>
-            <h2 class="page-title">最近任务</h2>
-            <p class="page-desc">触发原因、决策摘要与执行结果。</p>
+            <h2 :class="ui.pageTitle">最近任务</h2>
+            <p :class="ui.pageDesc">触发原因、决策摘要与执行结果。</p>
           </div>
-          <RouterLink :to="`/admin/ai/${ai.user.id}/tasks`" class="btn btn--secondary btn--sm">
+          <RouterLink :to="`/admin/ai/${ai.user.id}/tasks`" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'ml-auto']">
             全部任务
           </RouterLink>
         </div>
 
-        <ul v-if="recentTasks.length > 0" class="task-list">
-          <li v-for="task in recentTasks" :key="task.id" class="task-row">
-            <span class="badge" :class="taskStatusClass(task.status)">{{ taskStatusLabel(task.status) }}</span>
-            <span class="badge badge--muted">{{ triggerLabel(task.trigger_type) }}</span>
-            <span class="task-action">{{ task.action_type }}</span>
-            <span class="task-summary muted">{{ task.decision_summary || '（无决策摘要）' }}</span>
-            <span class="task-time mono">{{ formatDateTime(task.created_at) }}</span>
+        <ul v-if="recentTasks.length > 0" class="m-0 mt-[14px] list-none p-0">
+          <li v-for="task in recentTasks" :key="task.id" class="flex flex-wrap items-center gap-2 border-b border-solid border-border py-[9px] text-[13.5px] last:border-b-0">
+            <span :class="[ui.badge, taskStatusClass(task.status)]">{{ taskStatusLabel(task.status) }}</span>
+            <span :class="[ui.badge, ui.badgeMuted]">{{ triggerLabel(task.trigger_type) }}</span>
+            <span class="font-bold">{{ task.action_type }}</span>
+            <span :class="[ui.muted, 'min-w-[120px] flex-1 overflow-hidden text-ellipsis whitespace-nowrap']">{{ task.decision_summary || '（无决策摘要）' }}</span>
+            <span :class="[ui.mono, 'whitespace-nowrap text-[12.5px] text-ink-3']">{{ formatDateTime(task.created_at) }}</span>
           </li>
         </ul>
-        <p v-else class="muted">暂无任务记录。</p>
+        <p v-else :class="ui.muted">暂无任务记录。</p>
       </section>
 
-      <section class="card card--pad">
-        <h2 class="page-title">快捷入口</h2>
-        <div class="link-grid">
-          <RouterLink v-for="link in quickLinks" :key="link.to" :to="link.to" class="quick-link">
-            <AppIcon :name="link.icon" :size="18" class="quick-icon" />
-            <span class="quick-text">
-              <span class="quick-label">{{ link.label }}</span>
-              <span class="quick-desc">{{ link.description }}</span>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">快捷入口</h2>
+        <div class="mt-[14px] grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-2">
+          <RouterLink v-for="link in quickLinks" :key="link.to" :to="link.to" class="flex items-start gap-[10px] rounded-[10px] border border-solid border-border px-3 py-[10px] text-ink hover:bg-hover hover:no-underline">
+            <AppIcon :name="link.icon" :size="18" class="mt-[2px] text-ink-2" />
+            <span class="flex min-w-0 flex-col">
+              <span class="text-[14px] font-bold">{{ link.label }}</span>
+              <span class="text-[12.5px] leading-[1.6] text-ink-3">{{ link.description }}</span>
             </span>
           </RouterLink>
         </div>
@@ -300,147 +301,3 @@ const quickLinks = computed(() => [
     </template>
   </div>
 </template>
-
-<style scoped>
-.self-start {
-  align-self: flex-start;
-}
-.bio {
-  margin: 14px 0 0;
-  font-size: 14px;
-  line-height: 1.8;
-  white-space: pre-wrap;
-}
-.detail-info {
-  margin-top: 14px;
-}
-.sub-title {
-  margin: 18px 0 6px;
-  font-size: 13.5px;
-  font-weight: 700;
-}
-.block-body {
-  max-height: 280px;
-  overflow: auto;
-  margin: 0;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-  font-size: 13px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.section-action {
-  margin-top: 16px;
-}
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 14px;
-}
-.chips-hint {
-  margin: 8px 0 0;
-}
-.head-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-.head-row .btn {
-  margin-left: auto;
-}
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 10px;
-  margin-top: 16px;
-}
-.stat {
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-subtle);
-}
-.stat-label {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.stat-value {
-  margin: 2px 0 0;
-  font-size: 20px;
-  font-weight: 800;
-}
-.task-list {
-  margin: 14px 0 0;
-  padding: 0;
-  list-style: none;
-}
-.task-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 9px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 13.5px;
-}
-.task-row:last-child {
-  border-bottom: none;
-}
-.task-action {
-  font-weight: 700;
-}
-.task-summary {
-  flex: 1;
-  min-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.task-time {
-  font-size: 12.5px;
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-.link-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-  margin-top: 14px;
-}
-.quick-link {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  color: var(--ink);
-}
-.quick-link:hover {
-  background: var(--hover);
-  text-decoration: none;
-}
-.quick-icon {
-  margin-top: 2px;
-  color: var(--ink-2);
-}
-.quick-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.quick-label {
-  font-size: 14px;
-  font-weight: 700;
-}
-.quick-desc {
-  font-size: 12.5px;
-  color: var(--ink-3);
-  line-height: 1.6;
-}
-</style>

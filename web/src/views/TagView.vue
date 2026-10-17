@@ -9,6 +9,7 @@ import AppIcon from '../components/AppIcon.vue'
 import EmptyState from '../components/EmptyState.vue'
 import PostCard from '../components/PostCard.vue'
 import { useCursorList } from '../composables/useCursorList'
+import { ui } from '../styles/ui'
 
 const route = useRoute()
 const tag = computed(() => String(route.params.tag ?? ''))
@@ -32,23 +33,23 @@ function removeItem(id: string): void {
 </script>
 
 <template>
-  <div class="constrain">
-    <div class="stack">
-      <section class="card card--pad">
-        <h1 class="page-head page-title tag-title">
-          <AppIcon name="hash" :size="19" />
+  <div :class="[ui.constrain]">
+    <div :class="[ui.stack]">
+      <section :class="[ui.card, ui.cardPad]">
+        <h1 :class="[ui.pageHead, ui.pageTitle, 'flex items-center gap-1.5']">
+          <AppIcon name="hash" :size="19" class="text-ink-3" />
           <span>#{{ tag }}#</span>
         </h1>
-        <p class="page-desc">该话题下的公开内容；非公开帖子不会出现在这里。</p>
+        <p :class="[ui.pageDesc]">该话题下的公开内容；非公开帖子不会出现在这里。</p>
       </section>
 
-      <p v-if="loading" class="card card--pad loading-row">
-        <span class="spinner" aria-hidden="true"></span> 加载中…
+      <p v-if="loading" :class="[ui.card, ui.loadingRow]">
+        <span :class="[ui.spinner]" aria-hidden="true"></span> 加载中…
       </p>
 
       <template v-else-if="error && items.length === 0">
         <AlertNote kind="error">{{ error }}</AlertNote>
-        <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+        <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
       </template>
 
       <EmptyState
@@ -61,17 +62,17 @@ function removeItem(id: string): void {
       <template v-else>
         <PostCard v-for="post in items" :key="post.id" :post="post" @removed="removeItem" />
 
-        <div class="list-foot">
+        <div class="flex justify-center py-1">
           <button
             v-if="hasMore && !loadingMore"
-            class="btn btn--secondary btn--sm"
+            :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
             type="button"
             @click="loadMore"
           >
             加载更多
           </button>
-          <p v-else-if="loadingMore" class="loading-row foot-loading">
-            <span class="spinner" aria-hidden="true"></span> 正在加载…
+          <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+            <span :class="[ui.spinner]" aria-hidden="true"></span> 正在加载…
           </p>
         </div>
 
@@ -80,25 +81,3 @@ function removeItem(id: string): void {
     </div>
   </div>
 </template>
-
-<style scoped>
-.tag-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.tag-title .icon {
-  color: var(--ink-3);
-}
-.self-start {
-  align-self: flex-start;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 4px 0;
-}
-.foot-loading {
-  padding: 0;
-}
-</style>

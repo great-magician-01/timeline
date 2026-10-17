@@ -26,7 +26,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 - 后端：Go 1.25（以 `go.mod` 为准），模块名 `github.com/great-magician-01/timeline`。
 - HTTP：Gin；数据库：PostgreSQL，通过 `pgx/v5/pgxpool` 连接。
 - 日志：标准库 `log/slog`，同时写标准输出和按日期分目录的文件。
-- 前端：Vue 3、TypeScript、Vite，使用 Node.js 22+、npm 和 `web/package-lock.json`（版本要求见根目录 `README.md`）。
+- 前端：Vue 3、TypeScript、Vite、Tailwind CSS 4（`@tailwindcss/vite`），使用 Node.js 22+、npm 和 `web/package-lock.json`（版本要求见根目录 `README.md`）。
 - 前端构建：`vue-tsc -b && vite build`，类型检查和生产构建由同一个 `npm run build` 完成。
 - 静态资源：`web/embed.go` 使用 `go:embed all:dist` 嵌入 `web/dist`。
 - 数据库迁移：`migrations/embed.go` 嵌入 `migrations/*.sql`。
@@ -36,7 +36,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 
 - `go.mod` / `go.sum`：Go 版本与依赖。
 - `web/package.json`：前端脚本与依赖；目前没有 `test`、`lint` 或 `format` 脚本。
-- `web/vite.config.ts`：开发代理，将 `/api`、`/healthz`、`/readyz` 转发到 `http://localhost:5070`。
+- `web/vite.config.ts`：Vue 与 Tailwind 插件；开发代理将 `/api`、`/healthz`、`/readyz` 转发到 `http://localhost:5070`。
 - `web/tsconfig*.json`：TypeScript 项目引用和检查规则，包括未使用变量/参数检查。
 - `.env.example`：部署配置模板，真实凭据不得写入或提交。
 - `Dockerfile` / `docker-compose.yml`：多阶段镜像与单应用 Compose（外部 PostgreSQL）。
@@ -151,8 +151,10 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 
 ### 前端
 
-- Vue 组件使用 `<script setup lang="ts">`，保持现有单引号、无分号和 scoped style 风格。
-- 颜色统一来自 `web/src/styles/tokens.css` 的 CSS 自定义属性；组件不得随意写入字面量颜色。品牌 SVG 按现有品牌图源处理。
+- Vue 组件使用 `<script setup lang="ts">`，保持现有单引号、无分号风格；样式使用 Tailwind utility，不再新增 SFC `scoped` 样式块或手写组件 CSS。
+- `web/src/styles/app.css` 是唯一样式入口，负责 Tailwind 主题映射、全局基础行为、`shell-down`（`max-width: 880px`）断点和动画；不要启用 Preflight 或另建 PostCSS/Tailwind 配置文件。
+- 跨组件重复的 utility 组合放在 `web/src/styles/ui.ts`，必须使用完整静态类名；禁止运行时拼接 Tailwind 类名片段，动态状态使用静态映射或 Vue 条件 class。
+- 颜色统一来自 `web/src/styles/tokens.css` 的 CSS 自定义属性，并通过 `app.css` 的 `@theme inline` 映射给 Tailwind；组件不得随意写入字面量颜色。品牌 SVG 按现有品牌图源处理。
 - 主题通过 `<html data-theme="light|dark">` 切换，手动偏好存储在 `localStorage` 的 `tl-theme`；保留 `web/index.html` 中防止首帧闪白的内联脚本。
 - 图标使用内联 SVG 或本地 SVG sprite，遵循 24×24 viewBox、圆头线框和 `currentColor` 规范；不要引入图标字体、位图图标或外链图标。
 - 遵循 `docs/DESIGN_SYSTEM.md` 的 GitHub 式按钮、4px 间距体系、880px 响应式断点和减少动效规则。

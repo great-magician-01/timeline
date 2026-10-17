@@ -10,6 +10,7 @@ import { errorMessage } from '../api/client'
 import { cancelSchedule, deletePost, listMyScheduled, publishPost } from '../api/posts'
 import type { DraftSummary, Visibility } from '../api/types'
 import { useCursorList } from '../composables/useCursorList'
+import { ui } from '../styles/ui'
 import { absoluteTime } from '../utils/format'
 
 const router = useRouter()
@@ -43,8 +44,8 @@ function statusLabel(item: DraftSummary): string {
 }
 
 function statusClass(item: DraftSummary): string {
-  if (item.status === 'failed' || item.publish_failed) return 'badge--danger'
-  if (item.status === 'draft' || item.status === 'paused') return 'badge--muted'
+  if (item.status === 'failed' || item.publish_failed) return ui.badgeDanger
+  if (item.status === 'draft' || item.status === 'paused') return ui.badgeMuted
   return ''
 }
 
@@ -98,11 +99,11 @@ async function removeItem(item: DraftSummary): Promise<void> {
 </script>
 
 <template>
-  <div class="constrain">
-    <div class="stack">
-      <header class="page-head">
-        <h1 class="page-title">定时发布</h1>
-        <p class="page-desc">到点后由服务端按帖子当前的可见性自动发布。</p>
+  <div :class="[ui.constrain]">
+    <div :class="[ui.stack]">
+      <header :class="[ui.pageHead]">
+        <h1 :class="[ui.pageTitle]">定时发布</h1>
+        <p :class="[ui.pageDesc]">到点后由服务端按帖子当前的可见性自动发布。</p>
       </header>
 
       <AlertNote kind="info">
@@ -111,16 +112,16 @@ async function removeItem(item: DraftSummary): Promise<void> {
       <AlertNote v-if="notice" kind="success">{{ notice }}</AlertNote>
       <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-      <div v-if="loading" class="card card--pad">
-        <p class="loading-row"><span class="spinner" aria-hidden="true"></span> 正在加载定时帖…</p>
+      <div v-if="loading" :class="[ui.card, ui.cardPad]">
+        <p :class="[ui.loadingRow]"><span :class="[ui.spinner]" aria-hidden="true"></span> 正在加载定时帖…</p>
       </div>
 
       <template v-else-if="error && items.length === 0">
         <AlertNote kind="error">{{ error }}</AlertNote>
-        <button class="btn btn--secondary btn--sm retry" type="button" @click="reload()">重试</button>
+        <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload()">重试</button>
       </template>
 
-      <section v-else-if="items.length === 0" class="card">
+      <section v-else-if="items.length === 0" :class="[ui.card]">
         <EmptyState
           icon="calendar"
           title="没有待发布的定时帖"
@@ -129,42 +130,46 @@ async function removeItem(item: DraftSummary): Promise<void> {
       </section>
 
       <template v-else>
-        <section class="card scheduled-list">
-          <article v-for="item in items" :key="item.id" class="scheduled">
-            <div class="scheduled-main">
-              <p class="scheduled-time">
-                <AppIcon name="calendar" :size="15" />
+        <section :class="[ui.card, 'overflow-hidden']">
+          <article
+            v-for="item in items"
+            :key="item.id"
+            class="flex items-start gap-3 border-b border-solid border-border px-4 py-[14px] [&:last-of-type]:border-b-0 shell-down:flex-col shell-down:items-stretch"
+          >
+            <div class="min-w-0 flex-1">
+              <p class="m-0 flex items-center gap-1.5 text-[14px] font-bold text-ink">
+                <AppIcon name="calendar" :size="15" class="text-ink-3" />
                 发布时间 {{ absoluteTime(item.scheduled_at) || '未设置' }}
               </p>
-              <p class="scheduled-summary">{{ item.plain_text || '（暂无正文）' }}</p>
-              <p class="scheduled-meta">
-                <span class="badge" :class="statusClass(item)">
+              <p class="mt-1.5 mb-0 text-[14px] leading-[1.6] text-ink-2 [word-break:break-word]">{{ item.plain_text || '（暂无正文）' }}</p>
+              <p class="mt-2 mb-0 flex flex-wrap items-center gap-2">
+                <span :class="[ui.badge, statusClass(item)]">
                   {{ statusLabel(item) }}
                 </span>
-                <span class="badge" :class="{ 'badge--muted': item.visibility !== 'public' }">
+                <span :class="[ui.badge, item.visibility !== 'public' && ui.badgeMuted]">
                   {{ visibilityLabel(item.visibility) }}
                 </span>
-                <span v-if="item.attachment_count > 0" class="muted">{{ item.attachment_count }} 个附件</span>
-                <span class="muted">更新于 {{ absoluteTime(item.updated_at) }}</span>
+                <span v-if="item.attachment_count > 0" :class="[ui.muted, 'text-[12.5px]!']">{{ item.attachment_count }} 个附件</span>
+                <span :class="[ui.muted, 'text-[12.5px]!']">更新于 {{ absoluteTime(item.updated_at) }}</span>
               </p>
-              <AlertNote v-if="item.publish_failed || item.publish_error" kind="error" class="publish-error">
+              <AlertNote v-if="item.publish_failed || item.publish_error" kind="error" class="mt-2!">
                 定时发布失败：{{ item.publish_error || '原因未知，可重试发布或取消定时。' }}
               </AlertNote>
-              <AlertNote v-else-if="item.status === 'paused'" kind="warning" class="publish-error">
+              <AlertNote v-else-if="item.status === 'paused'" kind="warning" class="mt-2!">
                 定时任务已暂停（可能因服务重启或重试次数耗尽），可立即发布或取消定时。
               </AlertNote>
             </div>
 
-            <div class="scheduled-actions">
+            <div class="flex flex-wrap gap-2">
               <RouterLink
-                class="btn btn--secondary btn--sm"
+                :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'shell-down:flex-1']"
                 :to="{ name: 'draft-edit', params: { draftId: item.id } }"
               >
                 <AppIcon name="pencil" :size="15" /> 编辑
               </RouterLink>
               <button
                 v-if="item.status === 'scheduled' || item.status === 'failed' || item.status === 'paused'"
-                class="btn btn--secondary btn--sm"
+                :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'shell-down:flex-1']"
                 type="button"
                 :disabled="busyId !== ''"
                 @click="cancel(item)"
@@ -174,7 +179,7 @@ async function removeItem(item: DraftSummary): Promise<void> {
               </button>
               <button
                 v-if="item.publish_failed || item.status === 'failed'"
-                class="btn btn--primary btn--sm"
+                :class="[ui.button, ui.buttonPrimary, ui.buttonSmall, 'shell-down:flex-1']"
                 type="button"
                 :disabled="busyId !== ''"
                 @click="publishNow(item)"
@@ -184,7 +189,7 @@ async function removeItem(item: DraftSummary): Promise<void> {
               </button>
               <button
                 v-else-if="item.status === 'scheduled' || item.status === 'paused'"
-                class="btn btn--primary btn--sm"
+                :class="[ui.button, ui.buttonPrimary, ui.buttonSmall, 'shell-down:flex-1']"
                 type="button"
                 :disabled="busyId !== ''"
                 @click="publishNow(item)"
@@ -192,7 +197,7 @@ async function removeItem(item: DraftSummary): Promise<void> {
                 <AppIcon name="send" :size="15" /> 立即发布
               </button>
               <button
-                class="btn btn--danger btn--sm"
+                :class="[ui.button, ui.buttonDanger, ui.buttonSmall, 'shell-down:flex-1']"
                 type="button"
                 :disabled="busyId !== ''"
                 @click="removeItem(item)"
@@ -202,18 +207,18 @@ async function removeItem(item: DraftSummary): Promise<void> {
             </div>
           </article>
 
-          <div class="list-foot">
+          <div class="flex justify-center px-4 py-[14px]">
             <button
               v-if="hasMore"
-              class="btn btn--secondary btn--sm load-more"
+              :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
               type="button"
               :disabled="loadingMore"
               @click="loadMore()"
             >
-              <span v-if="loadingMore" class="spinner" aria-hidden="true"></span>
+              <span v-if="loadingMore" :class="[ui.spinner, 'size-[14px]! border-border! border-t-primary! opacity-80']" aria-hidden="true"></span>
               {{ loadingMore ? '正在加载…' : '加载更多' }}
             </button>
-            <p v-else class="muted">已加载全部 {{ items.length }} 条定时帖</p>
+            <p v-else :class="[ui.muted, 'm-0']">已加载全部 {{ items.length }} 条定时帖</p>
           </div>
         </section>
 
@@ -222,84 +227,3 @@ async function removeItem(item: DraftSummary): Promise<void> {
     </div>
   </div>
 </template>
-
-<style scoped>
-.retry {
-  align-self: flex-start;
-}
-.scheduled-list {
-  overflow: hidden;
-}
-.scheduled {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.scheduled:last-of-type {
-  border-bottom: 0;
-}
-.scheduled-main {
-  min-width: 0;
-  flex: 1;
-}
-.scheduled-time {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--ink);
-}
-.scheduled-time .icon {
-  color: var(--ink-3);
-}
-.scheduled-summary {
-  margin: 6px 0 0;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--ink-2);
-  word-break: break-word;
-}
-.scheduled-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 8px 0 0;
-}
-.scheduled-meta .muted {
-  font-size: 12.5px;
-}
-.publish-error {
-  margin-top: 8px;
-}
-.scheduled-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px;
-}
-.list-foot .muted {
-  margin: 0;
-}
-.load-more .spinner {
-  border-color: var(--border);
-  border-top-color: var(--primary);
-}
-@media (max-width: 880px) {
-  .scheduled {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .scheduled-actions .btn {
-    flex: 1;
-  }
-}
-</style>

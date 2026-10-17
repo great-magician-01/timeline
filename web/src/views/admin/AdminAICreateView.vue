@@ -9,6 +9,7 @@ import type { AIBehavior, GenerationParams, ModelProvider } from '../../api/type
 import AlertNote from '../../components/AlertNote.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import FormField from '../../components/FormField.vue'
+import { ui } from '../../styles/ui'
 
 type ScopeType = 'none' | 'global_public' | 'followed' | 'tags' | 'authors'
 
@@ -172,27 +173,27 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <div class="stack">
-    <RouterLink to="/admin/ai" class="back-link">
+  <div :class="ui.stack">
+    <RouterLink to="/admin/ai" class="inline-flex items-center gap-[6px] self-start text-[13.5px] text-ink-2 hover:text-ink hover:no-underline">
       <AppIcon name="arrow-left" :size="16" />
       返回 AI 列表
     </RouterLink>
 
-    <header class="page-head">
-      <h1 class="page-title">创建 AI</h1>
-      <p class="page-desc">
+    <header :class="ui.pageHead">
+      <h1 :class="ui.pageTitle">创建 AI</h1>
+      <p :class="ui.pageDesc">
         AI 使用独立账号身份与独立模型配置；创建后可继续在详情页调整身份、行为策略与记忆。
       </p>
     </header>
 
     <AlertNote v-if="submitError" kind="error">{{ submitError }}</AlertNote>
 
-    <form class="stack" novalidate @submit.prevent="onSubmit">
-      <section class="card card--pad">
-        <h2 class="page-title">基础资料</h2>
-        <p class="page-desc">用户名创建后不可修改；昵称与简介会展示在时间线与主页。</p>
+    <form :class="ui.stack" novalidate @submit.prevent="onSubmit">
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">基础资料</h2>
+        <p :class="ui.pageDesc">用户名创建后不可修改；昵称与简介会展示在时间线与主页。</p>
 
-        <div class="form">
+        <div :class="ui.form">
           <FormField
             label="用户名"
             input-id="ai-username"
@@ -202,7 +203,7 @@ async function onSubmit(): Promise<void> {
             <input
               id="ai-username"
               v-model="form.username"
-              class="input"
+              :class="ui.input"
               type="text"
               name="username"
               autocomplete="off"
@@ -215,7 +216,7 @@ async function onSubmit(): Promise<void> {
             <input
               id="ai-nickname"
               v-model="form.nickname"
-              class="input"
+              :class="ui.input"
               type="text"
               name="nickname"
               placeholder="展示名称"
@@ -227,7 +228,7 @@ async function onSubmit(): Promise<void> {
             <textarea
               id="ai-bio"
               v-model="form.bio"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="bio"
               placeholder="例如：关注城市观察与长文写作的 AI 居民"
               :disabled="submitting"
@@ -236,16 +237,16 @@ async function onSubmit(): Promise<void> {
         </div>
       </section>
 
-      <section class="card card--pad">
-        <h2 class="page-title">身份与性格</h2>
-        <p class="page-desc">这些字段会与 system prompt 一起影响生成内容的立场与语气。</p>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">身份与性格</h2>
+        <p :class="ui.pageDesc">这些字段会与 system prompt 一起影响生成内容的立场与语气。</p>
 
-        <div class="form">
+        <div :class="ui.form">
           <FormField label="身份背景" input-id="ai-background" hint="AI 的来历、职业设定与所处环境">
             <textarea
               id="ai-background"
               v-model="form.background"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="background"
               :disabled="submitting"
             ></textarea>
@@ -255,7 +256,7 @@ async function onSubmit(): Promise<void> {
             <textarea
               id="ai-personality"
               v-model="form.personality"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="personality"
               :disabled="submitting"
             ></textarea>
@@ -265,7 +266,7 @@ async function onSubmit(): Promise<void> {
             <textarea
               id="ai-core-values"
               v-model="form.core_values"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="core_values"
               :disabled="submitting"
             ></textarea>
@@ -275,7 +276,7 @@ async function onSubmit(): Promise<void> {
             <textarea
               id="ai-language-style"
               v-model="form.language_style"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="language_style"
               :disabled="submitting"
             ></textarea>
@@ -285,7 +286,7 @@ async function onSubmit(): Promise<void> {
             <input
               id="ai-topics"
               v-model="form.topics"
-              class="input"
+              :class="ui.input"
               type="text"
               name="topics"
               :disabled="submitting"
@@ -296,7 +297,7 @@ async function onSubmit(): Promise<void> {
             <input
               id="ai-target-language"
               v-model="form.target_language"
-              class="input"
+              :class="ui.input"
               type="text"
               name="target_language"
               placeholder="zh-CN"
@@ -308,7 +309,7 @@ async function onSubmit(): Promise<void> {
             <textarea
               id="ai-taboos"
               v-model="form.taboos"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="taboos"
               :disabled="submitting"
             ></textarea>
@@ -322,7 +323,7 @@ async function onSubmit(): Promise<void> {
             <textarea
               id="ai-system-prompt"
               v-model="form.system_prompt"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="system_prompt"
               :disabled="submitting"
             ></textarea>
@@ -330,24 +331,24 @@ async function onSubmit(): Promise<void> {
         </div>
       </section>
 
-      <section class="card card--pad">
-        <h2 class="page-title">模型与参数</h2>
-        <p class="page-desc">模型调用会使用所选预设的 Base URL 与密钥，请求与响应记录不包含密钥。</p>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">模型与参数</h2>
+        <p :class="ui.pageDesc">模型调用会使用所选预设的 Base URL 与密钥，请求与响应记录不包含密钥。</p>
 
         <AlertNote v-if="providersError" kind="error">{{ providersError }}</AlertNote>
-        <p v-else-if="providersLoading" class="loading-row">
-          <span class="spinner" aria-hidden="true"></span> 正在加载预设…
+        <p v-else-if="providersLoading" :class="ui.loadingRow">
+          <span :class="ui.spinner" aria-hidden="true"></span> 正在加载预设…
         </p>
         <AlertNote v-else-if="providers.length === 0" kind="warning">
           还没有启用中的接口预设，请先到「模型预设」创建。
         </AlertNote>
 
-        <div class="form">
+        <div :class="ui.form">
           <FormField label="接口预设" input-id="ai-provider" :error="submitErrors.provider_id">
             <select
               id="ai-provider"
               v-model="form.provider_id"
-              class="input"
+              :class="ui.input"
               name="provider_id"
               :disabled="submitting || providers.length === 0"
             >
@@ -362,7 +363,7 @@ async function onSubmit(): Promise<void> {
             <input
               id="ai-model-override"
               v-model="form.model_override"
-              class="input"
+              :class="ui.input"
               type="text"
               name="model_override"
               placeholder="例如 gpt-4o-mini"
@@ -370,12 +371,12 @@ async function onSubmit(): Promise<void> {
             />
           </FormField>
 
-          <div class="param-grid">
+          <div class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-x-[14px]">
             <FormField label="max_tokens" input-id="ai-max-tokens" hint="单次生成上限">
               <input
                 id="ai-max-tokens"
                 v-model.number="form.max_tokens"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="1"
                 step="1"
@@ -388,7 +389,7 @@ async function onSubmit(): Promise<void> {
               <input
                 id="ai-temperature"
                 v-model.number="form.temperature"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="0"
                 max="2"
@@ -402,7 +403,7 @@ async function onSubmit(): Promise<void> {
               <input
                 id="ai-top-p"
                 v-model.number="form.top_p"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="0"
                 max="1"
@@ -415,47 +416,47 @@ async function onSubmit(): Promise<void> {
         </div>
       </section>
 
-      <section class="card card--pad">
-        <h2 class="page-title">初始行为策略</h2>
-        <p class="page-desc">创建后可随时在「行为策略」中调整；默认关闭后台执行时不会产生任何主动动作。</p>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">初始行为策略</h2>
+        <p :class="ui.pageDesc">创建后可随时在「行为策略」中调整；默认关闭后台执行时不会产生任何主动动作。</p>
 
-        <div class="switch-grid">
-          <label class="switch">
-            <input v-model="behavior.allow_original_post" type="checkbox" :disabled="submitting" />
+        <div class="mt-4 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-x-[14px] gap-y-[10px]">
+          <label :class="ui.switch">
+            <input v-model="behavior.allow_original_post" :class="ui.switchInput" type="checkbox" :disabled="submitting" />
             <span>允许原创发帖</span>
           </label>
-          <label class="switch">
-            <input v-model="behavior.allow_active_comment" type="checkbox" :disabled="submitting" />
+          <label :class="ui.switch">
+            <input v-model="behavior.allow_active_comment" :class="ui.switchInput" type="checkbox" :disabled="submitting" />
             <span>允许主动评论</span>
           </label>
-          <label class="switch">
-            <input v-model="behavior.allow_passive_reply" type="checkbox" :disabled="submitting" />
+          <label :class="ui.switch">
+            <input v-model="behavior.allow_passive_reply" :class="ui.switchInput" type="checkbox" :disabled="submitting" />
             <span>允许被动回复</span>
           </label>
-          <label class="switch">
-            <input v-model="behavior.allow_like" type="checkbox" :disabled="submitting" />
+          <label :class="ui.switch">
+            <input v-model="behavior.allow_like" :class="ui.switchInput" type="checkbox" :disabled="submitting" />
             <span>允许点赞</span>
           </label>
-          <label class="switch">
-            <input v-model="behavior.allow_follow" type="checkbox" :disabled="submitting" />
+          <label :class="ui.switch">
+            <input v-model="behavior.allow_follow" :class="ui.switchInput" type="checkbox" :disabled="submitting" />
             <span>允许关注</span>
           </label>
-          <label class="switch">
-            <input v-model="behavior.allow_repost" type="checkbox" :disabled="submitting" />
+          <label :class="ui.switch">
+            <input v-model="behavior.allow_repost" :class="ui.switchInput" type="checkbox" :disabled="submitting" />
             <span>允许转发</span>
           </label>
-          <label class="switch">
-            <input v-model="behavior.allow_quote" type="checkbox" :disabled="submitting" />
+          <label :class="ui.switch">
+            <input v-model="behavior.allow_quote" :class="ui.switchInput" type="checkbox" :disabled="submitting" />
             <span>允许引用</span>
           </label>
         </div>
 
-        <div class="form">
+        <div :class="ui.form">
           <FormField label="候选范围" input-id="ai-candidate-scope" hint="未配置有效目标时不会主动扫描全站">
             <select
               id="ai-candidate-scope"
               v-model="behavior.candidate_scope_type"
-              class="input"
+              :class="ui.input"
               name="candidate_scope_type"
               :disabled="submitting"
             >
@@ -477,7 +478,7 @@ async function onSubmit(): Promise<void> {
             <input
               id="ai-scope-tags"
               v-model="behavior.scope_tags"
-              class="input"
+              :class="ui.input"
               type="text"
               name="scope_tags"
               :disabled="submitting"
@@ -494,58 +495,27 @@ async function onSubmit(): Promise<void> {
             <input
               id="ai-scope-usernames"
               v-model="behavior.scope_usernames"
-              class="input"
+              :class="ui.input"
               type="text"
               name="scope_usernames"
               :disabled="submitting"
             />
           </FormField>
 
-          <label class="switch">
-            <input v-model="form.is_enabled" type="checkbox" :disabled="submitting" />
+          <label :class="ui.switch">
+            <input v-model="form.is_enabled" :class="ui.switchInput" type="checkbox" :disabled="submitting" />
             <span>{{ form.is_enabled ? '创建后立即启用' : '创建后保持停用' }}</span>
           </label>
         </div>
       </section>
 
-      <div class="actions">
-        <button class="btn btn--primary" type="submit" :disabled="submitting || providers.length === 0">
-          <span v-if="submitting" class="spinner" aria-hidden="true"></span>
+      <div class="flex flex-wrap gap-2">
+        <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="submitting || providers.length === 0">
+          <span v-if="submitting" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
           {{ submitting ? '创建中…' : '创建 AI' }}
         </button>
-        <RouterLink to="/admin/ai" class="btn btn--secondary">取消</RouterLink>
+        <RouterLink to="/admin/ai" :class="[ui.button, ui.buttonSecondary]">取消</RouterLink>
       </div>
     </form>
   </div>
 </template>
-
-<style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: flex-start;
-  font-size: 13.5px;
-  color: var(--ink-2);
-}
-.back-link:hover {
-  color: var(--ink);
-  text-decoration: none;
-}
-.param-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0 14px;
-}
-.switch-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px 14px;
-  margin-top: 16px;
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-</style>

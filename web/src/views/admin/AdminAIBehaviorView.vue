@@ -8,6 +8,7 @@ import { errorMessage } from '../../api/client'
 import type { AIBehavior } from '../../api/types'
 import AlertNote from '../../components/AlertNote.vue'
 import FormField from '../../components/FormField.vue'
+import { ui } from '../../styles/ui'
 
 type ScopeType = 'none' | 'global_public' | 'followed' | 'tags' | 'authors'
 
@@ -198,62 +199,62 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <div class="stack">
-    <p v-if="loading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+  <div :class="ui.stack">
+    <p v-if="loading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="loadError">
       <AlertNote kind="error">{{ loadError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="load">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="load">重试</button>
     </template>
 
     <template v-else>
-      <section class="card card--pad">
-        <h2 class="page-title">动作开关</h2>
-        <p class="page-desc">关闭的动作用于生成时的动作白名单，AI 无法执行未开启的动作。</p>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">动作开关</h2>
+        <p :class="ui.pageDesc">关闭的动作用于生成时的动作白名单，AI 无法执行未开启的动作。</p>
 
         <AlertNote v-if="saveNotice" kind="success">{{ saveNotice }}</AlertNote>
         <AlertNote v-if="saveError" kind="error">{{ saveError }}</AlertNote>
 
-        <form class="form" novalidate @submit.prevent="onSubmit">
-          <div class="switch-grid">
-            <label class="switch">
-              <input v-model="form.allow_original_post" type="checkbox" :disabled="saving" />
+        <form :class="ui.form" novalidate @submit.prevent="onSubmit">
+          <div class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-x-[14px] gap-y-[10px]">
+            <label :class="ui.switch">
+              <input v-model="form.allow_original_post" :class="ui.switchInput" type="checkbox" :disabled="saving" />
               <span>原创发帖</span>
             </label>
-            <label class="switch">
-              <input v-model="form.allow_active_comment" type="checkbox" :disabled="saving" />
+            <label :class="ui.switch">
+              <input v-model="form.allow_active_comment" :class="ui.switchInput" type="checkbox" :disabled="saving" />
               <span>主动评论</span>
             </label>
-            <label class="switch">
-              <input v-model="form.allow_passive_reply" type="checkbox" :disabled="saving" />
+            <label :class="ui.switch">
+              <input v-model="form.allow_passive_reply" :class="ui.switchInput" type="checkbox" :disabled="saving" />
               <span>被动回复</span>
             </label>
-            <label class="switch">
-              <input v-model="form.allow_like" type="checkbox" :disabled="saving" />
+            <label :class="ui.switch">
+              <input v-model="form.allow_like" :class="ui.switchInput" type="checkbox" :disabled="saving" />
               <span>点赞</span>
             </label>
-            <label class="switch">
-              <input v-model="form.allow_follow" type="checkbox" :disabled="saving" />
+            <label :class="ui.switch">
+              <input v-model="form.allow_follow" :class="ui.switchInput" type="checkbox" :disabled="saving" />
               <span>关注</span>
             </label>
-            <label class="switch">
-              <input v-model="form.allow_unfollow" type="checkbox" :disabled="saving" />
+            <label :class="ui.switch">
+              <input v-model="form.allow_unfollow" :class="ui.switchInput" type="checkbox" :disabled="saving" />
               <span>取消关注</span>
             </label>
-            <label class="switch">
-              <input v-model="form.allow_repost" type="checkbox" :disabled="saving" />
+            <label :class="ui.switch">
+              <input v-model="form.allow_repost" :class="ui.switchInput" type="checkbox" :disabled="saving" />
               <span>转发</span>
             </label>
-            <label class="switch">
-              <input v-model="form.allow_quote" type="checkbox" :disabled="saving" />
+            <label :class="ui.switch">
+              <input v-model="form.allow_quote" :class="ui.switchInput" type="checkbox" :disabled="saving" />
               <span>引用</span>
             </label>
           </div>
 
-          <h3 class="sub-title">定时策略</h3>
-          <p class="muted hint">按分钟配置 AI 的自主节奏，0 表示关闭对应策略；修改后保存立即生效。</p>
+          <h3 class="mx-0 mb-[6px] mt-[22px] text-[14px] font-extrabold">定时策略</h3>
+          <p :class="[ui.muted, 'm-0 mb-3']">按分钟配置 AI 的自主节奏，0 表示关闭对应策略；修改后保存立即生效。</p>
 
-          <div class="grid-three">
+          <div class="mt-3 grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-x-[14px]">
             <FormField
               label="发帖间隔（分钟）"
               input-id="behavior-post-interval"
@@ -263,7 +264,7 @@ async function onSubmit(): Promise<void> {
               <input
                 id="behavior-post-interval"
                 v-model.number="form.post_interval_minutes"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="0"
                 step="1"
@@ -281,7 +282,7 @@ async function onSubmit(): Promise<void> {
               <input
                 id="behavior-proactive-interval"
                 v-model.number="form.proactive_interval_minutes"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="0"
                 step="1"
@@ -291,8 +292,8 @@ async function onSubmit(): Promise<void> {
             </FormField>
           </div>
 
-          <h3 class="sub-title">候选范围</h3>
-          <p class="muted hint">
+          <h3 class="mx-0 mb-[6px] mt-[22px] text-[14px] font-extrabold">候选范围</h3>
+          <p :class="[ui.muted, 'm-0 mb-3']">
             候选范围决定 AI 主动动作时可以读取哪些公开内容；未配置有效目标时不会主动扫描全站。
           </p>
 
@@ -300,7 +301,7 @@ async function onSubmit(): Promise<void> {
             <select
               id="behavior-scope-type"
               v-model="form.candidate_scope_type"
-              class="input"
+              :class="ui.input"
               name="candidate_scope_type"
               :disabled="saving"
             >
@@ -322,7 +323,7 @@ async function onSubmit(): Promise<void> {
             <input
               id="behavior-scope-tags"
               v-model="form.scope_tags"
-              class="input"
+              :class="ui.input"
               type="text"
               name="scope_tags"
               :disabled="saving"
@@ -339,21 +340,21 @@ async function onSubmit(): Promise<void> {
             <input
               id="behavior-scope-usernames"
               v-model="form.scope_usernames"
-              class="input"
+              :class="ui.input"
               type="text"
               name="scope_usernames"
               :disabled="saving"
             />
           </FormField>
 
-          <h3 class="sub-title">互动限制</h3>
+          <h3 class="mx-0 mb-[6px] mt-[22px] text-[14px] font-extrabold">互动限制</h3>
 
-          <label class="switch">
-            <input v-model="form.allow_ai_to_ai" type="checkbox" :disabled="saving" />
+          <label :class="ui.switch">
+            <input v-model="form.allow_ai_to_ai" :class="ui.switchInput" type="checkbox" :disabled="saving" />
             <span>允许与其他 AI 互动</span>
           </label>
 
-          <div class="grid-three">
+          <div class="mt-3 grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-x-[14px]">
             <FormField
               label="冷却时间（秒）"
               input-id="behavior-cooldown"
@@ -362,7 +363,7 @@ async function onSubmit(): Promise<void> {
               <input
                 id="behavior-cooldown"
                 v-model.number="form.cooldown_seconds"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="0"
                 step="1"
@@ -379,7 +380,7 @@ async function onSubmit(): Promise<void> {
               <input
                 id="behavior-hours-start"
                 v-model.number="form.active_hours_start"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="0"
                 max="23"
@@ -397,7 +398,7 @@ async function onSubmit(): Promise<void> {
               <input
                 id="behavior-hours-end"
                 v-model.number="form.active_hours_end"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="0"
                 max="23"
@@ -416,7 +417,7 @@ async function onSubmit(): Promise<void> {
             <input
               id="behavior-reply-depth"
               v-model.number="form.max_reply_depth"
-              class="input"
+              :class="ui.input"
               type="number"
               min="0"
               step="1"
@@ -425,10 +426,10 @@ async function onSubmit(): Promise<void> {
             />
           </FormField>
 
-          <h3 class="sub-title">每日上限</h3>
-          <p class="muted hint">留空表示不限制；上限在任务执行层强制校验，与用户接口限频相互独立。</p>
+          <h3 class="mx-0 mb-[6px] mt-[22px] text-[14px] font-extrabold">每日上限</h3>
+          <p :class="[ui.muted, 'm-0 mb-3']">留空表示不限制；上限在任务执行层强制校验，与用户接口限频相互独立。</p>
 
-          <div class="grid-three">
+          <div class="mt-3 grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-x-[14px]">
             <FormField
               v-for="field in RATE_LIMIT_FIELDS"
               :key="field.key"
@@ -438,7 +439,7 @@ async function onSubmit(): Promise<void> {
               <input
                 :id="`behavior-rate-${field.key}`"
                 v-model.number="rateLimits[field.key]"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="0"
                 step="1"
@@ -448,45 +449,15 @@ async function onSubmit(): Promise<void> {
             </FormField>
           </div>
 
-          <div class="actions">
-            <button class="btn btn--primary" type="submit" :disabled="saving">
-              <span v-if="saving" class="spinner" aria-hidden="true"></span>
+          <div class="flex flex-wrap gap-2">
+            <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="saving">
+              <span v-if="saving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
               {{ saving ? '保存中…' : '保存行为策略' }}
             </button>
-            <button class="btn btn--secondary" type="button" :disabled="saving" @click="load">撤销更改</button>
+            <button :class="[ui.button, ui.buttonSecondary]" type="button" :disabled="saving" @click="load">撤销更改</button>
           </div>
         </form>
       </section>
     </template>
   </div>
 </template>
-
-<style scoped>
-.self-start {
-  align-self: flex-start;
-}
-.switch-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px 14px;
-}
-.sub-title {
-  margin: 22px 0 6px;
-  font-size: 14px;
-  font-weight: 800;
-}
-.hint {
-  margin: 0 0 12px;
-}
-.grid-three {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 0 14px;
-  margin-top: 12px;
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-</style>

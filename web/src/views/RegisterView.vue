@@ -6,6 +6,7 @@ import { errorMessage, fieldErrors } from '../api/client'
 import AlertNote from '../components/AlertNote.vue'
 import FormField from '../components/FormField.vue'
 import { loadSiteConfig, siteState } from '../stores/site'
+import { ui } from '../styles/ui'
 
 const router = useRouter()
 
@@ -70,28 +71,28 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <div class="constrain">
-    <section class="card card--pad">
-      <h1 class="page-title">注册</h1>
+  <div :class="[ui.constrain]">
+    <section :class="[ui.card, ui.cardPad]">
+      <h1 :class="[ui.pageTitle]">注册</h1>
 
-      <p v-if="!configLoaded" class="loading-row">
-        <span class="spinner" aria-hidden="true"></span> 正在读取注册状态…
+      <p v-if="!configLoaded" :class="[ui.loadingRow]">
+        <span :class="[ui.spinner]" aria-hidden="true"></span> 正在读取注册状态…
       </p>
 
       <template v-else-if="!registrationOpen">
         <AlertNote kind="warning">
           当前站点已关闭开放注册，暂不接受新账号。已有账号可以正常登录。
         </AlertNote>
-        <p class="muted closed-hint">如需开通账号，请联系站点管理员。</p>
-        <RouterLink class="btn btn--primary" to="/login">返回登录</RouterLink>
+        <p :class="[ui.muted, 'my-3']">如需开通账号，请联系站点管理员。</p>
+        <RouterLink :class="[ui.button, ui.buttonPrimary]" to="/login">返回登录</RouterLink>
       </template>
 
       <template v-else>
-        <p class="page-desc">创建时间线账号；注册成功后不会自动登录。</p>
+        <p :class="[ui.pageDesc]">创建时间线账号；注册成功后不会自动登录。</p>
 
         <AlertNote v-if="formError" kind="error">{{ formError }}</AlertNote>
 
-        <form class="form" novalidate @submit.prevent="onSubmit">
+        <form :class="[ui.form]" novalidate @submit.prevent="onSubmit">
           <FormField
             label="用户名"
             input-id="register-username"
@@ -101,7 +102,7 @@ async function onSubmit(): Promise<void> {
             <input
               id="register-username"
               v-model="form.username"
-              class="input"
+              :class="[ui.input]"
               type="text"
               name="username"
               autocomplete="username"
@@ -119,7 +120,7 @@ async function onSubmit(): Promise<void> {
             <input
               id="register-email"
               v-model="form.email"
-              class="input"
+              :class="[ui.input]"
               type="email"
               name="email"
               autocomplete="email"
@@ -132,7 +133,7 @@ async function onSubmit(): Promise<void> {
             <input
               id="register-password"
               v-model="form.password"
-              class="input"
+              :class="[ui.input]"
               type="password"
               name="password"
               autocomplete="new-password"
@@ -141,24 +142,15 @@ async function onSubmit(): Promise<void> {
             />
           </FormField>
 
-          <button class="btn btn--primary btn--block" type="submit" :disabled="submitting">
-            <span v-if="submitting" class="spinner" aria-hidden="true"></span>
+          <button :class="[ui.button, ui.buttonPrimary, ui.buttonBlock]" type="submit" :disabled="submitting">
+            <span v-if="submitting" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
             {{ submitting ? '注册中…' : '注册' }}
           </button>
         </form>
 
-        <p class="muted switch-link">已有账号？<RouterLink to="/login">直接登录</RouterLink></p>
-        <p class="muted">若站点在提交前关闭了开放注册，后端会返回提示且不会创建账号。</p>
+        <p :class="[ui.muted, 'mt-4 mb-2']">已有账号？<RouterLink to="/login">直接登录</RouterLink></p>
+        <p :class="[ui.muted]">若站点在提交前关闭了开放注册，后端会返回提示且不会创建账号。</p>
       </template>
     </section>
   </div>
 </template>
-
-<style scoped>
-.switch-link {
-  margin: 16px 0 8px;
-}
-.closed-hint {
-  margin: 12px 0;
-}
-</style>

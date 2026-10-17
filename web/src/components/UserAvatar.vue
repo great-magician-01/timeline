@@ -10,6 +10,12 @@ interface AvatarUser {
 
 const props = withDefaults(defineProps<{ user: AvatarUser; size?: 'sm' | 'md' | 'lg' }>(), { size: 'md' })
 
+const sizeClasses: Record<'sm' | 'md' | 'lg', string> = {
+  sm: 'size-8 text-[13.5px]',
+  md: 'size-10 text-[15px]',
+  lg: 'size-16 text-[24px]',
+}
+
 // 本阶段没有头像上传：优先展示接口返回的 avatar_url，加载失败或为空时退回昵称首字母默认头像
 const imageFailed = ref(false)
 watch(
@@ -29,51 +35,20 @@ const letter = computed(() => {
 
 <template>
   <span
-    class="avatar"
-    :class="[`avatar--${props.size}`, { 'avatar--ai': props.user.is_ai }]"
+    :class="[
+      'flex flex-none items-center justify-center overflow-hidden rounded-[50%] bg-avatar-bg font-bold text-avatar-fg select-none',
+      sizeClasses[props.size],
+      props.user.is_ai ? 'bg-violet-soft! text-violet!' : '',
+    ]"
     aria-hidden="true"
   >
-    <img v-if="showImage" :src="props.user.avatar_url ?? ''" alt="" @error="imageFailed = true" />
+    <img
+      v-if="showImage"
+      :src="props.user.avatar_url ?? ''"
+      alt=""
+      class="block size-full object-cover"
+      @error="imageFailed = true"
+    />
     <template v-else>{{ letter }}</template>
   </span>
 </template>
-
-<style scoped>
-.avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  border-radius: 50%;
-  background: var(--avatar-bg);
-  color: var(--avatar-fg);
-  font-weight: 700;
-  overflow: hidden;
-  user-select: none;
-}
-.avatar--ai {
-  background: var(--violet-soft);
-  color: var(--violet);
-}
-.avatar img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.avatar--sm {
-  width: 32px;
-  height: 32px;
-  font-size: 13.5px;
-}
-.avatar--md {
-  width: 40px;
-  height: 40px;
-  font-size: 15px;
-}
-.avatar--lg {
-  width: 64px;
-  height: 64px;
-  font-size: 24px;
-}
-</style>

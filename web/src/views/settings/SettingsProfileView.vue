@@ -8,6 +8,7 @@ import AlertNote from '../../components/AlertNote.vue'
 import FormField from '../../components/FormField.vue'
 import UserAvatar from '../../components/UserAvatar.vue'
 import { authState, setCurrentUser } from '../../stores/auth'
+import { ui } from '../../styles/ui'
 
 const user = computed(() => authState.user)
 
@@ -89,14 +90,14 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <section class="card card--pad">
-    <h2 class="page-title">头像</h2>
-    <div class="avatar-row">
+  <section :class="[ui.card, ui.cardPad]">
+    <h2 :class="[ui.pageTitle]">头像</h2>
+    <div class="mt-3 flex items-center gap-3.5">
       <UserAvatar v-if="user" :user="user" size="lg" />
-      <div class="avatar-actions">
+      <div class="grid min-w-0 gap-2">
         <input
           ref="avatarInput"
-          class="visually-hidden"
+          class="absolute -m-px size-px overflow-hidden border-0 border-solid p-0 whitespace-nowrap [clip:rect(0,0,0,0)]"
           type="file"
           accept="image/*"
           aria-label="选择头像图片"
@@ -104,36 +105,36 @@ async function onSubmit(): Promise<void> {
           @change="onAvatarSelected"
         />
         <button
-          class="btn btn--secondary btn--sm"
+          :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
           type="button"
           :disabled="avatarUploading || suspended"
           @click="pickAvatar"
         >
-          <span v-if="avatarUploading" class="spinner" aria-hidden="true"></span>
+          <span v-if="avatarUploading" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
           {{ avatarUploading ? '上传中…' : '更换头像' }}
         </button>
-        <p class="muted">支持常见图片格式；未设置头像时使用昵称首字母生成的默认头像。</p>
+        <p :class="[ui.muted, 'm-0']">支持常见图片格式；未设置头像时使用昵称首字母生成的默认头像。</p>
         <AlertNote v-if="avatarNotice" kind="success">{{ avatarNotice }}</AlertNote>
         <AlertNote v-if="avatarError" kind="error">{{ avatarError }}</AlertNote>
-        <p v-if="suspended" class="muted">账号已被停用，暂时无法更换头像。</p>
+        <p v-if="suspended" :class="[ui.muted, 'm-0']">账号已被停用，暂时无法更换头像。</p>
       </div>
     </div>
   </section>
 
-  <section class="card card--pad">
-    <h2 class="page-title">个人资料</h2>
-    <p class="page-desc">这些信息会展示在你的个人主页上。</p>
+  <section :class="[ui.card, ui.cardPad]">
+    <h2 :class="[ui.pageTitle]">个人资料</h2>
+    <p :class="[ui.pageDesc]">这些信息会展示在你的个人主页上。</p>
 
     <AlertNote v-if="suspended" kind="warning">账号已被停用，暂时无法保存资料，请联系管理员。</AlertNote>
     <AlertNote v-if="saved" kind="success">资料已保存。</AlertNote>
     <AlertNote v-if="formError" kind="error">{{ formError }}</AlertNote>
 
-    <form class="form" novalidate @submit.prevent="onSubmit">
+    <form :class="[ui.form]" novalidate @submit.prevent="onSubmit">
       <FormField label="昵称" input-id="profile-nickname" :error="errors.nickname" hint="展示在主页与其他用户可见的位置">
         <input
           id="profile-nickname"
           v-model="form.nickname"
-          class="input"
+          :class="[ui.input]"
           type="text"
           name="nickname"
           autocomplete="nickname"
@@ -146,45 +147,17 @@ async function onSubmit(): Promise<void> {
         <textarea
           id="profile-bio"
           v-model="form.bio"
-          class="textarea"
+          :class="[ui.input, ui.textarea]"
           name="bio"
           placeholder="简单介绍一下自己"
           :disabled="saving || suspended"
         ></textarea>
       </FormField>
 
-      <button class="btn btn--primary" type="submit" :disabled="saving || suspended">
-        <span v-if="saving" class="spinner" aria-hidden="true"></span>
+      <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="saving || suspended">
+        <span v-if="saving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
         {{ saving ? '保存中…' : '保存资料' }}
       </button>
     </form>
   </section>
 </template>
-
-<style scoped>
-.avatar-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: 12px;
-}
-.avatar-row .muted {
-  margin: 0;
-}
-.avatar-actions {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-</style>

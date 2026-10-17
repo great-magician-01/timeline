@@ -98,62 +98,75 @@ function isActive(to: string): boolean {
 </script>
 
 <template>
-  <div class="app">
-    <div class="shell">
-      <aside class="sidebar">
-        <div class="side-head">
-          <RouterLink to="/" class="brand" aria-label="时间线首页">
-            <BrandMark class="mark" />
-            <span class="wordmark">时间线</span>
+  <div>
+    <div class="mx-auto grid max-w-[940px] grid-cols-[236px_minmax(0,1fr)] items-start gap-5 px-4 shell-down:block shell-down:max-w-none shell-down:p-0">
+      <aside class="sticky top-0 flex h-screen flex-col pb-3 pt-[14px] shell-down:hidden">
+        <div class="flex items-center gap-2 px-[10px] py-[6px]">
+          <RouterLink to="/" class="flex min-w-0 items-center gap-[10px] text-ink hover:no-underline" aria-label="时间线首页">
+            <BrandMark class="size-[30px]" />
+            <span class="text-[17px] font-extrabold tracking-[0.04em]">时间线</span>
           </RouterLink>
-          <button class="icon-btn" type="button" :aria-label="themeLabel" @click="toggleTheme">
+          <button
+            class="ml-auto flex size-[34px] items-center justify-center rounded-[8px] text-ink-3 transition-[background,color] duration-150 ease-[ease] hover:bg-hover hover:text-ink"
+            type="button"
+            :aria-label="themeLabel"
+            @click="toggleTheme"
+          >
             <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="19" />
           </button>
         </div>
 
-        <nav class="side-nav" aria-label="主导航">
+        <nav class="mt-[14px] flex min-h-0 flex-col gap-[2px] overflow-y-auto" aria-label="主导航">
           <RouterLink
             v-for="item in mainNav"
             :key="item.to"
             :to="item.to"
-            class="nav-item"
-            :class="{ 'is-active': isActive(item.to) }"
+            :class="[
+              'flex items-center gap-3 rounded-[10px] px-3 py-[9px] text-[15px] font-semibold text-ink-2 transition-[background,color] duration-150 ease-[ease] hover:bg-hover hover:text-ink hover:no-underline',
+              isActive(item.to) ? 'bg-soft! text-ink! font-bold!' : '',
+            ]"
           >
             <AppIcon :name="item.icon" :size="21" />
-            <span class="txt">{{ item.label }}</span>
+            <span>{{ item.label }}</span>
             <span
               v-if="item.to === '/notifications' && notificationState.unread > 0"
-              class="nav-badge"
+              class="ml-auto min-w-[20px] rounded-[999px] bg-primary px-[6px] text-center text-[11.5px] font-bold leading-[20px] text-on-media"
               >{{ notificationState.unread > 99 ? '99+' : notificationState.unread }}</span
             >
           </RouterLink>
 
           <template v-if="adminNav.length > 0">
-            <p class="nav-label">管理</p>
+            <p class="mx-3 mb-[6px] mt-4 text-[12px] font-bold tracking-[0.06em] text-ink-3">管理</p>
             <RouterLink
               v-for="item in adminNav"
               :key="item.to"
               :to="item.to"
-              class="nav-item"
-              :class="{ 'is-active': isActive(item.to) }"
+              :class="[
+                'flex items-center gap-3 rounded-[10px] px-3 py-[9px] text-[15px] font-semibold text-ink-2 transition-[background,color] duration-150 ease-[ease] hover:bg-hover hover:text-ink hover:no-underline',
+                isActive(item.to) ? 'bg-soft! text-ink! font-bold!' : '',
+              ]"
             >
               <AppIcon :name="item.icon" :size="21" />
-              <span class="txt">{{ item.label }}</span>
+              <span>{{ item.label }}</span>
             </RouterLink>
           </template>
         </nav>
 
-        <div class="side-foot">
-          <p v-if="!authState.ready" class="side-note">载入中…</p>
-          <RouterLink v-else-if="user" :to="`/users/${user.username}`" class="me">
+        <div class="mt-auto pt-3">
+          <p v-if="!authState.ready" class="mx-[10px] my-0 text-[12.5px] leading-[1.7] text-ink-3">载入中…</p>
+          <RouterLink
+            v-else-if="user"
+            :to="`/users/${user.username}`"
+            class="flex items-center gap-[10px] rounded-[12px] px-[10px] py-2 text-ink hover:bg-hover hover:no-underline"
+          >
             <UserAvatar :user="user" size="sm" />
-            <span class="me-info">
-              <span class="me-name">{{ user.nickname || user.username }}</span>
-              <span class="me-handle">@{{ user.username }}</span>
+            <span class="flex min-w-0 flex-col leading-[1.35]">
+              <span class="overflow-hidden text-ellipsis whitespace-nowrap text-[14.5px] font-bold">{{ user.nickname || user.username }}</span>
+              <span class="text-[12.5px] text-ink-3">@{{ user.username }}</span>
             </span>
-            <AppIcon name="chevron-right" :size="17" class="me-arrow" />
+            <AppIcon name="chevron-right" :size="17" class="ml-auto text-ink-3" />
           </RouterLink>
-          <p v-else class="side-note">
+          <p v-else class="mx-[10px] my-0 text-[12.5px] leading-[1.7] text-ink-3">
             {{
               siteState.registrationEnabled
                 ? '帖子、评论与 AI 功能需要登录后使用；现在可以注册账号、管理资料与账号安全。'
@@ -163,36 +176,52 @@ function isActive(to: string): boolean {
         </div>
       </aside>
 
-      <header class="mtopbar">
-        <RouterLink to="/" class="brand" aria-label="时间线首页">
-          <BrandMark class="mark" />
-          <span class="wordmark">时间线</span>
+      <header
+        class="hidden shell-down:sticky shell-down:top-0 shell-down:z-30 shell-down:flex shell-down:h-[50px] shell-down:items-center shell-down:gap-[10px] shell-down:border-b shell-down:border-solid shell-down:border-border shell-down:bg-glass shell-down:px-[14px] shell-down:backdrop-blur-[6px]"
+      >
+        <RouterLink
+          to="/"
+          class="flex min-w-0 items-center gap-[10px] text-ink hover:no-underline shell-down:mr-auto"
+          aria-label="时间线首页"
+        >
+          <BrandMark class="size-[30px] shell-down:size-[26px]" />
+          <span class="text-[17px] font-extrabold tracking-[0.04em] shell-down:text-[16px]">时间线</span>
         </RouterLink>
         <RouterLink
           v-if="user"
           :to="`/users/${user.username}`"
-          class="mtop-me"
+          class="shell-down:flex"
           :aria-label="`我的主页：${user.nickname || user.username}`"
         >
           <UserAvatar :user="user" size="sm" />
         </RouterLink>
-        <button class="icon-btn" type="button" :aria-label="themeLabel" @click="toggleTheme">
+        <button
+          class="ml-auto flex size-[34px] items-center justify-center rounded-[8px] text-ink-3 transition-[background,color] duration-150 ease-[ease] hover:bg-hover hover:text-ink shell-down:ml-0"
+          type="button"
+          :aria-label="themeLabel"
+          @click="toggleTheme"
+        >
           <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="19" />
         </button>
       </header>
 
-      <main class="main">
+      <main class="min-w-0 pb-[72px] pt-4 shell-down:px-3 shell-down:pb-[84px] shell-down:pt-3">
         <RouterView />
       </main>
     </div>
 
-    <nav class="tabbar" aria-label="底部导航">
+    <nav
+      class="hidden shell-down:fixed shell-down:inset-x-0 shell-down:bottom-0 shell-down:z-40 shell-down:flex shell-down:border-t shell-down:border-solid shell-down:border-border shell-down:bg-glass shell-down:px-1 shell-down:pb-[calc(6px_+_env(safe-area-inset-bottom,0px))] shell-down:pt-[6px] shell-down:backdrop-blur-[8px]"
+      aria-label="底部导航"
+    >
       <RouterLink
         v-for="item in tabNav"
         :key="item.to"
         :to="item.to"
-        class="tab"
-        :class="{ 'is-active': isActive(item.to) }"
+        :class="[
+          'flex flex-1 flex-col items-center gap-[2px] py-1 text-[10.5px] text-ink-3 hover:no-underline',
+          isActive(item.to) ? 'text-primary! font-bold' : '',
+        ]"
       >
         <AppIcon :name="item.icon" :size="22" />
         <span>{{ item.label }}</span>
@@ -200,242 +229,3 @@ function isActive(to: string): boolean {
     </nav>
   </div>
 </template>
-
-<style scoped>
-.shell {
-  display: grid;
-  grid-template-columns: 236px minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
-  max-width: 940px;
-  margin: 0 auto;
-  padding: 0 16px;
-}
-
-/* ---------- 桌面侧栏 ---------- */
-.sidebar {
-  position: sticky;
-  top: 0;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  padding: 14px 0 12px;
-}
-.side-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  color: var(--ink);
-}
-.brand:hover {
-  text-decoration: none;
-}
-.mark {
-  width: 30px;
-  height: 30px;
-}
-.wordmark {
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-}
-.icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  margin-left: auto;
-  border-radius: 8px;
-  color: var(--ink-3);
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.icon-btn:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-.side-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 14px;
-  /* 导航项较多或窗口较矮时允许侧栏内部滚动，避免被 100vh 裁掉 */
-  min-height: 0;
-  overflow-y: auto;
-}
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 12px;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--ink-2);
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.nav-item:hover {
-  background: var(--hover);
-  color: var(--ink);
-  text-decoration: none;
-}
-.nav-item.is-active {
-  background: var(--soft);
-  color: var(--ink);
-  font-weight: 700;
-}
-.nav-badge {
-  margin-left: auto;
-  min-width: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--primary);
-  color: var(--on-media);
-  font-size: 11.5px;
-  font-weight: 700;
-  line-height: 20px;
-  text-align: center;
-}
-.nav-label {
-  margin: 16px 12px 6px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--ink-3);
-}
-.side-foot {
-  margin-top: auto;
-  padding-top: 12px;
-}
-.side-note {
-  margin: 0 10px;
-  font-size: 12.5px;
-  line-height: 1.7;
-  color: var(--ink-3);
-}
-.me {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  color: var(--ink);
-}
-.me:hover {
-  background: var(--hover);
-  text-decoration: none;
-}
-.me-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.35;
-}
-.me-name {
-  font-size: 14.5px;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.me-handle {
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.me-arrow {
-  margin-left: auto;
-  color: var(--ink-3);
-}
-
-/* ---------- 内容列 ---------- */
-.main {
-  min-width: 0;
-  padding: 16px 0 72px;
-}
-.mtopbar {
-  display: none;
-}
-.tabbar {
-  display: none;
-}
-
-/* ---------- 移动端（断点 880px） ---------- */
-@media (max-width: 880px) {
-  .shell {
-    display: block;
-    max-width: none;
-    padding: 0;
-  }
-  .sidebar {
-    display: none;
-  }
-  .mtopbar {
-    position: sticky;
-    top: 0;
-    z-index: 30;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    height: 50px;
-    padding: 0 14px;
-    background: var(--glass);
-    backdrop-filter: blur(6px);
-    border-bottom: 1px solid var(--border);
-  }
-  .mtopbar .brand {
-    margin-right: auto;
-  }
-  .mtopbar .mark {
-    width: 26px;
-    height: 26px;
-  }
-  .mtopbar .wordmark {
-    font-size: 16px;
-  }
-  .mtopbar .icon-btn {
-    margin-left: 0;
-  }
-  .mtop-me {
-    display: flex;
-  }
-  .main {
-    padding: 12px 12px 84px;
-  }
-  .tabbar {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 40;
-    display: flex;
-    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
-    background: var(--glass);
-    backdrop-filter: blur(8px);
-    border-top: 1px solid var(--border);
-  }
-  .tab {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    padding: 4px 0;
-    font-size: 10.5px;
-    color: var(--ink-3);
-  }
-  .tab:hover {
-    text-decoration: none;
-  }
-  .tab.is-active {
-    color: var(--primary);
-    font-weight: 700;
-  }
-}
-</style>

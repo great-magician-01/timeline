@@ -1,4 +1,4 @@
-/* 时间线设计令牌与基础样式
+/* 时间线设计令牌
    唯一来源：docs/DESIGN_SYSTEM.md（Vue 实现基线）。
    规则：组件中不得出现字面量颜色，一律引用这里的自定义属性。 */
 
@@ -68,48 +68,4 @@ html[data-theme='dark'] {
   --on-media-soft: rgba(255, 255, 255, 0.16);
   --media-bg: #000000;
   --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.12);
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--ink);
-  font-family:
-    -apple-system, 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', 'Noto Sans SC',
-    sans-serif;
-  font-size: 15px;
-  line-height: 1.8;
-}
-
-a {
-  color: var(--primary);
-  text-decoration: none;
-}
-
-a:hover {
-  text-decoration: underline;
-}
-
-button {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: 0;
-  cursor: pointer;
-}
-
-:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none !important;
-  }
 }

@@ -9,6 +9,7 @@ import { errorMessage } from '../api/client'
 import { deleteComment, likeComment, unlikeComment } from '../api/social'
 import { authState } from '../stores/auth'
 import { relativeTime, timeTitle } from '../utils/format'
+import { ui } from '../styles/ui'
 
 const props = withDefaults(
   defineProps<{
@@ -88,33 +89,44 @@ async function remove(): Promise<void> {
 </script>
 
 <template>
-  <li class="comment" :class="{ 'is-nested': nested }">
-    <RouterLink :to="`/users/${comment.author.username}`" class="avatar-link">
+  <li
+    :class="[
+      'flex gap-[10px] border-t border-solid border-border first:border-t-0',
+      nested ? 'border-dashed! py-2' : 'py-3',
+    ]"
+  >
+    <RouterLink :to="`/users/${comment.author.username}`">
       <UserAvatar :user="comment.author" size="sm" />
     </RouterLink>
-    <div class="main">
-      <p class="head">
-        <RouterLink :to="`/users/${comment.author.username}`" class="name">
+    <div class="grid min-w-0 flex-1 gap-[6px]">
+      <p class="m-0 flex flex-wrap items-center gap-[6px] text-[13.5px]">
+        <RouterLink :to="`/users/${comment.author.username}`" class="font-bold text-ink">
           {{ comment.author.nickname || comment.author.username }}
         </RouterLink>
-        <span class="handle">@{{ comment.author.username }}</span>
-        <span v-if="comment.author.is_ai" class="badge badge--ai">AI</span>
-        <span v-if="comment.author.is_suspended" class="badge badge--muted">已停用</span>
-        <span class="dot">·</span>
-        <span :title="timeTitle(comment.created_at)" class="muted">{{ relativeTime(comment.created_at) }}</span>
+        <span class="text-[12.5px] text-ink-3">@{{ comment.author.username }}</span>
+        <span v-if="comment.author.is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
+        <span v-if="comment.author.is_suspended" :class="[ui.badge, ui.badgeMuted]">已停用</span>
+        <span class="text-[12.5px] text-ink-3">·</span>
+        <span :title="timeTitle(comment.created_at)" class="text-[12.5px] text-ink-3">{{
+          relativeTime(comment.created_at)
+        }}</span>
       </p>
 
-      <p v-if="deleted" class="deleted">
+      <p v-if="deleted" class="m-0 flex items-center gap-[6px] rounded-[8px] bg-soft px-[10px] py-2 text-[13px] text-ink-3">
         <AppIcon name="info" :size="15" />
         <span>评论已删除</span>
       </p>
-      <div v-else class="content" v-html="comment.content_html"></div>
+      <div
+        v-else
+        class="text-[14.5px] leading-[1.7] [word-break:break-word] [&_a.tl-mention]:font-semibold [&_a.tl-mention]:text-primary [&_a.tl-tag]:font-semibold [&_a.tl-tag]:text-primary"
+        v-html="comment.content_html"
+      ></div>
 
-      <div v-if="!deleted && !authorSuspended" class="acts">
+      <div v-if="!deleted && !authorSuspended" class="flex gap-3">
         <button
           type="button"
-          class="act"
-          :class="{ 'is-on': liked }"
+          class="inline-flex items-center gap-[5px] rounded-[6px] px-[6px] py-[3px] text-[12.5px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-ink!"
+          :class="liked ? 'text-primary! font-bold' : ''"
           :disabled="busy"
           @click="toggleLike"
         >
@@ -122,23 +134,38 @@ async function remove(): Promise<void> {
           <span v-if="likeCount > 0">{{ likeCount }}</span>
           <span v-else>点赞</span>
         </button>
-        <button v-if="replyable" type="button" class="act" :disabled="busy" @click="emit('reply', comment)">
+        <button
+          v-if="replyable"
+          type="button"
+          class="inline-flex items-center gap-[5px] rounded-[6px] px-[6px] py-[3px] text-[12.5px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-ink!"
+          :disabled="busy"
+          @click="emit('reply', comment)"
+        >
           <AppIcon name="message" :size="15" />
           <span>回复</span>
         </button>
-        <button v-if="canDelete" type="button" class="act danger" :disabled="busy" @click="remove">
+        <button
+          v-if="canDelete"
+          type="button"
+          class="inline-flex items-center gap-[5px] rounded-[6px] px-[6px] py-[3px] text-[12.5px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-red!"
+          :disabled="busy"
+          @click="remove"
+        >
           <AppIcon name="trash" :size="15" />
           <span>删除</span>
         </button>
       </div>
-      <p v-else-if="!deleted && authorSuspended" class="readonly-note">
+      <p v-else-if="!deleted && authorSuspended" class="m-0 flex items-center gap-[5px] text-[12.5px] text-ink-3">
         <AppIcon name="lock" :size="14" />
         作者已停用，互动入口已关闭
       </p>
 
-      <p v-if="notice" class="alert alert--warning">{{ notice }}</p>
+      <p v-if="notice" :class="[ui.alert, ui.alertVariants.warning.root]">{{ notice }}</p>
 
-      <ul v-if="!nested && comment.reply_preview && comment.reply_preview.length > 0" class="replies">
+      <ul
+        v-if="!nested && comment.reply_preview && comment.reply_preview.length > 0"
+        class="m-0 list-none border-l-2 border-solid border-border py-0 pl-1"
+      >
         <CommentItem
           v-for="reply in comment.reply_preview"
           :key="reply.id"
@@ -151,113 +178,10 @@ async function remove(): Promise<void> {
       <RouterLink
         v-if="!nested && comment.reply_count > (comment.reply_preview?.length ?? 0)"
         :to="`/posts/${comment.post_id}`"
-        class="more-replies"
+        class="text-[12.5px] text-primary"
       >
         查看全部 {{ comment.reply_count }} 条回复
       </RouterLink>
     </div>
   </li>
 </template>
-
-<style scoped>
-.comment {
-  display: flex;
-  gap: 10px;
-  padding: 12px 0;
-  border-top: 1px solid var(--border);
-}
-.comment:first-child {
-  border-top: none;
-}
-.is-nested {
-  padding: 8px 0;
-  border-top: 1px dashed var(--border);
-}
-.main {
-  min-width: 0;
-  flex: 1;
-  display: grid;
-  gap: 6px;
-}
-.head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  font-size: 13.5px;
-  flex-wrap: wrap;
-}
-.name {
-  font-weight: 700;
-  color: var(--ink);
-}
-.handle,
-.dot,
-.muted {
-  color: var(--ink-3);
-  font-size: 12.5px;
-}
-.content {
-  font-size: 14.5px;
-  line-height: 1.7;
-  word-break: break-word;
-}
-.content :deep(a.tl-tag),
-.content :deep(a.tl-mention) {
-  color: var(--primary);
-  font-weight: 600;
-}
-.deleted {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--soft);
-  color: var(--ink-3);
-  font-size: 13px;
-}
-.acts {
-  display: flex;
-  gap: 12px;
-}
-.act {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 6px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.act:hover:not(:disabled) {
-  background: var(--hover);
-  color: var(--ink);
-}
-.act.is-on {
-  color: var(--primary);
-  font-weight: 700;
-}
-.act.danger:hover:not(:disabled) {
-  color: var(--red);
-}
-.readonly-note {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-.replies {
-  margin: 0;
-  padding: 0 0 0 4px;
-  list-style: none;
-  border-left: 2px solid var(--border);
-}
-.more-replies {
-  font-size: 12.5px;
-  color: var(--primary);
-}
-</style>

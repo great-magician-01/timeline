@@ -9,6 +9,7 @@ import PostComposer from '../components/PostComposer.vue'
 import { errorMessage } from '../api/client'
 import { getPost } from '../api/posts'
 import type { PostDetail } from '../api/types'
+import { ui } from '../styles/ui'
 
 const route = useRoute()
 const router = useRouter()
@@ -68,42 +69,27 @@ function onPublished(id: string): void {
 </script>
 
 <template>
-  <div class="constrain">
-    <div class="stack">
-      <header class="page-head">
-        <RouterLink class="back-link" :to="editingDraft ? { name: 'drafts' } : { name: 'home' }">
+  <div :class="[ui.constrain]">
+    <div :class="[ui.stack]">
+      <header :class="[ui.pageHead]">
+        <RouterLink class="mb-2 inline-flex items-center gap-1.5 text-[13.5px] text-ink-2 hover:text-ink hover:no-underline" :to="editingDraft ? { name: 'drafts' } : { name: 'home' }">
           <AppIcon name="arrow-left" :size="16" />
           {{ editingDraft ? '返回草稿列表' : '返回首页' }}
         </RouterLink>
-        <h1 class="page-title">{{ title }}</h1>
-        <p class="page-desc">
+        <h1 :class="[ui.pageTitle]">{{ title }}</h1>
+        <p :class="[ui.pageDesc]">
           {{ editingDraft ? '草稿只有你自己可见，发布前不会进入任何时间线。' : '支持富文本与附件；保存草稿后可以稍后继续编辑或定时发布。' }}
         </p>
       </header>
 
-      <p v-if="quoteLoading" class="card card--pad loading-row">
-        <span class="spinner" aria-hidden="true"></span> 正在载入被引用的帖子…
+      <p v-if="quoteLoading" :class="[ui.card, ui.loadingRow]">
+        <span :class="[ui.spinner]" aria-hidden="true"></span> 正在载入被引用的帖子…
       </p>
       <AlertNote v-else-if="quoteError" kind="warning">{{ quoteError }}</AlertNote>
 
-      <section class="card card--pad">
+      <section :class="[ui.card, ui.cardPad]">
         <PostComposer :post-id="draftId || undefined" :quoted-post="quoted" @published="onPublished" />
       </section>
     </div>
   </div>
 </template>
-
-<style scoped>
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  font-size: 13.5px;
-  color: var(--ink-2);
-}
-.back-link:hover {
-  color: var(--ink);
-  text-decoration: none;
-}
-</style>

@@ -10,6 +10,7 @@ import AppIcon from '../../components/AppIcon.vue'
 import FormField from '../../components/FormField.vue'
 import { useCursorList } from '../../composables/useCursorList'
 import { formatDateTime } from '../../utils/datetime'
+import { ui } from '../../styles/ui'
 
 type ProviderFilters = {
   q?: string
@@ -217,27 +218,27 @@ function modelPreview(result: ProviderTestResult | null): string {
 </script>
 
 <template>
-  <div class="stack">
-    <section class="card card--pad">
-      <div class="head-row">
+  <div :class="ui.stack">
+    <section :class="[ui.card, ui.cardPad]">
+      <div class="flex items-start gap-3">
         <div>
-          <h2 class="page-title">模型接口预设</h2>
-          <p class="page-desc">维护 OpenAI 兼容接口地址与密钥；密钥仅以掩码展示，不提供查看明文入口。</p>
+          <h2 :class="ui.pageTitle">模型接口预设</h2>
+          <p :class="ui.pageDesc">维护 OpenAI 兼容接口地址与密钥；密钥仅以掩码展示，不提供查看明文入口。</p>
         </div>
-        <button class="btn btn--primary btn--sm" type="button" @click="showCreate = !showCreate">
+        <button :class="[ui.button, ui.buttonPrimary, ui.buttonSmall, 'ml-auto']" type="button" @click="showCreate = !showCreate">
           <AppIcon :name="showCreate ? 'chevron-down' : 'plus'" :size="16" />
           {{ showCreate ? '收起新建表单' : '新建预设' }}
         </button>
       </div>
 
-      <form v-if="showCreate" class="form" novalidate @submit.prevent="onCreate">
+      <form v-if="showCreate" :class="ui.form" novalidate @submit.prevent="onCreate">
         <AlertNote v-if="createError" kind="error">{{ createError }}</AlertNote>
 
         <FormField label="预设名称" input-id="provider-name" :error="createErrors.name" hint="例如「内部网关」「生产 OpenAI」">
           <input
             id="provider-name"
             v-model="createForm.name"
-            class="input"
+            :class="ui.input"
             type="text"
             name="name"
             placeholder="预设名称"
@@ -254,7 +255,7 @@ function modelPreview(result: ProviderTestResult | null): string {
           <input
             id="provider-base-url"
             v-model="createForm.base_url"
-            class="input"
+            :class="ui.input"
             type="url"
             name="base_url"
             placeholder="https://api.example.com/v1"
@@ -271,7 +272,7 @@ function modelPreview(result: ProviderTestResult | null): string {
           <input
             id="provider-api-key"
             v-model="createForm.api_key"
-            class="input"
+            :class="ui.input"
             type="password"
             name="api_key"
             autocomplete="off"
@@ -284,7 +285,7 @@ function modelPreview(result: ProviderTestResult | null): string {
           <input
             id="provider-default-model"
             v-model="createForm.default_model"
-            class="input"
+            :class="ui.input"
             type="text"
             name="default_model"
             placeholder="gpt-4o-mini"
@@ -292,41 +293,41 @@ function modelPreview(result: ProviderTestResult | null): string {
           />
         </FormField>
 
-        <div class="actions">
-          <button class="btn btn--primary" type="submit" :disabled="creating">
-            <span v-if="creating" class="spinner" aria-hidden="true"></span>
+        <div class="flex flex-wrap gap-[6px]">
+          <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="creating">
+            <span v-if="creating" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
             {{ creating ? '创建中…' : '创建预设' }}
           </button>
-          <button class="btn btn--secondary" type="button" :disabled="creating" @click="resetCreateForm">
+          <button :class="[ui.button, ui.buttonSecondary]" type="button" :disabled="creating" @click="resetCreateForm">
             清空
           </button>
         </div>
       </form>
     </section>
 
-    <section class="card card--pad">
-      <form class="search-form" @submit.prevent="onSearch">
-        <div class="search-box">
-          <AppIcon name="search" :size="17" class="search-icon" />
+    <section :class="[ui.card, ui.cardPad]">
+      <form class="flex gap-2" @submit.prevent="onSearch">
+        <div class="relative min-w-0 flex-1">
+          <AppIcon name="search" :size="17" class="pointer-events-none absolute top-1/2 left-[11px] -translate-y-1/2 text-ink-3" />
           <input
             v-model="filters.q"
-            class="input search-input"
+            :class="[ui.input, 'pl-9!']"
             type="search"
             name="q"
             placeholder="搜索预设名称"
             aria-label="搜索预设名称"
           />
         </div>
-        <button class="btn btn--primary" type="submit" :disabled="loading">查询</button>
+        <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="loading">查询</button>
       </form>
 
-      <div class="filter-row">
-        <div class="seg" role="group" aria-label="启用状态筛选">
-          <button type="button" :class="{ 'is-active': filters.status === '' }" @click="setStatus('')">全部</button>
-          <button type="button" :class="{ 'is-active': filters.status === 'enabled' }" @click="setStatus('enabled')">
+      <div class="mt-3 flex flex-wrap gap-2">
+        <div :class="ui.segment" role="group" aria-label="启用状态筛选">
+          <button type="button" :class="[ui.segmentButton, filters.status === '' ? ui.segmentButtonActive : '']" @click="setStatus('')">全部</button>
+          <button type="button" :class="[ui.segmentButton, filters.status === 'enabled' ? ui.segmentButtonActive : '']" @click="setStatus('enabled')">
             已启用
           </button>
-          <button type="button" :class="{ 'is-active': filters.status === 'disabled' }" @click="setStatus('disabled')">
+          <button type="button" :class="[ui.segmentButton, filters.status === 'disabled' ? ui.segmentButtonActive : '']" @click="setStatus('disabled')">
             已停用
           </button>
         </div>
@@ -337,25 +338,25 @@ function modelPreview(result: ProviderTestResult | null): string {
     <AlertNote v-if="actionNotice" kind="success">{{ actionNotice }}</AlertNote>
     <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-    <p v-if="initialLoading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+    <p v-if="initialLoading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="listError && items.length === 0">
       <AlertNote kind="error">{{ listError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
     </template>
 
-    <section v-else-if="items.length === 0" class="card card--pad">
-      <div class="empty">
-        <AppIcon name="key" :size="26" />
-        <strong>还没有模型接口预设</strong>
-        <p>先创建一个 OpenAI 兼容预设，再为 AI 配置模型。</p>
+    <section v-else-if="items.length === 0" :class="[ui.card, ui.cardPad]">
+      <div :class="ui.empty">
+        <AppIcon name="key" :size="26" :class="ui.emptyIcon" />
+        <strong :class="ui.emptyStrong">还没有模型接口预设</strong>
+        <p :class="ui.emptyText">先创建一个 OpenAI 兼容预设，再为 AI 配置模型。</p>
       </div>
     </section>
 
     <template v-else>
-      <section class="card table-card">
-        <div class="table-scroll">
-          <table class="table">
+      <section :class="[ui.card, 'overflow-hidden']">
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse text-[13.5px] [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:border-solid [&_th]:border-border [&_th]:px-3 [&_th]:py-[10px] [&_th]:text-left [&_th]:text-[12.5px] [&_th]:font-semibold [&_th]:text-ink-3 [&_td]:border-b [&_td]:border-solid [&_td]:border-border [&_td]:px-3 [&_td]:py-[10px] [&_td]:align-top [&_tbody_tr:last-child_td]:border-b-0">
             <thead>
               <tr>
                 <th>名称</th>
@@ -370,30 +371,30 @@ function modelPreview(result: ProviderTestResult | null): string {
             <tbody>
               <template v-for="provider in items" :key="provider.id">
                 <tr>
-                  <td class="col-name">
-                    <span class="name-text">{{ provider.name }}</span>
-                    <span class="muted mono block-id">{{ provider.id }}</span>
+                  <td class="min-w-[140px]">
+                    <span class="font-bold">{{ provider.name }}</span>
+                    <span :class="[ui.mono, 'block max-w-[150px] overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px] text-ink-3']">{{ provider.id }}</span>
                   </td>
-                  <td class="col-url mono">{{ provider.base_url }}</td>
-                  <td class="mono">{{ provider.default_model }}</td>
-                  <td class="mono muted">{{ provider.api_key_masked || '未设置' }}</td>
+                  <td :class="[ui.mono, 'max-w-[260px] text-[12.5px] [word-break:break-all]']">{{ provider.base_url }}</td>
+                  <td :class="ui.mono">{{ provider.default_model }}</td>
+                  <td :class="[ui.mono, ui.muted]">{{ provider.api_key_masked || '未设置' }}</td>
                   <td>
-                    <span class="badge" :class="provider.is_enabled ? '' : 'badge--muted'">
+                    <span :class="[ui.badge, provider.is_enabled ? '' : ui.badgeMuted]">
                       {{ provider.is_enabled ? '已启用' : '已停用' }}
                     </span>
                   </td>
-                  <td class="mono">{{ provider.ai_count }}</td>
-                  <td class="col-actions">
-                    <div class="actions">
+                  <td :class="ui.mono">{{ provider.ai_count }}</td>
+                  <td class="min-w-[220px]">
+                    <div class="flex flex-wrap gap-[6px]">
                       <button
-                        class="btn btn--secondary btn--sm"
+                        :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
                         type="button"
                         @click="editingId === provider.id ? cancelEdit() : startEdit(provider)"
                       >
                         {{ editingId === provider.id ? '收起编辑' : '编辑' }}
                       </button>
                       <button
-                        class="btn btn--secondary btn--sm"
+                        :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
                         type="button"
                         :disabled="testStateOf(provider.id)?.testing === true"
                         @click="onTest(provider)"
@@ -401,7 +402,7 @@ function modelPreview(result: ProviderTestResult | null): string {
                         {{ testStateOf(provider.id)?.testing ? '测试中…' : '测试连接' }}
                       </button>
                       <button
-                        class="btn btn--danger btn--sm"
+                        :class="[ui.button, ui.buttonDanger, ui.buttonSmall]"
                         type="button"
                         :disabled="busyId === provider.id"
                         @click="onDelete(provider)"
@@ -410,13 +411,12 @@ function modelPreview(result: ProviderTestResult | null): string {
                       </button>
                     </div>
 
-                    <p v-if="testStateOf(provider.id)?.testing" class="muted test-line">
-                      <span class="spinner" aria-hidden="true"></span> 正在请求模型列表…
+                    <p v-if="testStateOf(provider.id)?.testing" class="m-0 mt-2 flex items-center gap-[6px] text-[12.5px] leading-[1.6] text-ink-3">
+                      <span :class="ui.spinner" aria-hidden="true"></span> 正在请求模型列表…
                     </p>
                     <p
                       v-else-if="testStateOf(provider.id)?.result"
-                      class="muted test-line"
-                      :class="{ 'test-ok': testStateOf(provider.id)?.result?.ok }"
+                      :class="[ui.muted, 'm-0 mt-2 flex items-center gap-[6px] text-[12.5px]! leading-[1.6]', testStateOf(provider.id)?.result?.ok ? 'text-green!' : '']"
                     >
                       <template v-if="testStateOf(provider.id)?.result?.ok">
                         连接正常 · {{ testStateOf(provider.id)?.result?.latency_ms }} ms<template
@@ -429,25 +429,25 @@ function modelPreview(result: ProviderTestResult | null): string {
                         连接失败：{{ testStateOf(provider.id)?.result?.error || '未返回错误详情' }}
                       </template>
                     </p>
-                    <p v-else-if="testStateOf(provider.id)?.error" class="muted test-line test-fail">
+                    <p v-else-if="testStateOf(provider.id)?.error" class="m-0 mt-2 flex items-center gap-[6px] text-[12.5px] leading-[1.6] text-red">
                       {{ testStateOf(provider.id)?.error }}
                     </p>
 
-                    <p v-if="provider.ai_count > 0" class="muted test-line">
+                    <p v-if="provider.ai_count > 0" class="m-0 mt-2 flex items-center gap-[6px] text-[12.5px] leading-[1.6] text-ink-3">
                       已有 {{ provider.ai_count }} 个 AI 关联，删除会被后端拒绝。
                     </p>
                   </td>
                 </tr>
 
-                <tr v-if="editingId === provider.id" class="edit-row">
+                <tr v-if="editingId === provider.id" class="[&>td]:bg-surface-subtle">
                   <td colspan="7">
-                    <form class="edit-form" novalidate @submit.prevent="onSaveEdit(provider)">
-                      <div class="edit-grid">
+                    <form class="max-w-[620px]" novalidate @submit.prevent="onSaveEdit(provider)">
+                      <div class="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-x-[14px]">
                         <FormField label="名称" input-id="edit-name" :error="editErrors.name">
                           <input
                             id="edit-name"
                             v-model="editForm.name"
-                            class="input"
+                            :class="ui.input"
                             type="text"
                             name="edit_name"
                             :disabled="savingEdit"
@@ -458,7 +458,7 @@ function modelPreview(result: ProviderTestResult | null): string {
                           <input
                             id="edit-base-url"
                             v-model="editForm.base_url"
-                            class="input"
+                            :class="ui.input"
                             type="url"
                             name="edit_base_url"
                             :disabled="savingEdit"
@@ -469,7 +469,7 @@ function modelPreview(result: ProviderTestResult | null): string {
                           <input
                             id="edit-default-model"
                             v-model="editForm.default_model"
-                            class="input"
+                            :class="ui.input"
                             type="text"
                             name="edit_default_model"
                             :disabled="savingEdit"
@@ -485,7 +485,7 @@ function modelPreview(result: ProviderTestResult | null): string {
                           <input
                             id="edit-api-key"
                             v-model="editForm.api_key"
-                            class="input"
+                            :class="ui.input"
                             type="password"
                             name="edit_api_key"
                             autocomplete="off"
@@ -495,22 +495,22 @@ function modelPreview(result: ProviderTestResult | null): string {
                         </FormField>
                       </div>
 
-                      <label class="switch">
-                        <input v-model="editForm.is_enabled" type="checkbox" :disabled="savingEdit" />
+                      <label :class="ui.switch">
+                        <input v-model="editForm.is_enabled" :class="ui.switchInput" type="checkbox" :disabled="savingEdit" />
                         <span>{{ editForm.is_enabled ? '启用该预设' : '停用该预设' }}</span>
                       </label>
 
-                      <div class="actions actions-gap">
-                        <button class="btn btn--primary btn--sm" type="submit" :disabled="savingEdit">
-                          <span v-if="savingEdit" class="spinner" aria-hidden="true"></span>
+                      <div class="mt-[14px] flex flex-wrap gap-[6px]">
+                        <button :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]" type="submit" :disabled="savingEdit">
+                          <span v-if="savingEdit" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
                           {{ savingEdit ? '保存中…' : '保存修改' }}
                         </button>
-                        <button class="btn btn--secondary btn--sm" type="button" :disabled="savingEdit" @click="cancelEdit">
+                        <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" :disabled="savingEdit" @click="cancelEdit">
                           取消
                         </button>
                       </div>
 
-                      <p class="muted created-at">创建于 {{ formatDateTime(provider.created_at) }}</p>
+                      <p :class="[ui.muted, 'm-0 mt-3']">创建于 {{ formatDateTime(provider.created_at) }}</p>
                     </form>
                   </td>
                 </tr>
@@ -519,14 +519,14 @@ function modelPreview(result: ProviderTestResult | null): string {
           </table>
         </div>
 
-        <div class="list-foot">
-          <button v-if="hasMore && !loadingMore" class="btn btn--secondary btn--sm" type="button" @click="loadMore">
+        <div class="flex justify-center px-4 py-[14px]">
+          <button v-if="hasMore && !loadingMore" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="loadMore">
             加载更多
           </button>
-          <p v-else-if="loadingMore" class="loading-row list-foot-loading">
-            <span class="spinner" aria-hidden="true"></span> 正在加载…
+          <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+            <span :class="ui.spinner" aria-hidden="true"></span> 正在加载…
           </p>
-          <p v-else class="muted">已加载全部 {{ items.length }} 个预设</p>
+          <p v-else :class="[ui.muted, 'm-0']">已加载全部 {{ items.length }} 个预设</p>
         </div>
       </section>
 
@@ -534,140 +534,3 @@ function modelPreview(result: ProviderTestResult | null): string {
     </template>
   </div>
 </template>
-
-<style scoped>
-.head-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-.head-row .btn {
-  margin-left: auto;
-}
-.search-form {
-  display: flex;
-  gap: 8px;
-}
-.search-box {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-}
-.search-icon {
-  position: absolute;
-  top: 50%;
-  left: 11px;
-  transform: translateY(-50%);
-  color: var(--ink-3);
-  pointer-events: none;
-}
-.search-input {
-  padding-left: 36px;
-}
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.actions-gap {
-  margin-top: 14px;
-}
-.self-start {
-  align-self: flex-start;
-}
-.table-card {
-  overflow: hidden;
-}
-.table-scroll {
-  overflow-x: auto;
-}
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13.5px;
-}
-.table th {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  color: var(--ink-3);
-  font-size: 12.5px;
-  font-weight: 600;
-  text-align: left;
-  white-space: nowrap;
-}
-.table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-.table tbody tr:last-child td {
-  border-bottom: none;
-}
-.col-name {
-  min-width: 140px;
-}
-.name-text {
-  font-weight: 700;
-}
-.block-id {
-  display: block;
-  font-size: 11.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 150px;
-}
-.col-url {
-  max-width: 260px;
-  word-break: break-all;
-  font-size: 12.5px;
-}
-.col-actions {
-  min-width: 220px;
-}
-.test-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 8px 0 0;
-  font-size: 12.5px;
-  line-height: 1.6;
-}
-.test-ok {
-  color: var(--green);
-}
-.test-fail {
-  color: var(--red);
-}
-.edit-row td {
-  background: var(--surface-subtle);
-}
-.edit-form {
-  max-width: 620px;
-}
-.edit-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 0 14px;
-}
-.created-at {
-  margin: 12px 0 0;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px;
-}
-.list-foot .muted {
-  margin: 0;
-}
-.list-foot-loading {
-  padding: 0;
-}
-</style>

@@ -4,7 +4,7 @@
 </script>
 
 <template>
-  <svg class="brand-mark" viewBox="0 0 64 64" role="img" aria-label="时间线">
+  <svg class="block" viewBox="0 0 64 64" role="img" aria-label="时间线">
     <rect width="64" height="64" rx="14" fill="#fff" />
     <path
       d="M9.5 12.5C17.5 10 46.5 10 53.5 12.8C55.8 20.5 55.8 43.5 53.8 50.8C46 53.5 18 53.5 10.8 50.5C8.6 43.5 8.6 20.5 9.5 12.5Z"
@@ -32,9 +32,3 @@
     </g>
   </svg>
 </template>
-
-<style scoped>
-.brand-mark {
-  display: block;
-}
-</style>

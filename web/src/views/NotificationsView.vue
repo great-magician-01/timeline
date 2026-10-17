@@ -12,6 +12,7 @@ import EmptyState from '../components/EmptyState.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useCursorList } from '../composables/useCursorList'
 import { refreshUnreadCount } from '../stores/notifications'
+import { ui } from '../styles/ui'
 import { relativeTime, timeTitle } from '../utils/format'
 
 type NotificationFilter = 'all' | 'unread'
@@ -140,31 +141,31 @@ async function markAll(): Promise<void> {
 </script>
 
 <template>
-  <div class="constrain">
-    <div class="stack">
-      <section class="card card--pad">
-        <div class="head-row">
+  <div :class="[ui.constrain]">
+    <div :class="[ui.stack]">
+      <section :class="[ui.card, ui.cardPad]">
+        <div class="flex items-start justify-between gap-3">
           <div>
-            <h1 class="page-head page-title">通知</h1>
-            <p class="page-desc">点赞、评论、转发、关注与提及都会显示在这里。</p>
+            <h1 :class="[ui.pageHead, ui.pageTitle]">通知</h1>
+            <p :class="[ui.pageDesc]">点赞、评论、转发、关注与提及都会显示在这里。</p>
           </div>
-          <button class="btn btn--secondary btn--sm" type="button" :disabled="busy" @click="markAll">
+          <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" :disabled="busy" @click="markAll">
             <AppIcon name="check" :size="16" /> 全部已读
           </button>
         </div>
 
-        <div class="seg filter" role="group" aria-label="通知筛选">
-          <button type="button" :class="{ 'is-active': filter === 'all' }" @click="setFilter('all')">
+        <div :class="[ui.segment, 'mt-[14px]']" role="group" aria-label="通知筛选">
+          <button type="button" :class="[ui.segmentButton, filter === 'all' && ui.segmentButtonActive]" @click="setFilter('all')">
             全部
           </button>
-          <button type="button" :class="{ 'is-active': filter === 'unread' }" @click="setFilter('unread')">
+          <button type="button" :class="[ui.segmentButton, filter === 'unread' && ui.segmentButtonActive]" @click="setFilter('unread')">
             未读
           </button>
         </div>
 
-        <label class="type-filter">
-          <span class="muted">通知类型</span>
-          <select class="input" :value="typeFilter" aria-label="按通知类型筛选" @change="onTypeChange">
+        <label class="mt-2.5 inline-flex items-center gap-2 text-[12.5px]">
+          <span :class="[ui.muted]">通知类型</span>
+          <select :class="[ui.input, 'w-auto! min-w-[150px]']" :value="typeFilter" aria-label="按通知类型筛选" @change="onTypeChange">
             <option value="">全部类型</option>
             <option v-for="option in TYPE_OPTIONS" :key="option.value" :value="option.value">
               {{ option.label }}
@@ -175,13 +176,13 @@ async function markAll(): Promise<void> {
 
       <AlertNote v-if="notice" kind="error">{{ notice }}</AlertNote>
 
-      <p v-if="loading" class="card card--pad loading-row">
-        <span class="spinner" aria-hidden="true"></span> 加载中…
+      <p v-if="loading" :class="[ui.card, ui.loadingRow]">
+        <span :class="[ui.spinner]" aria-hidden="true"></span> 加载中…
       </p>
 
       <template v-else-if="error && items.length === 0">
         <AlertNote kind="error">{{ error }}</AlertNote>
-        <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+        <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
       </template>
 
       <EmptyState
@@ -192,45 +193,45 @@ async function markAll(): Promise<void> {
       />
 
       <template v-else>
-        <section class="card notif-list">
+        <section :class="[ui.card, 'overflow-hidden']">
           <button
             v-for="item in items"
             :key="item.id"
             type="button"
-            class="notif"
-            :class="{ 'is-unread': !item.is_read }"
+            class="flex w-full items-start gap-3 border-b border-solid border-border px-4 py-3 text-left text-ink last:border-b-0 hover-not-disabled:bg-hover disabled:cursor-progress"
+            :class="!item.is_read && 'bg-primary-soft'"
             :disabled="busy"
             @click="handleClick(item)"
           >
             <UserAvatar :user="item.actor" size="sm" />
-            <span class="notif-main">
-              <span class="notif-text">
+            <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span class="flex flex-wrap items-center gap-1.5 text-[14px]">
                 <strong>{{ item.actor.nickname || item.actor.username }}</strong>
-                <span class="action">{{ ACTION_TEXT[item.type] }}</span>
-                <span v-if="item.actor.is_ai" class="badge badge--ai">AI</span>
+                <span class="text-ink-2">{{ ACTION_TEXT[item.type] }}</span>
+                <span v-if="item.actor.is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
               </span>
-              <span class="notif-preview" :class="{ 'is-muted': !item.preview }">
+              <span class="overflow-hidden text-ellipsis whitespace-nowrap text-[13px]" :class="item.preview ? 'text-ink-2' : 'text-ink-3'">
                 {{ previewText(item) }}
               </span>
-              <span class="notif-time" :title="timeTitle(item.created_at)">
+              <span class="text-[12px] text-ink-3" :title="timeTitle(item.created_at)">
                 {{ relativeTime(item.created_at) }}
               </span>
             </span>
-            <span v-if="!item.is_read" class="unread-dot" aria-label="未读"></span>
+            <span v-if="!item.is_read" class="mt-3 size-2 flex-none rounded-full bg-primary" aria-label="未读"></span>
           </button>
         </section>
 
-        <div class="list-foot">
+        <div class="flex justify-center py-1">
           <button
             v-if="hasMore && !loadingMore"
-            class="btn btn--secondary btn--sm"
+            :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
             type="button"
             @click="loadMore"
           >
             加载更多
           </button>
-          <p v-else-if="loadingMore" class="loading-row foot-loading">
-            <span class="spinner" aria-hidden="true"></span> 正在加载…
+          <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+            <span :class="[ui.spinner]" aria-hidden="true"></span> 正在加载…
           </p>
         </div>
 
@@ -239,101 +240,3 @@ async function markAll(): Promise<void> {
     </div>
   </div>
 </template>
-
-<style scoped>
-.head-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-.filter {
-  margin-top: 14px;
-}
-.type-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  font-size: 12.5px;
-}
-.type-filter .input {
-  width: auto;
-  min-width: 150px;
-}
-.notif-list {
-  overflow: hidden;
-}
-.notif {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  width: 100%;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  color: var(--ink);
-}
-.notif:last-child {
-  border-bottom: none;
-}
-.notif:hover:not(:disabled) {
-  background: var(--hover);
-}
-.notif:disabled {
-  cursor: progress;
-}
-.notif.is-unread {
-  background: var(--primary-soft);
-}
-.notif-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-.notif-text {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-size: 14px;
-}
-.notif-text .action {
-  color: var(--ink-2);
-}
-.notif-preview {
-  overflow: hidden;
-  font-size: 13px;
-  color: var(--ink-2);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.notif-preview.is-muted {
-  color: var(--ink-3);
-}
-.notif-time {
-  font-size: 12px;
-  color: var(--ink-3);
-}
-.unread-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  margin-top: 12px;
-  border-radius: 50%;
-  background: var(--primary);
-}
-.self-start {
-  align-self: flex-start;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 4px 0;
-}
-.foot-loading {
-  padding: 0;
-}
-</style>

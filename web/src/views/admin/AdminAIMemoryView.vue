@@ -11,6 +11,7 @@ import AppIcon from '../../components/AppIcon.vue'
 import FormField from '../../components/FormField.vue'
 import { useCursorList } from '../../composables/useCursorList'
 import { formatDateTime } from '../../utils/datetime'
+import { ui } from '../../styles/ui'
 
 type MemoryType = 'recent' | 'long_term'
 
@@ -235,54 +236,54 @@ async function onClear(): Promise<void> {
 </script>
 
 <template>
-  <div class="stack">
-    <section class="card card--pad">
-      <div class="head-row">
+  <div :class="ui.stack">
+    <section :class="[ui.card, ui.cardPad]">
+      <div class="flex flex-wrap items-start gap-3">
         <div>
-          <h2 class="page-title">记忆</h2>
-          <p class="page-desc">手动维护的记忆同样参与生成；清空只影响当前分区。</p>
+          <h2 :class="ui.pageTitle">记忆</h2>
+          <p :class="ui.pageDesc">手动维护的记忆同样参与生成；清空只影响当前分区。</p>
         </div>
-        <div class="seg" role="group" aria-label="记忆类型">
-          <button type="button" :class="{ 'is-active': memoryType === 'recent' }" @click="setType('recent')">
+        <div :class="[ui.segment, 'ml-auto']" role="group" aria-label="记忆类型">
+          <button type="button" :class="[ui.segmentButton, memoryType === 'recent' ? ui.segmentButtonActive : '']" @click="setType('recent')">
             近期记忆
           </button>
-          <button type="button" :class="{ 'is-active': memoryType === 'long_term' }" @click="setType('long_term')">
+          <button type="button" :class="[ui.segmentButton, memoryType === 'long_term' ? ui.segmentButtonActive : '']" @click="setType('long_term')">
             长期记忆
           </button>
         </div>
       </div>
 
-      <form class="search-form" @submit.prevent="onSearch">
-        <div class="search-box">
-          <AppIcon name="search" :size="17" class="search-icon" />
+      <form class="mt-[14px] flex gap-2" @submit.prevent="onSearch">
+        <div class="relative min-w-0 flex-1">
+          <AppIcon name="search" :size="17" class="pointer-events-none absolute top-1/2 left-[11px] -translate-y-1/2 text-ink-3" />
           <input
             v-model="filters.q"
-            class="input search-input"
+            :class="[ui.input, 'pl-9!']"
             type="search"
             name="q"
             placeholder="搜索记忆内容或关键词"
             aria-label="搜索记忆"
           />
         </div>
-        <button class="btn btn--primary" type="submit" :disabled="loading">查询</button>
+        <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="loading">查询</button>
       </form>
 
-      <div class="filter-row">
-        <div class="seg" role="group" aria-label="记忆状态筛选">
-          <button type="button" :class="{ 'is-active': filters.status === '' }" @click="setStatus('')">全部状态</button>
-          <button type="button" :class="{ 'is-active': filters.status === 'active' }" @click="setStatus('active')">
+      <div class="mt-3 flex flex-wrap gap-2">
+        <div :class="ui.segment" role="group" aria-label="记忆状态筛选">
+          <button type="button" :class="[ui.segmentButton, filters.status === '' ? ui.segmentButtonActive : '']" @click="setStatus('')">全部状态</button>
+          <button type="button" :class="[ui.segmentButton, filters.status === 'active' ? ui.segmentButtonActive : '']" @click="setStatus('active')">
             生效中
           </button>
           <button
             type="button"
-            :class="{ 'is-active': filters.status === 'superseded' }"
+            :class="[ui.segmentButton, filters.status === 'superseded' ? ui.segmentButtonActive : '']"
             @click="setStatus('superseded')"
           >
             已被取代
           </button>
           <button
             type="button"
-            :class="{ 'is-active': filters.status === 'invalidated' }"
+            :class="[ui.segmentButton, filters.status === 'invalidated' ? ui.segmentButtonActive : '']"
             @click="setStatus('invalidated')"
           >
             已失效
@@ -291,33 +292,33 @@ async function onClear(): Promise<void> {
       </div>
     </section>
 
-    <section class="card card--pad">
-      <h2 class="page-title">添加记忆</h2>
-      <p class="page-desc">
+    <section :class="[ui.card, ui.cardPad]">
+      <h2 :class="ui.pageTitle">添加记忆</h2>
+      <p :class="ui.pageDesc">
         将写入「{{ memoryType === 'recent' ? '近期记忆' : '长期记忆' }}」分区；添加后立即生效。
       </p>
 
       <AlertNote v-if="createNotice" kind="success">{{ createNotice }}</AlertNote>
       <AlertNote v-if="createError" kind="error">{{ createError }}</AlertNote>
 
-      <form class="form" novalidate @submit.prevent="onCreate">
+      <form :class="ui.form" novalidate @submit.prevent="onCreate">
         <FormField label="内容" input-id="memory-content" :error="createErrors.content">
           <textarea
             id="memory-content"
             v-model="createForm.content"
-            class="textarea"
+            :class="[ui.input, ui.textarea]"
             name="content"
             placeholder="用一句话描述需要记住的内容"
             :disabled="creating"
           ></textarea>
         </FormField>
 
-        <div class="grid-three">
+        <div class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-x-[14px]">
           <FormField label="分类" input-id="memory-category" :error="createErrors.category">
             <select
               id="memory-category"
               v-model="createForm.category"
-              class="input"
+              :class="ui.input"
               name="category"
               :disabled="creating"
             >
@@ -331,7 +332,7 @@ async function onClear(): Promise<void> {
             <input
               id="memory-importance"
               v-model.number="createForm.importance"
-              class="input"
+              :class="ui.input"
               type="number"
               min="1"
               max="5"
@@ -345,7 +346,7 @@ async function onClear(): Promise<void> {
             <input
               id="memory-keywords"
               v-model="createForm.keywords"
-              class="input"
+              :class="ui.input"
               type="text"
               name="keywords"
               :disabled="creating"
@@ -353,71 +354,71 @@ async function onClear(): Promise<void> {
           </FormField>
         </div>
 
-        <div class="actions">
-          <button class="btn btn--primary" type="submit" :disabled="creating">
-            <span v-if="creating" class="spinner" aria-hidden="true"></span>
+        <div class="flex flex-wrap gap-2">
+          <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="creating">
+            <span v-if="creating" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
             {{ creating ? '添加中…' : '添加记忆' }}
           </button>
         </div>
       </form>
     </section>
 
-    <div class="danger-row">
-      <button class="btn btn--danger btn--sm" type="button" :disabled="clearing" @click="onClear">
+    <div class="flex flex-wrap items-center gap-[10px]">
+      <button :class="[ui.button, ui.buttonDanger, ui.buttonSmall]" type="button" :disabled="clearing" @click="onClear">
         {{ clearing ? '清空中…' : `清空本类记忆（${memoryType === 'recent' ? '近期' : '长期'}）` }}
       </button>
-      <span class="muted">只清空当前类型的记忆，不影响另一类，也不删除原始内容。</span>
+      <span :class="ui.muted">只清空当前类型的记忆，不影响另一类，也不删除原始内容。</span>
     </div>
 
     <AlertNote v-if="actionNotice" kind="success">{{ actionNotice }}</AlertNote>
     <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>
 
-    <p v-if="initialLoading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+    <p v-if="initialLoading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="listError && items.length === 0">
       <AlertNote kind="error">{{ listError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="reload">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reload">重试</button>
     </template>
 
-    <section v-else-if="items.length === 0" class="card card--pad">
-      <div class="empty">
-        <AppIcon name="database" :size="26" />
-        <strong>该分区暂无记忆</strong>
-        <p>可以手动添加，或等待 AI 在任务中自行沉淀。</p>
+    <section v-else-if="items.length === 0" :class="[ui.card, ui.cardPad]">
+      <div :class="ui.empty">
+        <AppIcon name="database" :size="26" :class="ui.emptyIcon" />
+        <strong :class="ui.emptyStrong">该分区暂无记忆</strong>
+        <p :class="ui.emptyText">可以手动添加，或等待 AI 在任务中自行沉淀。</p>
       </div>
     </section>
 
     <template v-else>
-      <section class="card memory-list">
-        <article v-for="memory in items" :key="memory.id" class="memory-row">
-          <div class="memory-head">
-            <span class="badge">{{ categoryLabel(memory.category) }}</span>
-            <span class="badge" :class="memory.status === 'active' ? '' : 'badge--muted'">
+      <section :class="[ui.card, 'overflow-hidden']">
+        <article v-for="memory in items" :key="memory.id" class="border-b border-solid border-border px-4 py-[14px]">
+          <div class="flex flex-wrap items-center gap-2 text-[12.5px]">
+            <span :class="ui.badge">{{ categoryLabel(memory.category) }}</span>
+            <span :class="[ui.badge, memory.status === 'active' ? '' : ui.badgeMuted]">
               {{ statusLabel(memory.status) }}
             </span>
-            <span class="muted mono">重要性 {{ memory.importance }}</span>
-            <span class="muted mono">来源 {{ memory.source_type || '—' }}</span>
-            <span class="memory-time mono">{{ formatDateTime(memory.updated_at) }}</span>
+            <span :class="[ui.muted, ui.mono]">重要性 {{ memory.importance }}</span>
+            <span :class="[ui.muted, ui.mono]">来源 {{ memory.source_type || '—' }}</span>
+            <span :class="[ui.mono, 'ml-auto whitespace-nowrap text-ink-3']">{{ formatDateTime(memory.updated_at) }}</span>
           </div>
 
           <template v-if="editingId === memory.id">
-            <form class="edit-form" novalidate @submit.prevent="onSaveEdit(memory)">
+            <form class="mt-3 max-w-[620px]" novalidate @submit.prevent="onSaveEdit(memory)">
               <FormField label="内容" input-id="memory-edit-content" :error="editErrors.content">
                 <textarea
                   id="memory-edit-content"
                   v-model="editForm.content"
-                  class="textarea"
+                  :class="[ui.input, ui.textarea]"
                   name="edit_content"
                   :disabled="savingEdit"
                 ></textarea>
               </FormField>
 
-              <div class="grid-three">
+              <div class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-x-[14px]">
                 <FormField label="分类" input-id="memory-edit-category" :error="editErrors.category">
                   <select
                     id="memory-edit-category"
                     v-model="editForm.category"
-                    class="input"
+                    :class="ui.input"
                     name="edit_category"
                     :disabled="savingEdit"
                   >
@@ -431,7 +432,7 @@ async function onClear(): Promise<void> {
                   <input
                     id="memory-edit-importance"
                     v-model.number="editForm.importance"
-                    class="input"
+                    :class="ui.input"
                     type="number"
                     min="1"
                     max="5"
@@ -445,7 +446,7 @@ async function onClear(): Promise<void> {
                   <select
                     id="memory-edit-status"
                     v-model="editForm.status"
-                    class="input"
+                    :class="ui.input"
                     name="edit_status"
                     :disabled="savingEdit"
                   >
@@ -460,19 +461,19 @@ async function onClear(): Promise<void> {
                 <input
                   id="memory-edit-keywords"
                   v-model="editForm.keywords"
-                  class="input"
+                  :class="ui.input"
                   type="text"
                   name="edit_keywords"
                   :disabled="savingEdit"
                 />
               </FormField>
 
-              <div class="actions">
-                <button class="btn btn--primary btn--sm" type="submit" :disabled="savingEdit">
-                  <span v-if="savingEdit" class="spinner" aria-hidden="true"></span>
+              <div class="flex flex-wrap gap-2">
+                <button :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]" type="submit" :disabled="savingEdit">
+                  <span v-if="savingEdit" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
                   {{ savingEdit ? '保存中…' : '保存' }}
                 </button>
-                <button class="btn btn--secondary btn--sm" type="button" :disabled="savingEdit" @click="cancelEdit">
+                <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" :disabled="savingEdit" @click="cancelEdit">
                   取消
                 </button>
               </div>
@@ -480,17 +481,17 @@ async function onClear(): Promise<void> {
           </template>
 
           <template v-else>
-            <p class="memory-content">{{ memory.content }}</p>
-            <div class="memory-foot">
-              <span v-for="keyword in memory.keywords" :key="keyword" class="badge badge--muted">{{ keyword }}</span>
-              <span v-if="memory.keywords.length === 0" class="muted">无关键词</span>
-              <span v-if="memory.last_used_at" class="muted mono last-used">
+            <p class="m-0 mt-2 whitespace-pre-wrap text-[14px] leading-[1.8] [word-break:break-word]">{{ memory.content }}</p>
+            <div class="mt-[10px] flex flex-wrap items-center gap-[6px]">
+              <span v-for="keyword in memory.keywords" :key="keyword" :class="[ui.badge, ui.badgeMuted]">{{ keyword }}</span>
+              <span v-if="memory.keywords.length === 0" :class="ui.muted">无关键词</span>
+              <span v-if="memory.last_used_at" :class="[ui.muted, ui.mono, 'text-[12px]!']">
                 最近使用 {{ formatDateTime(memory.last_used_at) }}
               </span>
-              <div class="memory-actions">
-                <button class="btn btn--secondary btn--sm" type="button" @click="startEdit(memory)">编辑</button>
+              <div class="ml-auto flex gap-[6px]">
+                <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="startEdit(memory)">编辑</button>
                 <button
-                  class="btn btn--danger btn--sm"
+                  :class="[ui.button, ui.buttonDanger, ui.buttonSmall]"
                   type="button"
                   :disabled="busyId === memory.id"
                   @click="onDelete(memory)"
@@ -502,14 +503,14 @@ async function onClear(): Promise<void> {
           </template>
         </article>
 
-        <div class="list-foot">
-          <button v-if="hasMore && !loadingMore" class="btn btn--secondary btn--sm" type="button" @click="loadMore">
+        <div class="flex justify-center px-4 py-[14px]">
+          <button v-if="hasMore && !loadingMore" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" type="button" @click="loadMore">
             加载更多
           </button>
-          <p v-else-if="loadingMore" class="loading-row list-foot-loading">
-            <span class="spinner" aria-hidden="true"></span> 正在加载…
+          <p v-else-if="loadingMore" :class="[ui.loadingRow, 'p-0!']">
+            <span :class="ui.spinner" aria-hidden="true"></span> 正在加载…
           </p>
-          <p v-else class="muted">已加载全部 {{ items.length }} 条记忆</p>
+          <p v-else :class="[ui.muted, 'm-0']">已加载全部 {{ items.length }} 条记忆</p>
         </div>
       </section>
 
@@ -517,117 +518,3 @@ async function onClear(): Promise<void> {
     </template>
   </div>
 </template>
-
-<style scoped>
-.head-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.head-row .seg {
-  margin-left: auto;
-}
-.search-form {
-  display: flex;
-  gap: 8px;
-  margin-top: 14px;
-}
-.search-box {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-}
-.search-icon {
-  position: absolute;
-  top: 50%;
-  left: 11px;
-  transform: translateY(-50%);
-  color: var(--ink-3);
-  pointer-events: none;
-}
-.search-input {
-  padding-left: 36px;
-}
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-.grid-three {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0 14px;
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.self-start {
-  align-self: flex-start;
-}
-.danger-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.memory-list {
-  overflow: hidden;
-}
-.memory-row {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.memory-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-size: 12.5px;
-}
-.memory-time {
-  margin-left: auto;
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-.memory-content {
-  margin: 8px 0 0;
-  font-size: 14px;
-  line-height: 1.8;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.memory-foot {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-.last-used {
-  font-size: 12px;
-}
-.memory-actions {
-  display: flex;
-  gap: 6px;
-  margin-left: auto;
-}
-.edit-form {
-  margin-top: 12px;
-  max-width: 620px;
-}
-.list-foot {
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px;
-}
-.list-foot .muted {
-  margin: 0;
-}
-.list-foot-loading {
-  padding: 0;
-}
-</style>

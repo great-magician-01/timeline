@@ -8,6 +8,7 @@ import { errorMessage, fieldErrors } from '../../api/client'
 import type { GenerationParams, ModelProvider } from '../../api/types'
 import AlertNote from '../../components/AlertNote.vue'
 import FormField from '../../components/FormField.vue'
+import { ui } from '../../styles/ui'
 
 const route = useRoute()
 const aiId = computed(() => String(route.params.id ?? ''))
@@ -188,29 +189,29 @@ async function onSaveModel(): Promise<void> {
 </script>
 
 <template>
-  <div class="stack">
-    <p v-if="loading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+  <div :class="ui.stack">
+    <p v-if="loading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="loadError">
       <AlertNote kind="error">{{ loadError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="load">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="load">重试</button>
     </template>
 
     <template v-else>
-      <section class="card card--pad">
-        <h2 class="page-title">资料与身份</h2>
-        <p class="page-desc">昵称与简介对外展示；其余字段只用于生成内容，不会直接出现在界面上。</p>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">资料与身份</h2>
+        <p :class="ui.pageDesc">昵称与简介对外展示；其余字段只用于生成内容，不会直接出现在界面上。</p>
 
         <AlertNote v-if="profileNotice" kind="success">{{ profileNotice }}</AlertNote>
         <AlertNote v-if="profileError" kind="error">{{ profileError }}</AlertNote>
 
-        <form class="form" novalidate @submit.prevent="onSaveProfile">
-          <div class="grid-two">
+        <form :class="ui.form" novalidate @submit.prevent="onSaveProfile">
+          <div class="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-x-[14px]">
             <FormField label="昵称" input-id="identity-nickname" :error="profileErrors.nickname">
               <input
                 id="identity-nickname"
                 v-model="profileForm.nickname"
-                class="input"
+                :class="ui.input"
                 type="text"
                 name="nickname"
                 :disabled="savingProfile"
@@ -221,7 +222,7 @@ async function onSaveModel(): Promise<void> {
               <input
                 id="identity-target-language"
                 v-model="profileForm.target_language"
-                class="input"
+                :class="ui.input"
                 type="text"
                 name="target_language"
                 :disabled="savingProfile"
@@ -233,7 +234,7 @@ async function onSaveModel(): Promise<void> {
             <textarea
               id="identity-bio"
               v-model="profileForm.bio"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="bio"
               :disabled="savingProfile"
             ></textarea>
@@ -243,7 +244,7 @@ async function onSaveModel(): Promise<void> {
             <textarea
               id="identity-background"
               v-model="profileForm.background"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="background"
               :disabled="savingProfile"
             ></textarea>
@@ -253,7 +254,7 @@ async function onSaveModel(): Promise<void> {
             <textarea
               id="identity-personality"
               v-model="profileForm.personality"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="personality"
               :disabled="savingProfile"
             ></textarea>
@@ -263,7 +264,7 @@ async function onSaveModel(): Promise<void> {
             <textarea
               id="identity-core-values"
               v-model="profileForm.core_values"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="core_values"
               :disabled="savingProfile"
             ></textarea>
@@ -273,7 +274,7 @@ async function onSaveModel(): Promise<void> {
             <textarea
               id="identity-language-style"
               v-model="profileForm.language_style"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="language_style"
               :disabled="savingProfile"
             ></textarea>
@@ -283,7 +284,7 @@ async function onSaveModel(): Promise<void> {
             <input
               id="identity-topics"
               v-model="profileForm.topics"
-              class="input"
+              :class="ui.input"
               type="text"
               name="topics"
               :disabled="savingProfile"
@@ -294,7 +295,7 @@ async function onSaveModel(): Promise<void> {
             <textarea
               id="identity-taboos"
               v-model="profileForm.taboos"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="taboos"
               :disabled="savingProfile"
             ></textarea>
@@ -309,35 +310,35 @@ async function onSaveModel(): Promise<void> {
             <textarea
               id="identity-system-prompt"
               v-model="profileForm.system_prompt"
-              class="textarea"
+              :class="[ui.input, ui.textarea]"
               name="system_prompt"
               :disabled="savingProfile"
             ></textarea>
           </FormField>
 
-          <div class="actions">
-            <button class="btn btn--primary" type="submit" :disabled="savingProfile">
-              <span v-if="savingProfile" class="spinner" aria-hidden="true"></span>
+          <div class="flex flex-wrap gap-2">
+            <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="savingProfile">
+              <span v-if="savingProfile" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
               {{ savingProfile ? '保存中…' : '保存资料与身份' }}
             </button>
           </div>
         </form>
       </section>
 
-      <section class="card card--pad">
-        <h2 class="page-title">模型设置</h2>
-        <p class="page-desc">切换预设或调整生成参数后，仅影响之后的调用。</p>
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">模型设置</h2>
+        <p :class="ui.pageDesc">切换预设或调整生成参数后，仅影响之后的调用。</p>
 
         <AlertNote v-if="modelNotice" kind="success">{{ modelNotice }}</AlertNote>
         <AlertNote v-if="modelError" kind="error">{{ modelError }}</AlertNote>
         <AlertNote v-if="providersError" kind="error">{{ providersError }}</AlertNote>
 
-        <form class="form" novalidate @submit.prevent="onSaveModel">
+        <form :class="ui.form" novalidate @submit.prevent="onSaveModel">
           <FormField label="接口预设" input-id="identity-provider" :error="modelErrors.provider_id">
             <select
               id="identity-provider"
               v-model="modelForm.provider_id"
-              class="input"
+              :class="ui.input"
               name="provider_id"
               :disabled="savingModel"
             >
@@ -357,19 +358,19 @@ async function onSaveModel(): Promise<void> {
             <input
               id="identity-model-override"
               v-model="modelForm.model_override"
-              class="input"
+              :class="ui.input"
               type="text"
               name="model_override"
               :disabled="savingModel"
             />
           </FormField>
 
-          <div class="grid-three">
+          <div class="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-x-[14px]">
             <FormField label="max_tokens" input-id="identity-max-tokens" :error="modelErrors.max_tokens">
               <input
                 id="identity-max-tokens"
                 v-model.number="modelForm.max_tokens"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="1"
                 step="1"
@@ -382,7 +383,7 @@ async function onSaveModel(): Promise<void> {
               <input
                 id="identity-temperature"
                 v-model.number="modelForm.temperature"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="0"
                 max="2"
@@ -396,7 +397,7 @@ async function onSaveModel(): Promise<void> {
               <input
                 id="identity-top-p"
                 v-model.number="modelForm.top_p"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="0"
                 max="1"
@@ -416,7 +417,7 @@ async function onSaveModel(): Promise<void> {
             <input
               id="identity-timeout"
               v-model.number="modelForm.request_timeout_seconds"
-              class="input"
+              :class="ui.input"
               type="number"
               min="1"
               step="1"
@@ -425,9 +426,9 @@ async function onSaveModel(): Promise<void> {
             />
           </FormField>
 
-          <div class="actions">
-            <button class="btn btn--primary" type="submit" :disabled="savingModel">
-              <span v-if="savingModel" class="spinner" aria-hidden="true"></span>
+          <div class="flex flex-wrap gap-2">
+            <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="savingModel">
+              <span v-if="savingModel" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
               {{ savingModel ? '保存中…' : '保存模型设置' }}
             </button>
           </div>
@@ -436,24 +437,3 @@ async function onSaveModel(): Promise<void> {
     </template>
   </div>
 </template>
-
-<style scoped>
-.self-start {
-  align-self: flex-start;
-}
-.grid-two {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0 14px;
-}
-.grid-three {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 0 14px;
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-</style>

@@ -9,6 +9,7 @@ import { errorMessage, fieldErrors } from '../../api/client'
 import AlertNote from '../../components/AlertNote.vue'
 import FormField from '../../components/FormField.vue'
 import { siteState } from '../../stores/site'
+import { ui } from '../../styles/ui'
 
 function defaultSettings(): AdminSettings {
   return {
@@ -223,34 +224,34 @@ onMounted(() => void load())
 </script>
 
 <template>
-  <div class="stack">
-    <p v-if="loading" class="card card--pad loading-row"><span class="spinner" aria-hidden="true"></span> 加载中…</p>
+  <div :class="ui.stack">
+    <p v-if="loading" :class="[ui.card, ui.cardPad, ui.loadingRow]"><span :class="ui.spinner" aria-hidden="true"></span> 加载中…</p>
 
     <template v-else-if="loadError">
       <AlertNote kind="error">{{ loadError }}</AlertNote>
-      <button class="btn btn--secondary btn--sm self-start" type="button" @click="load">重试</button>
+      <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="load">重试</button>
     </template>
 
     <template v-else>
-      <form class="stack" novalidate @submit.prevent="save">
-        <section class="card card--pad">
-          <h2 class="page-title">注册开关</h2>
-          <p class="page-desc">关闭后新用户无法注册，注册页与导航入口同步关闭；已注册账号不受影响。</p>
+      <form :class="ui.stack" novalidate @submit.prevent="save">
+        <section :class="[ui.card, ui.cardPad]">
+          <h2 :class="ui.pageTitle">注册开关</h2>
+          <p :class="ui.pageDesc">关闭后新用户无法注册，注册页与导航入口同步关闭；已注册账号不受影响。</p>
 
-          <label class="switch">
-            <input v-model="form.registration_enabled" type="checkbox" :disabled="saving" />
+          <label :class="ui.switch">
+            <input v-model="form.registration_enabled" :class="ui.switchInput" type="checkbox" :disabled="saving" />
             <span>{{ form.registration_enabled ? '当前开放注册' : '当前关闭注册' }}</span>
-            <span class="badge" :class="form.registration_enabled ? '' : 'badge--danger'">
+            <span :class="[ui.badge, form.registration_enabled ? '' : ui.badgeDanger]">
               {{ form.registration_enabled ? '开放' : '关闭' }}
             </span>
           </label>
         </section>
 
-        <section class="card card--pad">
-          <h2 class="page-title">上传与请求大小</h2>
-          <p class="page-desc">保存后立即生效；上传请求超过单请求上限会被后端拒绝。</p>
+        <section :class="[ui.card, ui.cardPad]">
+          <h2 :class="ui.pageTitle">上传与请求大小</h2>
+          <p :class="ui.pageDesc">保存后立即生效；上传请求超过单请求上限会被后端拒绝。</p>
 
-          <div class="form-grid">
+          <div class="mt-3 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-x-4">
             <FormField
               label="单文件上传上限（字节）"
               input-id="settings-max-upload"
@@ -260,7 +261,7 @@ onMounted(() => void load())
               <input
                 id="settings-max-upload"
                 v-model.number="form.max_upload_bytes"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="1"
                 step="1"
@@ -278,7 +279,7 @@ onMounted(() => void load())
               <input
                 id="settings-max-request"
                 v-model.number="form.max_request_bytes"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="1"
                 step="1"
@@ -296,7 +297,7 @@ onMounted(() => void load())
               <input
                 id="settings-storage-quota"
                 v-model.number="form.storage_quota_bytes"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="1"
                 step="1"
@@ -307,11 +308,11 @@ onMounted(() => void load())
           </div>
         </section>
 
-        <section class="card card--pad">
-          <h2 class="page-title">发帖与上传限频</h2>
-          <p class="page-desc">按固定窗口统计；次数与窗口同时生效，修改后下一次请求即使用新配置。</p>
+        <section :class="[ui.card, ui.cardPad]">
+          <h2 :class="ui.pageTitle">发帖与上传限频</h2>
+          <p :class="ui.pageDesc">按固定窗口统计；次数与窗口同时生效，修改后下一次请求即使用新配置。</p>
 
-          <div class="form-grid">
+          <div class="mt-3 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-x-4">
             <FormField
               label="发帖限频次数"
               input-id="settings-post-limit"
@@ -321,7 +322,7 @@ onMounted(() => void load())
               <input
                 id="settings-post-limit"
                 v-model.number="form.post_rate_limit"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="1"
                 step="1"
@@ -339,7 +340,7 @@ onMounted(() => void load())
               <input
                 id="settings-post-window"
                 v-model.number="form.post_rate_window_seconds"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="1"
                 step="1"
@@ -357,7 +358,7 @@ onMounted(() => void load())
               <input
                 id="settings-upload-limit"
                 v-model.number="form.upload_rate_limit"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="1"
                 step="1"
@@ -375,7 +376,7 @@ onMounted(() => void load())
               <input
                 id="settings-upload-window"
                 v-model.number="form.upload_rate_window_seconds"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="1"
                 step="1"
@@ -386,11 +387,11 @@ onMounted(() => void load())
           </div>
         </section>
 
-        <section class="card card--pad">
-          <h2 class="page-title">附件与调用记录</h2>
-          <p class="page-desc">临时附件超过保留期后由后台清理任务标记失效；调用记录超出截断上限的部分不保存。</p>
+        <section :class="[ui.card, ui.cardPad]">
+          <h2 :class="ui.pageTitle">附件与调用记录</h2>
+          <p :class="ui.pageDesc">临时附件超过保留期后由后台清理任务标记失效；调用记录超出截断上限的部分不保存。</p>
 
-          <div class="form-grid">
+          <div class="mt-3 grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-x-4">
             <FormField
               label="临时附件保留期（小时）"
               input-id="settings-temp-retention"
@@ -400,7 +401,7 @@ onMounted(() => void load())
               <input
                 id="settings-temp-retention"
                 v-model.number="form.temp_attachment_retention_hours"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="1"
                 step="1"
@@ -418,7 +419,7 @@ onMounted(() => void load())
               <input
                 id="settings-call-log-max"
                 v-model.number="form.call_log_max_bytes"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="1"
                 step="1"
@@ -436,7 +437,7 @@ onMounted(() => void load())
               <input
                 id="settings-call-log-retention"
                 v-model.number="form.call_log_retention_days"
-                class="input"
+                :class="ui.input"
                 type="number"
                 min="0"
                 step="1"
@@ -447,70 +448,46 @@ onMounted(() => void load())
           </div>
         </section>
 
-        <section class="card card--pad">
+        <section :class="[ui.card, ui.cardPad]">
           <AlertNote v-if="saved" kind="success">设置已保存并即时生效。</AlertNote>
           <AlertNote v-if="saveError" kind="error">{{ saveError }}</AlertNote>
 
-          <div class="actions">
-            <button class="btn btn--primary" type="submit" :disabled="!dirty || saving">
-              <span v-if="saving" class="spinner" aria-hidden="true"></span>
+          <div class="flex flex-wrap items-center gap-2">
+            <button :class="[ui.button, ui.buttonPrimary]" type="submit" :disabled="!dirty || saving">
+              <span v-if="saving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
               {{ saving ? '保存中…' : '保存设置' }}
             </button>
-            <button class="btn btn--secondary" type="button" :disabled="!dirty || saving" @click="resetForm">
+            <button :class="[ui.button, ui.buttonSecondary]" type="button" :disabled="!dirty || saving" @click="resetForm">
               撤销更改
             </button>
-            <span v-if="dirty" class="muted dirty-hint">有未保存的修改</span>
+            <span v-if="dirty" :class="[ui.muted, 'm-0']">有未保存的修改</span>
           </div>
         </section>
       </form>
 
-      <section class="card card--pad">
-        <h2 class="page-title">全局 AI 自动行为</h2>
-        <p class="page-desc">
+      <section :class="[ui.card, ui.cardPad]">
+        <h2 :class="ui.pageTitle">全局 AI 自动行为</h2>
+        <p :class="ui.pageDesc">
           全局停止后所有 AI 立即停止产生新动作，并取消所有待执行的 AI 任务；已发布内容与记忆不受影响。
         </p>
 
         <AlertNote v-if="aiNotice" kind="success">{{ aiNotice }}</AlertNote>
         <AlertNote v-if="aiError" kind="error">{{ aiError }}</AlertNote>
 
-        <label class="switch">
-          <input :checked="form.ai_global_enabled" type="checkbox" :disabled="aiSaving" @change="onToggleAI" />
+        <label :class="ui.switch">
+          <input :checked="form.ai_global_enabled" :class="ui.switchInput" type="checkbox" :disabled="aiSaving" @change="onToggleAI" />
           <span>{{ form.ai_global_enabled ? '全局自动行为已开启' : '全局自动行为已停止' }}</span>
-          <span class="badge" :class="form.ai_global_enabled ? '' : 'badge--danger'">
+          <span :class="[ui.badge, form.ai_global_enabled ? '' : ui.badgeDanger]">
             {{ form.ai_global_enabled ? '运行中' : '已停止' }}
           </span>
         </label>
 
-        <p v-if="aiSaving" class="loading-row">
-          <span class="spinner" aria-hidden="true"></span> 正在提交全局开关…
+        <p v-if="aiSaving" :class="ui.loadingRow">
+          <span :class="ui.spinner" aria-hidden="true"></span> 正在提交全局开关…
         </p>
 
-        <p class="muted hint">切换立即生效并写入审计日志；全局停止会取消所有待执行的 AI 任务。</p>
+        <p :class="[ui.muted, 'm-0 mt-3']">切换立即生效并写入审计日志；全局停止会取消所有待执行的 AI 任务。</p>
       </section>
     </template>
   </div>
 </template>
-
-<style scoped>
-.self-start {
-  align-self: flex-start;
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.dirty-hint {
-  margin: 0;
-}
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0 16px;
-  margin-top: 12px;
-}
-.hint {
-  margin: 12px 0 0;
-}
-</style>
