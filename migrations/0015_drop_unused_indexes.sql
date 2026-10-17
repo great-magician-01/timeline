@@ -1,0 +1,13 @@
+-- 0015_drop_unused_indexes：删除未使用的索引（只结构变更，不动业务数据）。
+--
+-- 背景：post_search_updated ON timeline.post_search (updated_at DESC) 定义于
+-- migrations/0003_content.sql:117，只随搜索投影 upsert 维护；仓库内不存在按
+-- post_search.updated_at 过滤/排序的查询（索引名只出现在 DDL，不被运行期 SQL 引用），
+-- 属于纯写放大开销。
+--
+-- 说明：
+--   1. 删除后用 0014 的 post_search_text_trgm 承担文本检索；若未来需要按 updated_at
+--      排序再由追加迁移恢复。
+--   2. 普通事务迁移，单条 DROP INDEX；IF EXISTS 保证重复执行/人工重跑幂等。
+--   3. 只删除索引，不删除表、列或数据；schema 前缀写 timeline.，测试 schema 由迁移器统一重写。
+DROP INDEX IF EXISTS timeline.post_search_updated;

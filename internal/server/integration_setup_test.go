@@ -1,174 +1,159 @@
-package server
+// Package server_test 是目标架构下的 HTTP 集成测试（外部测试包）：
+// 通过 internal/testkit 构造真实组合根（app.New）+ 隔离测试 schema + httptest 服务，
+// 只做黑盒 HTTP 断言，不依赖 production 包内部结构。
+//
+// 本文件是测试共用的 harness/兼容层：共享构造入口（setupIntegrationServer）与
+// 旧测试沿用的小工具（client 包装、断言、后缀等）都在这里统一提供，
+// 具体实现全部委托 internal/testkit；其他测试文件不要重复定义这些名字。
+//
+// 集成测试默认跳过；设置 TIMELINE_INTEGRATION=1 后连接开发实例中的
+// timeline_test / user_test 隔离 schema 运行。
+package server_test
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"io"
-	"log/slog"
-	"net/http/httptest"
 	"testing"
-	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/great-magician-01/timeline/internal/auth"
-	"github.com/great-magician-01/timeline/internal/id"
-	"github.com/great-magician-01/timeline/internal/jobs"
-	"github.com/great-magician-01/timeline/internal/migrate"
-	"github.com/great-magician-01/timeline/internal/storage"
+	"github.com/great-magician-01/timeline/internal/testkit"
 )
 
-// setupIntegrationServer 在 timeline_test / user_test 隔离 schema 上启动完整服务，
-// 供集成测试复用（账号集成测试保留其历史实现，未合并）。
-// 调用方负责在未设置 TIMELINE_INTEGRATION=1 时先 Skip。
-func setupIntegrationServer(t *testing.T) (*pgxpool.Pool, *Server, string) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	t.Cleanup(cancel)
+// 共享测试账号约定值（旧测试名保持兼容）。
+const (
+	integrationAdminUsername = testkit.IntegrationAdminUsername
+	integrationAdminEmail    = testkit.IntegrationAdminEmail
+	integrationAdminPassword = testkit.IntegrationAdminPassword
+	integrationModUsername   = testkit.IntegrationModUsername
+	integrationModEmail      = testkit.IntegrationModEmail
+)
 
-	cfg := loadIntegrationConfig(t)
-	testCfg := *cfg
-	testCfg.CookieSecure = false
-	testCfg.LogLevel = "info"
-	dsn, err := integrationDSN(testCfg.DSN(), "timeline_test", "user_test")
-	if err != nil {
-		t.Fatal(err)
+// IntegrationEnabled 报告是否显式开启集成测试（供需要自行 Skip 的用例使用）。
+func IntegrationEnabled() bool { return testkit.IntegrationEnabled() }
+
+// integrationClient 是 testkit.Client 的兼容别名。
+type integrationClient = testkit.Client
+
+// setupIntegrationServer 在共享测试 schema（timeline_test/user_test）上构造完整服务：
+// 迁移 + 注册开关恢复 + 幂等测试管理员 + app.New + httptest。
+// 调用方负责在未设置 TIMELINE_INTEGRATION=1 时先 Skip（testkit 内部也会 Skip）。
+func setupIntegrationServer(t *testing.T) (*pgxpool.Pool, *testkit.Server, string) {
+	t.Helper()
+	srv := testkit.NewIntegrationServer(t)
+	sharedIntegrationBaseURL = srv.BaseURL
+	return srv.Pool, srv, srv.BaseURL
+}
+
+// newIntegrationClient 创建带独立 Cookie jar 的测试客户端。
+// base 为空时使用共享集成服务的地址（setupIntegrationServer 的第三个返回值）。
+func newIntegrationClient(t *testing.T, base string) *integrationClient {
+	t.Helper()
+	if base == "" {
+		base = sharedIntegrationBaseURL
 	}
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("连接测试 schema 失败: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	if err := pool.Ping(ctx); err != nil {
-		t.Fatalf("Ping 测试数据库失败: %v", err)
-	}
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	if err := migrate.RunWithSchemas(ctx, pool, log, "timeline_test", "user_test"); err != nil {
-		t.Fatalf("执行测试 schema 迁移失败: %v", err)
-	}
-	// 上次失败可能停在关闭注册步骤；每次只在测试 schema 恢复默认开关。
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO system_settings (key, value) VALUES ('registration.enabled', 'true'::jsonb)
-		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`); err != nil {
-		t.Fatalf("恢复测试注册开关失败: %v", err)
-	}
-	ids, err := id.NewGenerator(1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ensureIntegrationAdmin(t, pool, ids)
-	state := NewState()
-	state.SetPool(pool)
-	state.MarkMigrationsDone()
-	store, err := storage.New(t.TempDir())
-	if err != nil {
-		t.Fatalf("初始化测试附件目录失败: %v", err)
-	}
-	srv := New(&testCfg, log, state, ids, jobs.NewRunner(state, ids, log), store)
-	httpServer := httptest.NewServer(srv.Handler())
-	t.Cleanup(httpServer.Close)
-	return pool, srv, httpServer.URL
+	return testkit.NewClient(t, base)
+}
+
+// sharedIntegrationBaseURL 由 setupIntegrationServer 记录，供未显式传 base 的用例使用。
+var sharedIntegrationBaseURL string
+
+// newIntegrationClientFor 创建绑定到给定服务的客户端（新测试推荐用法）。
+func newIntegrationClientFor(t *testing.T, srv *testkit.Server) *integrationClient {
+	t.Helper()
+	return srv.Client(t)
+}
+
+// registerIntegrationUser 注册并登录：注册接口只创建账号，不下发会话，
+// 后续写操作需要登录后的会话 CSRF 令牌。
+func registerIntegrationUser(t *testing.T, client *integrationClient, username, email string) {
+	t.Helper()
+	client.RegisterAndLogin(username, email)
+}
+
+// loginIntegrationUser 登录并记录会话 CSRF 令牌。
+func loginIntegrationUser(t *testing.T, client *integrationClient, identifier, password string) {
+	t.Helper()
+	client.LoginAndSetCSRF(identifier, password)
 }
 
 // integrationSuffix 生成用于隔离本次测试数据的唯一后缀。
-func integrationSuffix() string { return fmt.Sprintf("%d", time.Now().UnixNano()) }
+func integrationSuffix() string { return testkit.IntegrationSuffix() }
 
-// integrationShortSuffix 返回较短的数字后缀，用于受 32 位长度限制的用户名（如 grant_target_xxx）。
-func integrationShortSuffix() string {
-	suffix := integrationSuffix()
-	if len(suffix) > 12 {
-		return suffix[len(suffix)-12:]
-	}
-	return suffix
+// integrationShortSuffix 返回较短的后缀，用于受 32 位长度限制的用户名。
+func integrationShortSuffix() string { return testkit.IntegrationShortSuffix() }
+
+// integrationDSN 在开发实例 DSN 上覆盖 search_path 到隔离测试 schema。
+func integrationDSN(productionDSN, timelineSchema, userSchema string) (string, error) {
+	return testkit.IntegrationDSN(productionDSN, timelineSchema, userSchema)
 }
 
-// 共享测试 schema 中固定测试账号的约定值；相关集成测试都使用这些账号。
-const (
-	integrationAdminUsername = "admin_integration"
-	integrationAdminEmail    = "admin-integration@example.com"
-	integrationAdminPassword = "admin-password-123"
-	integrationModUsername   = "mod_integration"
-	integrationModEmail      = "mod-integration@example.com"
-)
+// ===== JSON 取值与断言（委托 testkit） =====
 
-// ensureIntegrationAdmin 幂等准备共享测试 schema（timeline_test/user_test）中的管理员账号。
-// 共享 schema 持久存在且测试不做物理删除，因此这里只做“缺失则创建、存在则修复”：
-//   - admin_integration：固定密码的管理员；若库内尚无超管，则提升为超管（满足单超管唯一索引）；
-//   - mod_integration：普通管理员，供“普通管理员越权被拒”的用例使用。
-func ensureIntegrationAdmin(t *testing.T, pool *pgxpool.Pool, ids auth.IDGenerator) {
+// expectIntegrationStatus 断言 HTTP 状态码符合预期。
+func expectIntegrationStatus(t *testing.T, got, want int, raw string) {
 	t.Helper()
-	passwordHash, err := auth.HashPassword(integrationAdminPassword)
-	if err != nil {
-		t.Fatalf("生成测试管理员密码哈希失败: %v", err)
-	}
-	adminID := ensureIntegrationAccount(t, pool, ids, integrationAdminUsername, integrationAdminEmail, passwordHash)
-
-	// 只在库内没有超管时提升，避免违反 users_single_super_admin 唯一索引。
-	var isSuperAdmin bool
-	if err := pool.QueryRow(context.Background(),
-		`SELECT is_super_admin FROM users WHERE id = $1`, adminID).Scan(&isSuperAdmin); err != nil {
-		t.Fatalf("读取测试超管标记失败: %v", err)
-	}
-	if !isSuperAdmin {
-		if _, err := pool.Exec(context.Background(), `
-			UPDATE users SET is_super_admin = TRUE, updated_at = now()
-			WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE is_super_admin)`, adminID); err != nil {
-			t.Fatalf("提升测试管理员为超管失败: %v", err)
-		}
-		if err := pool.QueryRow(context.Background(),
-			`SELECT is_super_admin FROM users WHERE id = $1`, adminID).Scan(&isSuperAdmin); err != nil {
-			t.Fatalf("复核测试超管标记失败: %v", err)
-		}
-		if !isSuperAdmin {
-			t.Fatalf("测试 schema 已存在其他超级管理员，无法把 %s 提升为超管；请人工检查 user_test 数据",
-				integrationAdminUsername)
-		}
-	}
-
-	ensureIntegrationAccount(t, pool, ids, integrationModUsername, integrationModEmail, passwordHash)
+	testkit.ExpectStatus(t, got, want, raw)
 }
 
-// ensureIntegrationAccount 确保固定测试账号存在且处于可登录、可用于权限用例的状态，返回账号 ID。
-// 已存在时只修复测试账号自身的已知字段（密码/角色/状态/邮箱），不删除任何数据。
-func ensureIntegrationAccount(
-	t *testing.T,
-	pool *pgxpool.Pool,
-	ids auth.IDGenerator,
-	username, email, passwordHash string,
-) int64 {
+// integrationCSRF 从响应中读取 csrf_token 并写入客户端。
+func integrationCSRF(payload map[string]any, t *testing.T, client *integrationClient) {
 	t.Helper()
-	ctx := context.Background()
-	var accountID int64
-	err := pool.QueryRow(ctx, `SELECT id FROM users WHERE LOWER(username) = LOWER($1)`, username).Scan(&accountID)
-	if err == nil {
-		// 上一次失败运行可能留下停用/角色变化等状态，这里修复固定测试账号。
-		if _, err := pool.Exec(ctx, `
-			UPDATE users
-			SET email = $2, password_hash = $3, role = 'admin', is_ai = FALSE,
-			    status = 'active', suspended_at = NULL, require_follow_approval = FALSE,
-			    updated_at = now()
-			WHERE id = $1`, accountID, email, passwordHash); err != nil {
-			t.Fatalf("修复测试账号 %s 失败: %v", username, err)
-		}
-		return accountID
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("查询测试账号 %s 失败: %v", username, err)
-	}
-
-	newID, err := ids.Next()
-	if err != nil {
-		t.Fatalf("生成测试账号 %s 的 ID 失败: %v", username, err)
-	}
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO users (
-			id, username, email, password_hash, nickname, role, is_super_admin,
-			is_ai, status, require_follow_approval, token_version
-		) VALUES ($1, $2, $3, $4, $2, 'admin', FALSE, FALSE, 'active', FALSE, 1)`,
-		newID, username, email, passwordHash); err != nil {
-		t.Fatalf("创建测试账号 %s 失败: %v", username, err)
-	}
-	return newID
+	testkit.MustSetCSRF(t, payload, client)
 }
+
+// integrationUser 读取响应中的 user 对象。
+func integrationUser(payload map[string]any, t *testing.T) map[string]any {
+	t.Helper()
+	return testkit.MustUser(t, payload)
+}
+
+// integrationNested 读取响应中的嵌套对象。
+func integrationNested(payload map[string]any, t *testing.T, key string) map[string]any {
+	t.Helper()
+	return testkit.MustNested(t, payload, key)
+}
+
+// integrationString 读取响应中的非空字符串字段。
+func integrationString(payload map[string]any, t *testing.T, key string) string {
+	t.Helper()
+	return testkit.MustString(t, payload, key)
+}
+
+// integrationErrorCode 读取统一错误响应中的 code。
+func integrationErrorCode(payload map[string]any) string { return testkit.ErrorCode(payload) }
+
+// integrationListContains 判断列表响应 items 中是否存在某字段等于 want 的项。
+func integrationListContains(payload map[string]any, key, want string) bool {
+	return testkit.ListContains(payload, key, want)
+}
+
+// integrationListHasType 判断列表响应中是否存在指定 type。
+func integrationListHasType(payload map[string]any, want string) bool {
+	return testkit.ListHasType(payload, want)
+}
+
+// integrationListHasStatus 判断列表响应中是否存在指定 status。
+func integrationListHasStatus(payload map[string]any, want string) bool {
+	return testkit.ListHasStatus(payload, want)
+}
+
+// integrationListHasKind 判断列表响应中是否存在指定 kind。
+func integrationListHasKind(payload map[string]any, want string) bool {
+	return testkit.ListHasKind(payload, want)
+}
+
+// ===== HTTP 附件/二进制辅助 =====
+
+// uploadIntegrationPNG 上传一张 8x8 的合法 PNG，返回附件 ID。
+func uploadIntegrationPNG(t *testing.T, client *integrationClient) string {
+	t.Helper()
+	return client.Upload()
+}
+
+// rawIntegrationGET 发起原始 GET，返回状态码、内容类型与前 16 字节。
+func rawIntegrationGET(t *testing.T, client *integrationClient, path string) (int, string, []byte) {
+	t.Helper()
+	return client.RawGET(path)
+}
+
+// substituteRouteParams 把 Gin 路径参数替换为占位值，便于直接发起请求。
+func substituteRouteParams(path string) string { return testkit.SubstituteRouteParams(path) }

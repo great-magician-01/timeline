@@ -220,7 +220,8 @@ curl -s http://localhost:5070/api/v1/auth/config
 ### 常用命令
 
 ```bash
-go test ./...                    # 单元测试
+go test ./...                    # 单元测试（含 internal/architecture 架构守卫）
+go test ./internal/architecture  # 架构守卫：分层/依赖/SQL/时间函数位置静态检查
 go vet ./...                     # 静态检查
 go run ./cmd/server migrate      # 手动执行迁移
 go run ./cmd/mock-llm            # 验收用 OpenAI 兼容 mock（默认 127.0.0.1:8099，非生产）
@@ -230,15 +231,14 @@ cd web && npm run build          # TypeScript 检查 + 生产构建
 <details>
 <summary><strong>集成测试需要什么？</strong></summary>
 
-集成测试默认全部跳过，需要显式开启。它使用开发实例中已有的 `timeline_test` 与 `user_test` 隔离 schema，不创建数据库，也不写正式业务表；测试账号需要对这两个 schema 有创建和使用权限。
+集成测试默认全部跳过，显式设置 `TIMELINE_INTEGRATION=1` 后运行。测试通过 `internal/testkit` harness 装配：自动连接开发实例中已有的 `timeline_test` 与 `user_test` 隔离 schema（不创建数据库，也不写正式业务表），用组合根 `internal/app` 构造真实服务 + `httptest`；`TestBootstrapIntegration` 使用一次性空库 schema，需要数据库账号具备 schema 创建权限（缺少 `pg_trgm` 扩展或 schema 权限时该组用例优雅 Skip）。
 
 ```bash
-TIMELINE_INTEGRATION=1 go test ./internal/server -run TestAccountIntegration -count=1 -v
-TIMELINE_INTEGRATION=1 go test ./internal/server -run TestContentIntegration -count=1 -v
-TIMELINE_INTEGRATION=1 go test ./internal/server -run TestAdminSettingsAndAttachmentIntegration -count=1 -v
-TIMELINE_INTEGRATION=1 go test ./internal/server -run 'TestBootstrapIntegration|TestAdminGrantIntegration' -count=1 -v
-TIMELINE_INTEGRATION=1 go test ./internal/ai -run TestAIAdminIntegration -count=1 -v
+# 建议 -p 1 串行执行：多个测试包共享同一对测试 schema，并行包会互相干扰。
+TIMELINE_INTEGRATION=1 go test -p 1 ./...   # 运行全部集成测试（未开启时自动跳过）
 ```
+
+> 迁移到目标架构后，集成测试位于 `internal/server`（HTTP 全链路）与各模块 `http` 包（如 `internal/modules/ai/http`），不再依赖旧 `internal/*` 业务包。执行迁移的测试库需由 DBA 预装 `pg_trgm`（`CREATE EXTENSION IF NOT EXISTS pg_trgm`），否则 `0014_search_trgm` 与一次性 schema 用例会被跳过或失败；部署要求见 `docs/DEPLOYMENT.md`。
 
 </details>
 
@@ -278,29 +278,22 @@ Compose 只管理 `app` 一个服务，PostgreSQL 是外部独立实例，不在
 
 ## 📂 项目结构
 
+> **分支说明**：当前 `refactor/target-architecture` 分支已按 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 完成目标架构接管运行路径——`cmd/server` → `internal/app`（组合根）→ `internal/transport/router`（声明式路由）→ `internal/modules/*`；旧 `internal/*` 业务包已退出运行路径，仅保留旧测试/迁移参考，G5 cutover 后删除。新功能只写在 `internal/{app,platform,shared,transport,modules}`。
+
 ```text
 timeline/
 ├── 🚀 cmd/
-│   ├── server/              # 唯一服务入口：HTTP、后台作业、迁移子命令（migrate）
+│   ├── server/              # 唯一服务入口：进程生命周期、HTTP 启动与 migrate 子命令（业务装配在 internal/app）
 │   └── mock-llm/            # 验收用 OpenAI 兼容 mock（非生产）
 ├── 🧩 internal/
-│   ├── auth/                # 注册登录（首注册引导）、会话与 CSRF、资料与密码、超管权限
-│   ├── content/             # 帖子、草稿、定时、版本历史、标签、搜索、时间线
-│   ├── social/              # 关注、点赞、评论、转发、粉丝
-│   ├── notice/              # 提及与通知
-│   ├── media/               # 附件上传、鉴权读取、缩略图与视频封面
-│   ├── ai/                  # 模型预设、AI 配置、分层记忆
-│   ├── agent/               # AI 调度、决策、动作执行、记忆沉淀、受控搜索循环
-│   ├── websearch/           # DeepSeek Search 兼容客户端与结果裁剪
-│   ├── admin/               # 用户与管理员授权、内容审核、任务处置、概览、设置、审计
-│   ├── access/              # 可见性、只读与互动授权
-│   ├── jobs/                # 持久化后台作业（恢复 + 幂等 + 有限重试）
-│   ├── server/              # 路由、中间件、健康检查、前端托管
-│   ├── richtext/            # 富文本清洗、Markdown 渲染、话题与提及
-│   ├── storage/             # 本地卷附件的安全读写与类型嗅探
-│   ├── settings/            # 上传 / 存储 / 限频 / 保留期与全局搜索配置
-│   ├── ratelimit/           # 单实例内存固定窗口限频
-│   └── config · db · migrate · logging · id · api · model · audit
+│   ├── app/                 # 组合根：装配 platform/modules、注册路由与后台作业
+│   ├── platform/            # 技术基座：clock、db（连接池/事务）、id、logging、migrate、jobs、audit、settings、storage、ratelimit、apperr、config、websearch、aiclient
+│   ├── shared/              # 共享内核：model、access（纯策略）、contracts（跨模块端口与输入）、page、richtext
+│   ├── transport/           # httpx（JSON/错误/分页/上下文）、middleware、router（Policy + 声明式路由表）
+│   ├── server/              # slim server：Gin 引擎、全局中间件、健康检查、前端托管
+│   ├── modules/             # 业务模块四层：auth/content/social/notice/media/ai/agent/admin × {domain,app,repo,http}
+│   ├── architecture/        # 架构守卫测试：分层/依赖/SQL 位置/时间函数位置
+│   └── testkit/             # 集成测试脚手架：隔离 schema + 组合根服务 + 带 Cookie/CSRF 的 HTTP 客户端
 ├── 🗄️ migrations/            # 只允许追加的 SQL 迁移（NNNN_描述.sql）
 ├── 🎨 web/                   # Vue 3 + Vite + Tailwind CSS 4 前端；构建产物由 Go 嵌入
 ├── 🐳 deploy/scripts/        # prepare.sh / backup.sh / restore.sh
@@ -311,6 +304,8 @@ timeline/
 ├── docker-compose.yml       # 只管理应用容器；数据库为外部实例
 └── .env.example             # 部署环境变量模板
 ```
+
+> legacy：旧 `internal/auth`、`internal/content`、`internal/social`、`internal/notice`、`internal/media`、`internal/ai`、`internal/agent`、`internal/admin`、`internal/access`、`internal/jobs`、`internal/settings`、`internal/richtext`、`internal/storage`、`internal/api`、`internal/model` 等包仍保留在仓库，但已退出运行路径、只被旧测试/迁移参考（对应新位置见上方目标架构与 `docs/ARCHITECTURE.md`）；G5 cutover 后删除。
 
 ## 🎨 界面与视觉
 
@@ -327,6 +322,7 @@ timeline/
 | [`REQUIREMENTS.md`](docs/REQUIREMENTS.md) | 产品定位、功能范围、核心决策、部署约束与验收口径 |
 | [`PAGES_AND_PERMISSIONS.md`](docs/PAGES_AND_PERMISSIONS.md) | 有哪些页面、谁能看见什么、后端在哪里核对权限 |
 | [`WORKFLOWS.md`](docs/WORKFLOWS.md) | 草稿、定时发布、关注审批、评论删除、AI 决策、记忆、通知等状态机 |
+| [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 目标架构：模块分层、依赖方向、数据所有权、端口/事务/时间规范、路由策略组与架构守卫 |
 | [`DATA_MODEL.md`](docs/DATA_MODEL.md) | 实体、字段、关系、索引、schema 与时区约定 |
 | [`API.md`](docs/API.md) | 接口约定、错误码、认证方式与全部分组接口 |
 | [`DEPLOYMENT.md`](docs/DEPLOYMENT.md) | 镜像、Compose、环境变量、迁移、备份恢复、升级回滚 |
@@ -342,6 +338,8 @@ go test ./...
 go vet ./...
 cd web && npm run build
 ```
+
+`go test ./...` 同时执行 `internal/architecture` 的结构守卫（模块分层、依赖方向、SQL 与时间函数位置），越界会直接失败；架构规则见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。集成测试默认跳过，需 `TIMELINE_INTEGRATION=1`（通过 `internal/testkit` harness 使用隔离 schema）。
 
 如果改到了部署文件、端口、镜像构建参数或配置变量，请同时更新 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)、[`.env.example`](.env.example)、本文件和 [`AGENTS.md`](AGENTS.md)，避免文档再次漂移。
 

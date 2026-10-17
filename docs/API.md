@@ -1,9 +1,9 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.7.2  
+> **文档版本**：0.7.3  
 > **最近更新**：2026-10-18  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.0  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
 > **用途**：前后端接口对接、接口实现与验收用例的依据
 
@@ -30,6 +30,7 @@
 1. 所有 ID（雪花 ID，`BIGINT`）在 JSON 中**以字符串序列化**，避免超过 JavaScript 安全整数范围丢失精度；接收参数时同时接受字符串。
 2. 时间使用 ISO 8601 并带 `+08:00` 偏移，例如 `2026-10-16T20:30:00+08:00`。
 3. 全系统北京时间，不做时区换算，接口不接收时区参数。
+4. **服务端时间来源**：响应中的时间由服务端应用时钟生成并统一格式化为 RFC3339 `+08:00` 文本；业务时间（创建/更新/发布/删除/定时/作业等）由应用生成并随写入显式传参，数据库不提供业务时间默认值，`SELECT now()` 不作为业务时间权威。客户端只应原样展示或回传，不依赖服务端时钟与本地时钟的差值。
 
 ### 2.3 认证与 CSRF
 
@@ -89,6 +90,8 @@
 | 415 | `unsupported_media_type` | 文件类型不允许 |
 | 429 | `rate_limited` | 触发频率限制，带 `Retry-After` 头 |
 | 500 | `internal_error` | 服务端错误 |
+
+**实现说明**：领域错误由 `platform/apperr` 表达（`Kind`/`Code`/`Message`/`Details`/`RetryAfter`），`transport/httpx.Respond` 是 `Kind` → HTTP 状态码/错误码/`Retry-After` 的唯一映射入口；handler 不自行拼装错误响应，无法识别的错误统一按 500 `internal_error` 记录并返回。实现位置调整不改变本节表格中的路径、方法、状态码、错误码与 JSON 字段契约。
 | 503 | `service_unavailable` | 数据库连接或迁移尚未就绪，稍后重试 |
 
 ### 2.7 幂等与重试
@@ -401,6 +404,7 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
 | 2026-10-18 | 0.7.2 | 需求基线更新至 0.24.0；`GET /auth/config` 增加 `bootstrap_required`；注册接口说明空库首个注册用户返回 `role=admin`+`is_super_admin=true`、未初始化时忽略注册开关、不自动登录；新增 private_user 对象（`is_super_admin`，公开 user_brief 不含）；新增 `POST /admin/users/:id/grant-admin` 与 `.../revoke-admin` 契约（仅超管、CSRF 先行、幂等、400/403/404、审计动作、返回 `{user}`）；§12.1 明确普通管理员不能操作超级管理员账号；审计 `action_type` 增加两个动作。 |
+| 2026-10-18 | 0.7.3 | 仅补充实现说明（接口契约不变）：§2.2 说明响应时间由服务端应用时钟生成并格式化为 `+08:00`，业务时间由应用显式传参、数据库不提供时间默认值；§2.6 说明领域错误由 `platform/apperr` 表达、`transport/httpx.Respond` 为 Kind→HTTP 映射唯一入口。 |
 | 2026-10-18 | 0.7.1 | 搜索设置响应增加 `usable`，区分“已保存”和“当前不可用”；明确 Base URL 明文、仅 API Key 加密，并补充主动目标范围二次校验契约。 |
 | 2026-10-17 | 0.7.0 | 新增全局网页搜索设置接口（Base URL、只写独立 API Key、配置状态与清除）与 AI 行为 `allow_web_search`；搜索密钥与模型接口预设解耦，接口不返回明文或密文。 |
 | 2026-10-17 | 0.6.0 | 修复审计同步：新增 `GET /auth/config`；草稿/定时列表补齐 `plain_text`、`attachment_count`、`status`、失败状态；通知支持 `type` 筛选；系统设置扩展上传/请求/配额/限频/临时附件保留期/调用记录截断与保留期；后台用户详情增加 `stats`、帖子详情增加草稿正文/版本正文/评论上下文；新增管理附件列表与删除；AI 任务返回注入记忆，调用记录支持 `task_id`；AI 手动生成支持 `scheduled_at`；预设停用前检查关联 AI。 |

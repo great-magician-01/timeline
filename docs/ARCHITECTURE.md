@@ -1,0 +1,207 @@
+# Timeline 后端目标架构
+
+> **文档状态**：设计基线，持续更新  
+> **文档版本**：0.1.1  
+> **最近更新**：2026-10-18  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
+> **关联文档**：[`DATA_MODEL.md`](DATA_MODEL.md)、[`WORKFLOWS.md`](WORKFLOWS.md)、[`API.md`](API.md)、[`DEPLOYMENT.md`](DEPLOYMENT.md)  
+> **用途**：后端分层、依赖边界、数据所有权与架构守卫的权威说明；改造过程细节见仓库根目录 `CODE_QUALITY_REFACTOR_PLAN.md`（过程文档，非长期权威）
+
+## 1. 目标与原则
+
+目标形态是**模块化单体（modular monolith）**：领域边界清晰、依赖方向可静态强制、HTTP/业务/SQL/事务/时间各自归位，同时保持现有 `/api/v1` 契约与权限行为不变。不拆微服务，不引入消息队列/事件总线。
+
+九条原则：
+
+1. **按限界上下文划分模块**，模块内四层：`domain`（纯规则）→ `app`（用例/事务）→ `repo`（SQL）与 `http`（Gin）。
+2. **依赖方向单向**：`cmd → app（组合根）→ server/router/modules → transport/platform/shared`；`transport` 不依赖 `cmd`，`modules` 不依赖 `transport`，`shared` 不依赖任何上层。
+3. **编译期强制边界**：模块四层是独立 Go 包；另有 `internal/architecture` 静态守卫（import/SQL/时间函数位置），越界在 CI 失败。
+4. **HTTP 只属于 transport**：业务核心（domain/app）不出现 `gin`、`net/http`、`pgx`、`pool.Begin`、`c.JSON`；Gin 只出现在 `*/http` 与 `transport`。
+5. **SQL 只属于 repo**：所有 SQL 字符串、Scan、分页查询、`FOR UPDATE`、计数更新只出现在 `*/repo`；跨模块只读的 admin read-model 是显式例外。
+6. **事务由 app 编排**：`platform/db.TxManager.WithTx` 是唯一事务入口；跨模块协作复用外层事务；一个事务只取一次 `clock.Now()`。
+7. **时间是应用输入**：写库时间、日界、租约、退避截止时间全部由应用生成并作为参数传入；数据库不提供业务时间默认值、不在 SQL 里做时间运算（`schema_migrations.applied_at` 是唯一白名单）。
+8. **跨模块只走端口**：消费者在 `app/port.go` 定义窄接口，生产者 app 类型结构化实现，组合根装配；跨模块命令/查询结构体放 `shared/contracts`；禁止跨模块直接查表。
+9. **错误领域化、响应统一化**：`platform/apperr` 表达领域错误；`transport/httpx.Respond` 是唯一 HTTP 映射入口；DTO 在 `*/http/view.go`，不把 JSON 形状带进领域。
+
+## 2. 目录结构
+
+```
+cmd/server/main.go                  # 进程生命周期：TZ、配置、日志、信号、启动/优雅关闭、migrate 子命令
+internal/
+├── app/                            # 组合根：唯一允许 import 全部模块的地方
+│   ├── app.go / wire.go            # App 与依赖装配
+│   ├── jobs.go                     # 作业处理器与周期任务注册
+│   └── bootstrap.go                # 迁移后初始化状态检查与日志
+├── platform/                       # 技术基座（无业务语义；任何层可依赖）
+│   ├── clock/ db/ id/ logging/     # 时钟（唯一 time.Now 来源）、连接池/事务、雪花 ID、日志
+│   ├── migrate/                    # 迁移器 v2（支持 no-transaction 指令）
+│   ├── storage/ ratelimit/         # 本地附件卷、单实例固定窗口限频
+│   ├── apperr/                     # 领域错误 Kind/Error/构造器
+│   ├── jobs/ audit/ settings/      # 分别拥有 background_jobs / admin_audit_logs / system_settings
+│   ├── websearch/ aiclient/        # 受控联网搜索、OpenAI 兼容模型客户端（出站适配器）
+│   └── config/
+├── shared/                         # 共享内核（无 IO）
+│   ├── model/ access/ contracts/   # 跨上下文数据结构、纯授权策略、跨模块发布语言
+│   └── page/ richtext/
+├── transport/
+│   ├── httpx/                      # JSON 错误/解码/ID/时间/分页/上下文读取
+│   ├── middleware/                 # Ready、Security、AccessLog、RequestID
+│   └── router/                     # 唯一注册路由的地方：Policy + 声明式路由表
+├── server/                         # Gin 引擎、健康检查、前端静态托管（不含业务路由）
+└── modules/
+    ├── auth/     # 账号、会话、角色/超管、注册引导、CSRF
+    ├── content/  # 帖子、草稿、版本、发布、时间线、标签、搜索
+    ├── social/   # 关注/申请、点赞、评论、转发
+    ├── notice/   # 通知、提及
+    ├── media/    # 附件、衍生文件、清理
+    ├── ai/       # 预设、AI 身份/行为、记忆、运行时
+    ├── agent/    # 调度、决策、动作、调用记录、AI 管理接口
+    └── admin/    # 审核/概览/任务/审计查询（编排型上下文，无自有实体）
+```
+
+各层只做/绝不做：
+
+| 位置 | 只做 | 绝不做 |
+| --- | --- | --- |
+| `platform/*` | 通用技术能力（时钟、DB、事务、ID、日志、存储、限流、配置、迁移、外部客户端） | 业务规则、HTTP 路由 |
+| `shared/*` | 共享类型、纯策略、contracts、游标、富文本纯函数 | SQL、IO、Gin、依赖 modules |
+| `modules/*/domain` | 实体不变式、状态机、纯校验与策略 | SQL、IO、Gin、依赖其它模块 |
+| `modules/*/app` | 用例编排、事务边界、时钟取时、端口调用、审计/通知/入队协作 | SQL、Gin、`net/http`、`pgx` |
+| `modules/*/repo` | 唯一 SQL 层：查询、Scan、`FOR UPDATE`、批量载入 | 业务规则、HTTP、取时钟（`now` 由 app 传入） |
+| `modules/*/http` | Gin handler、参数解析、错误映射、DTO 组装、本域中间件 | SQL、`pgx`、`pool.Begin` |
+| `transport/router` | 路由表、策略组、路径/方法注册 | 业务逻辑、SQL |
+| `server` | Gin 引擎、全局中间件、健康检查、前端托管 | 业务路由、服务构造 |
+| `app` | 构造全部依赖、装配端口、注册作业 | 业务规则、SQL |
+
+## 3. 依赖方向与允许 import
+
+```
+cmd/server ──▶ internal/app
+                 ├─▶ internal/server ──▶ transport/middleware
+                 ├─▶ internal/transport/router ──▶ modules/*/http ──▶ modules/*/app ──▶ modules/*/repo
+                 ├─▶ modules/*/app ──▶ modules/*/repo
+                 ├─▶ platform/*
+                 └─▶ shared/*
+```
+
+- `server` 不 import `modules/*` 与 `transport/router`；`router` 不 import `modules/*` 的 app/repo/domain（只依赖各模块 `http` 的 Handler）。
+- `shared`、`platform` 不 import `modules/*`、`transport/*`、`server`。
+- 模块之间互不 import；跨模块协作只能通过 `app/port.go` 端口 + `shared/contracts` 类型。
+- `cmd/server` 只 import `app` 与 `platform/{config,logging,migrate}`。
+
+## 4. 数据所有权
+
+| 所有者 | 表 |
+| --- | --- |
+| `modules/auth` | `"user".users`、`"user".auth_sessions` |
+| `modules/content` | `posts`、`post_drafts`、`post_versions`、`post_version_attachments`、`post_draft_attachments`、`tags`、`post_tags`、`post_search` |
+| `modules/social` | `follows`、`follow_requests`、`likes`、`comments`、`reposts` |
+| `modules/notice` | `notifications`、`mentions` |
+| `modules/media` | `attachments`、`attachment_derivatives` |
+| `modules/ai` | `model_providers`、`ai_profiles`、`ai_model_settings`、`ai_behavior_settings`、`ai_memories`、`ai_memory_sources` |
+| `modules/agent` | `ai_tasks`、`ai_task_memory_refs`、`ai_call_logs`、`ai_action_counters` |
+| `modules/admin` | 无自有实体；只读 read-model 跨表 JOIN/聚合，不写任何表 |
+| `platform/jobs` | `background_jobs` |
+| `platform/audit` | `admin_audit_logs` |
+| `platform/settings` | `system_settings` |
+| `platform/migrate` | `schema_migrations` |
+
+规则：一张表只有一个写所有者；其它模块需要读写时通过所有者 app 的端口。`media` 更新头像、`admin` 停用/重置密码等 `users` 写操作都经 `auth/app` 端口完成。`users.avatar_attachment_id` 由 auth 拥有、media 通过端口双写/回填，用于替代附件清理里拼 URL 的跨表条件。
+
+## 5. 端口与 contracts
+
+- 消费者在 `modules/<x>/app/port.go` 定义窄接口（如 `content/app` 的 `PostReader`、`social/app` 的 `Notifier`、`auth/app` 的 `UserWriter`）；生产者由组合根传入，不反向 import。
+- 跨模块命令/查询/结果结构放 `shared/contracts`（如 `ActorPostInput`、`CommentInput`、`NotificationInput`、`AuditEntry`、`JobEnqueue`、`SystemSettings`）。
+- 平台端口同样以接口注入：`platform/jobs.Runner`（入队/领取）、`platform/audit.Writer`、`platform/settings.Reader/Writer`、`platform/clock.Clock`。
+- 模块间**禁止**直接 `SELECT/UPDATE` 对方表；`admin/repo/read_model.go` 是只读例外，且可见性/权限条件由 app 传入。
+
+## 6. 事务、错误与时间规范
+
+**事务**
+
+- 唯一入口：`platform/db.TxManager.WithTx(ctx, fn)`；ctx 内传播事务，嵌套调用合并为外层事务。
+- app 用例是事务边界：注册初始化、发帖（帖子+草稿+版本+附件+标签+搜索+通知+作业）、评论/点赞（事件+计数+通知）、用户停用、AI 动作、管理员授权等。
+- handler/http 不出现 `pool.Begin/Commit/Rollback`；repo 通过 `db.ExecutorFrom(ctx, pool)` 自动复用当前事务或连接池。
+
+**错误**
+
+- `platform/apperr`：`Kind`（NotFound/Forbidden/Unauthenticated/Invalid/Validation/Conflict/Suspended/RateLimited/Unavailable）+ `Code/Message/Details/RetryAfter`。
+- `transport/httpx.Respond` 是唯一 HTTP 映射入口；handler/中间件共用；未知错误 → 500 并记录日志。
+- 错误码、状态码、JSON 字段保持 `docs/API.md` 契约不变；公开用户 DTO 不含 `is_super_admin`。
+
+**时间**
+
+- `platform/clock`：`Clock.Now()`、`System()`、`Fake`、`DayStart`（固定 `Asia/Shanghai`），是 `time.Now()` 的唯一来源（例外：平台 ID 雪花时钟、日志按日目录、access log 耗时）。
+- 写库时间由 app 取一次 `now` 显式传参；同一事务所有 `created_at/updated_at/published_at/deleted_at/resolved_at/run_at/started_at/finished_at/last_used_at/suspended_at` 使用同一值。
+- SQL 不出现 `now()`、`CURRENT_DATE`、`::date`、`interval` 运算；会话过期、作业租约、AI reconcile、清理 cutoff、日统计窗口全部参数化。
+- 首次发布：`published_at = COALESCE(published_at, $n)`，保持“不覆盖首次发布时间”。
+- 日期列（如 `ai_action_counters.counter_date`）与日界统计用 `clock.DayStart` 生成 `[dayStart, dayEnd)`；`TZ=UTC` 下测试也应通过。
+- `timeline.schema_migrations.applied_at` 保留 `DEFAULT now()`，是数据库时间函数唯一白名单。
+
+## 7. 路由策略组
+
+路由由 `transport/router` 的**声明式路由表**统一注册，每条路由只声明 `Method/Path/Policy/Handler`，中间件链由 Policy 决定：
+
+| Policy | 链（外→内） | 适用 |
+| --- | --- | --- |
+| `Public` | `Ready` | `/healthz`、`/readyz`、`GET /auth/config` 等无需身份的入口 |
+| `Optional` | `Ready → ResolveSession` | 公开 GET 与 `GET /auth/csrf`（游客可读，登录用户带 viewer_state） |
+| `Login` | `… → RequireLogin` | 已登录只读：`/auth/me`、`/me/*`、通知、关注申请、关注时间线 |
+| `HumanWrite` | `… → RequireLogin → RequireCSRF` | 业务写 POST |
+| `AdminRead` | `… → RequireLogin → RequireAdmin` | 管理后台 GET |
+| `AdminWrite` | `AdminRead → RequireCSRF` | 普通管理 POST |
+| `SuperAdminWrite` | `AdminWrite → RequireSuperAdmin` | `grant-admin` / `revoke-admin`（CSRF 在超管校验之前，保持现有错误语义） |
+| `GuestWrite` | `Ready → GuestCSRF` | `POST /auth/register`、`POST /auth/login` |
+
+`ResolveSession` 每请求最多查一次会话并把 `model.Viewer`/`model.Session` 放入上下文；`RequireLogin/Admin/SuperAdmin` 只读上下文不查库。路由表是纯数据，`routes_test.go` 无数据库断言总数、Method+Path 唯一、非 GET 必须写策略、`/admin` 必须是 Admin/SuperAdmin 策略等。
+
+## 8. 架构守卫
+
+`internal/architecture/architecture_test.go` 用 `go/parser` 静态扫描 `internal/`，CI 通过 `go test ./internal/architecture` 执行：
+
+| # | 规则 |
+| --- | --- |
+| 1 | `modules/*/domain` 不 import gin/net/http/pgx/database/sql；`app` 不 import gin/net/http/pgx 且字符串字面量不含 SQL 关键字；`repo` 不 import gin/net/http；`http` 不 import pgx/database/sql |
+| 2 | 模块互斥：`internal/modules/x/**` 不 import `internal/modules/y`（x≠y） |
+| 3 | 依赖方向：`server` 不 import modules/transport-router；`transport/router` 不 import modules；`shared`/`platform` 不 import modules/transport/server |
+| 4 | SQL 位置：新树 SQL 关键字只允许 `modules/*/repo/**` 与 `platform/{jobs,audit,settings,migrate}/**` |
+| 5 | Gin 位置：`gin.Context` 只允许 `modules/*/http/**`、`transport/**`、`server` |
+| 6 | 时间位置：`time.Now()` 只允许 `platform/{clock,id,logging}/**` 与 `transport/middleware/accesslog.go`；SQL 时间函数只允许 `platform/migrate/**` |
+
+旧 `internal/` 顶层包（`access`、`admin`、`agent`、`ai`、`api`、`audit`、`auth`、`config`、`content`、`db`、`id`、`jobs`、`logging`、`media`、`migrate`、`model`、`notice`、`ratelimit`、`richtext`、`server`、`settings`、`social`、`storage`、`websearch`）计划在 G5 cutover 后删除；**G5 cutover 后删除旧包，本守卫只覆盖新树**（规则 3 显式扫描的 `internal/server`、`internal/transport/router` 除外）。
+
+## 9. 迁移状态
+
+- 迁移文件按文件名追加执行，记录于 `timeline.schema_migrations`；仓库当前包含 `0001`–`0015` 迁移文件（是否已应用以部署记录为准）。
+- 迁移器 v2（`platform/migrate`）支持首行 `-- timeline:no-transaction`：该文件语句不包事务，用于 `CREATE INDEX CONCURRENTLY`；此类迁移必须幂等（`IF NOT EXISTS`），失败后按顺序人工核对重跑，迁移器不自动回滚。
+- `0011_drop_time_defaults`：移除 43 个业务时间列的 `DEFAULT now()`，`schema_migrations.applied_at` 为唯一白名单；必须在应用侧“所有写路径显式传时间”上线后执行。
+- `0012_add_avatar_attachment_id`：只加 `users.avatar_attachment_id` 与索引，不回填；回填完成前清理 SQL 不得依赖该列非空。
+- `0013_timeline_and_task_indexes`：`reposts_timeline`、`ai_tasks_daily`、`ai_call_logs_retention_id`、`attachments_status_deleted`，no-transaction + `CONCURRENTLY`。
+- `0014_search_trgm`：`pg_trgm` 扩展 + `post_search_text_trgm` GIN(`LOWER(plain_text) gin_trgm_ops`)，no-transaction + `CONCURRENTLY`；查询需改写为 `LOWER(plain_text) LIKE '%' || $n || '%'` 才能命中索引，且需 DB 扩展权限。
+- `0015_drop_unused_indexes`：删除未使用索引 `post_search_updated`。
+- **执行顺序**：先切换迁移器 v2（`covers no-transaction`），再应用 `0013`/`0014`；旧的事务式迁移器执行 `CREATE INDEX CONCURRENTLY` 会失败。
+
+## 10. 当前改造进度（refactor 分支）
+
+- 已完成：`internal/app` 组合根（`cmd/server` 只保留进程生命周期并调用 `app.New`）；`transport/router` 声明式路由接管全部 `/api/v1` 路由；`modules/*` 八域按 `domain/app/repo/http` 四层实现；`platform/*`、`shared/*`（model/access/contracts/page/richtext）与 `transport/{httpx,middleware}`；迁移器 v2；架构守卫与本文档；`migrations/0011`–`0015`；`DATA_MODEL.md` §4.4 时间权威更新。
+- 进行中（G5–G8 收尾）：旧 `internal/*` 业务包已退出运行路径（仅旧测试/迁移参考），删除前需把 `internal/server` 旧集成测试迁移到 `internal/testkit` + 新模块 harness；架构守卫失败项清零；SQL/索引性能验证（`EXPLAIN`、对账任务）。
+- 待完成（G6–G8）：旧代码 `now()`/`::date`/`interval` 清零与测试 INSERT 补参；P0/SEC 手工回归与文档同步归档。
+- 已知守卫失败项随收尾收敛（截至本文档 0.1.1，个别模块仍可能有 `pgxpool` 依赖或 `time.Now()` 调用）；以 `go test ./internal/architecture` 的实际输出为准。
+
+## 11. 架构不变式（DoD 摘录）
+
+1. `*gin.Context` 只出现在 `modules/*/http/**`、`transport/**`、`server`；业务包为 0。
+2. SQL 关键字只出现在 `modules/*/repo/**` 与 `platform/{jobs,audit,settings,migrate}/**`；其余 Go 源码为 0。
+3. `access.Querier`、`PoolProvider`、`internalError(c)`、`c.JSON` 在 app/domain/repo 中为 0。
+4. `pool.Begin/Commit/Rollback` 只在 `platform/db`（jobs Runner 内部例外）；handler 为 0。
+5. `time.Now()` 只在 `platform/{clock,id,logging}` 与 access log；SQL 中 `now()/CURRENT_DATE/::date/interval` 除迁移器白名单为 0。
+6. `modules/x` 不 import `modules/y`；`shared`/`platform` 不 import 上层。
+7. 路由快照与 `docs/API.md` 的 method/path/状态码/错误码/JSON 字段保持契约不变；策略矩阵由无数据库单测断言。
+8. 时间不变量：会话过期、作业租约、AI reconcile、日统计全部使用应用时钟；`information_schema` 无业务 `now()` 默认值；`TZ=UTC` 测试通过。
+
+## 12. 变更记录
+
+| 日期 | 版本 | 变更内容 |
+| --- | --- | --- |
+| 2026-10-18 | 0.1.1 | 版本/基线同步（不改变架构结构）：需求基线更新至 `REQUIREMENTS.md` 0.24.1；§10 改造进度更新为当前状态（`internal/app` 组合根与 `transport/router` 已接管运行路径、八域模块四层实现完成、旧包退出运行路径仅剩删除与测试迁移、G6–G8 收尾项）。 |
+| 2026-10-18 | 0.1.0 | 首次建立后端目标架构文档：模块化单体与九条原则、目录结构、模块四层职责、依赖方向与允许 import、数据所有权、端口与 contracts、事务/错误/时间规范、路由策略组、架构守卫（`internal/architecture`）、迁移状态（0001–0015，含 no-transaction 与时间默认值移除）与当前改造进度。 |

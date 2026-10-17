@@ -25,6 +25,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # `go test ./...` 已包含 internal/architecture 结构守卫（Gin/SQL/time.Now 位置、模块互斥与依赖方向）。
       - name: go test
         run: go test ./...
 

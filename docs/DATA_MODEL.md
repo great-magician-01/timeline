@@ -1,7 +1,7 @@
 # Timeline 数据模型设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.7.2  
+> **文档版本**：0.8.0  
 > **最近更新**：2026-10-18  
 > **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.0  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[核心状态机与流程](WORKFLOWS.md)  
@@ -74,9 +74,10 @@
 ### 4.4 时区约定
 
 1. 全系统统一使用中国标准时间（北京时间，`Asia/Shanghai`），不考虑其他时区，不做用户时区换算。
-2. 应用、数据库会话和定时任务使用同一时区；PostgreSQL 连接层固定会话时区为 `Asia/Shanghai`。
-3. 时间字段建议使用带时区类型并在会话层固定时区，保证 `now()` 等数据库函数与应用时间一致；最终类型选择（`timestamptz` 固定会话时区或按北京时间语义的无时区 `timestamp`）在迁移设计时确定。
-4. 所有时间展示、统计、定时发布和记忆时间窗口均按北京时间理解，界面不提供时区切换。
+2. 时区落地：PostgreSQL 连接层固定会话时区为 `Asia/Shanghai`；时间列统一使用带时区的 `timestamptz` 存绝对时刻；所有时间展示、统计、定时发布和记忆时间窗口均按北京时间理解，界面不提供时区切换。
+3. 业务时间权威在应用侧：业务时间列（`created_at`、`updated_at`、`deleted_at`、`published_at`、`scheduled_at`、`started_at`、`finished_at`、`run_at`、`resolved_at`、`last_used_at` 等）一律由应用侧 Clock 生成并作为参数写入，同一事务使用同一个 `now`；数据库不再为业务时间列提供 `now()`/`CURRENT_TIMESTAMP` 默认值（`0011_drop_time_defaults` 已移除 43 个默认值），也不承担业务时间比较——会话过期、作业租约、AI 对账/冷却、每日计数与日界等均由应用侧按同一时钟计算。
+4. 日界与 DATE：按日统计（如 `ai_action_counters.counter_date`、今日动作数）与 DATE 参数在应用侧按北京时间自然日计算，使用半开区间 `[dayStart, dayEnd)` 比较，不使用 `::date` 或 `CURRENT_DATE`。
+5. 白名单：迁移基础设施 `timeline.schema_migrations.applied_at` 是唯一保留 `DEFAULT now()` 的列，由迁移器维护、不属于业务时间；数据库会话时区仍保持 `Asia/Shanghai`，用于兼容既有查询、运维与 `psql` 展示。
 
 ### 4.5 迁移行为
 
@@ -505,6 +506,7 @@
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.8.0 | §4.4 时区约定改为“业务时间权威在应用侧”：业务时间由应用 Clock 生成传参、同一事务一个 `now`，数据库不再提供业务时间默认值（`0011_drop_time_defaults` 移除 43 个 `DEFAULT now()`，`timeline.schema_migrations.applied_at` 为唯一白名单）也不承担业务时间比较，日界在应用侧按北京时间半开区间计算。迁移 0011-0015：`0011` 时间默认值移除、`0012` `users.avatar_attachment_id`（只结构不回填）、`0013` 时间线/任务/附件索引（no-transaction + `CONCURRENTLY`）、`0014` `pg_trgm` 搜索索引（no-transaction + `CONCURRENTLY`）、`0015` 删除未使用索引 `post_search_updated`。 |
 | 2026-10-18 | 0.7.2 | 需求基线更新至 0.24.0；`users` 增加 `is_super_admin` 标记（超级管理员 = `role = 'admin'` + 该标记，不新增角色枚举）、CHECK 约束 `users_super_admin_check` 与单超管部分唯一索引 `users_single_super_admin`；新增 `0010_super_admin` 迁移说明（只加列/约束/索引，存量不迁移、升级后无超管、启动日志告警）；审计 `action_type` 增加 `user_grant_admin`/`user_revoke_admin` 并说明 `detail` 结构。 |
 | 2026-10-16 | 0.1.0 | 基于需求 0.9.0 首次建立数据模型设计；覆盖账号、帖子与版本、草稿、附件与衍生文件、社交互动、通知、AI 配置、AI 任务、分层记忆、后台作业、系统设置与审计日志，并给出关系、索引、状态映射和待细化事项。 |
 | 2026-10-16 | 0.2.0 | 确认主键统一使用后端生成的雪花 ID（BIGINT）；确认数据库名从配置读取、schema 固定为 `user`（仅账号认证表）和 `timeline`（其余全部表），并补充 `user` 保留字引用、幂等建 schema 与跨 schema 外键约定。 |

@@ -1,6 +1,6 @@
-// 时间线服务入口。
-// 启动顺序（docs/DEPLOYMENT.md §6）：加载配置 → 初始化日志 → 启动 HTTP（含健康检查）
-// → 后台连接外部数据库（退避重试）→ 执行迁移 → 标记就绪。
+// 时间线服务入口：只负责进程生命周期（时区/配置/日志/信号/优雅关闭）、
+// HTTP 先启动 + DB 就绪后组合根切换 handler，以及 migrate 子命令。
+// 业务装配全部在 internal/app（组合根）。
 package main
 
 import (
@@ -11,20 +11,21 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
-	// 内嵌时区数据库：二进制在任意环境（含精简容器）都能解析 Asia/Shanghai
+
+	// 内嵌时区数据库：二进制在任意环境（含精简容器）都能解析 Asia/Shanghai。
 	_ "time/tzdata"
 
-	"github.com/great-magician-01/timeline/internal/auth"
-	"github.com/great-magician-01/timeline/internal/config"
-	"github.com/great-magician-01/timeline/internal/db"
-	"github.com/great-magician-01/timeline/internal/id"
-	"github.com/great-magician-01/timeline/internal/jobs"
-	"github.com/great-magician-01/timeline/internal/logging"
-	"github.com/great-magician-01/timeline/internal/migrate"
+	"github.com/great-magician-01/timeline/internal/app"
+	"github.com/great-magician-01/timeline/internal/platform/config"
+	"github.com/great-magician-01/timeline/internal/platform/db"
+	"github.com/great-magician-01/timeline/internal/platform/id"
+	"github.com/great-magician-01/timeline/internal/platform/logging"
+	"github.com/great-magician-01/timeline/internal/platform/migrate"
+	"github.com/great-magician-01/timeline/internal/platform/storage"
 	"github.com/great-magician-01/timeline/internal/server"
-	"github.com/great-magician-01/timeline/internal/storage"
 )
 
 const (
@@ -40,8 +41,7 @@ func main() {
 }
 
 func run() int {
-	// 全系统统一北京时间（docs/REQUIREMENTS.md 时间基准）；
-	// tzdata 已内嵌，理论上不会失败；兜底使用固定 +08:00（中国无夏令时，语义等价）。
+	// 全系统统一北京时间（docs/REQUIREMENTS.md 时间基准）。
 	loc, tzErr := time.LoadLocation("Asia/Shanghai")
 	if tzErr != nil {
 		loc = time.FixedZone("CST", 8*60*60)
@@ -53,7 +53,6 @@ func run() int {
 		fmt.Fprintln(os.Stderr, "配置错误:", err)
 		return 1
 	}
-
 	log, logCloser, err := logging.Init(cfg.LogLevel, cfg.LogFormat, cfg.LogFile, loc)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "日志初始化失败:", err)
@@ -61,20 +60,26 @@ func run() int {
 	}
 	defer func() { _ = logCloser.Close() }()
 
-	log.Info("时间线服务启动",
-		"version", appVersion, "timezone", loc.String(),
+	log.Info("时间线服务启动", "version", appVersion, "timezone", loc.String(),
 		"log_file", cfg.LogFile, "listen", listenAddr)
 	if tzErr != nil {
 		log.Warn("系统缺少时区数据，已退回固定 +08:00 时区", "err", tzErr)
 	}
-
+	if !cfg.SecretKeyFromEnv {
+		log.Warn("未配置 ENCRYPTION_KEY，接口预设的 API Key 使用由数据库连接信息派生的密钥加密；生产环境建议显式配置")
+	}
 	if err := os.MkdirAll(cfg.UploadDir, 0o755); err != nil {
 		log.Warn("创建上传目录失败（发布附件前需修复）", "dir", cfg.UploadDir, "err", err)
 	}
 
-	gen, err := id.NewGenerator(cfg.SnowflakeWorkerID)
+	ids, err := id.NewGenerator(cfg.SnowflakeWorkerID)
 	if err != nil {
 		log.Error("雪花 ID 生成器初始化失败", "err", err)
+		return 1
+	}
+	store, err := storage.New(cfg.UploadDir)
+	if err != nil {
+		log.Error("附件存储初始化失败", "dir", cfg.UploadDir, "err", err)
 		return 1
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -88,35 +93,24 @@ func run() int {
 		return 0
 	}
 
-	store, err := storage.New(cfg.UploadDir)
-	if err != nil {
-		log.Error("附件存储初始化失败", "dir", cfg.UploadDir, "err", err)
-		return 1
-	}
-	if !cfg.SecretKeyFromEnv {
-		log.Warn("未配置 ENCRYPTION_KEY，接口预设的 API Key 使用由数据库连接信息派生的密钥加密；生产环境建议显式配置")
-	}
-
-	// 后台作业运行器：作业持久化在数据库，重启后恢复；处理器在 server.New 中注册。
-	state := server.NewState()
-	runner := jobs.NewRunner(state, gen, log)
-
+	// HTTP 先启动：bootstrap server 只含健康检查/静态托管；数据库就绪后再换 handler。
+	readiness := db.NewReadiness()
+	srv := server.New(cfg, log, readiness)
 	httpSrv := &http.Server{
 		Addr:              listenAddr,
-		Handler:           server.New(cfg, log, state, gen, runner, store).Handler(),
+		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	// 后台：连接数据库 → 迁移 → 标记就绪；连接失败按退避重试（ENV-07）
-	migrationsDone := make(chan struct{})
+	var application atomic.Pointer[app.App]
+
+	// 后台：连接数据库 → 迁移 → 标记就绪 → 构造完整 app 并切换 handler。
 	go func() {
-		defer close(migrationsDone)
 		pool, err := db.Wait(ctx, cfg.DSN(), log)
 		if err != nil {
 			return // ctx 取消
 		}
-		state.SetPool(pool)
-
+		readiness.SetPool(pool)
 		if cfg.RunMigrations {
 			if err := migrate.Run(ctx, pool, log); err != nil {
 				log.Error("数据库迁移失败，服务保持未就绪", "err", err)
@@ -125,27 +119,19 @@ func run() int {
 		} else {
 			log.Info("RUN_MIGRATIONS=false，跳过自动迁移")
 		}
-		state.MarkMigrationsDone()
-		log.Info("数据库与迁移就绪，/readyz 可返回 200")
+		readiness.MarkMigrationsDone()
 
-		// 迁移完成后输出初始化状态：空库或升级后无超管时提示运维先完成初始化/评估升级影响。
-		statusCtx, cancelStatus := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancelStatus()
-		humanUsers, superAdmins, statusErr := auth.BootstrapStatus(statusCtx, pool)
-		switch {
-		case statusErr != nil:
-			log.Warn("读取初始化状态失败", "err", statusErr)
-		case humanUsers == 0:
-			log.Warn("系统尚未初始化：首个注册用户将自动成为超级管理员，请先完成初始化再对外开放", "users", humanUsers)
-		case superAdmins == 0:
-			log.Warn("系统已有用户但不存在超级管理员：管理员授权功能不可用", "users", humanUsers)
-		default:
-			log.Info("系统初始化状态", "users", humanUsers, "super_admins", superAdmins)
+		instance, err := app.New(cfg, log, readiness, ids, store, srv.Engine())
+		if err != nil {
+			log.Error("组合根装配失败，服务保持未就绪", "err", err)
+			return
 		}
+		application.Store(instance)
+		srv.SwapHandler(instance.Handler())
+		instance.Start(ctx)
+		instance.Bootstrap(ctx)
+		log.Info("数据库与迁移就绪，/readyz 可返回 200")
 	}()
-
-	// 后台作业与周期任务：连接池未就绪时空转，不阻塞进程。
-	runner.Start(ctx)
 
 	go func() {
 		log.Info("HTTP 服务开始监听", "addr", listenAddr)
@@ -162,20 +148,18 @@ func run() int {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		log.Warn("HTTP 关闭超时", "err", err)
 	}
-	if pool := state.Pool(); pool != nil {
+	if instance := application.Load(); instance != nil {
+		instance.Close()
+	}
+	if pool := readiness.Pool(); pool != nil {
 		pool.Close()
 	}
 	log.Info("已退出")
 	return 0
 }
 
-// runCommand 提供部署文档约定的手动迁移命令；服务初始化通过注册首个账号完成。
-func runCommand(
-	ctx context.Context,
-	args []string,
-	cfg *config.Config,
-	log *slog.Logger,
-) error {
+// runCommand 提供部署文档约定的手动迁移命令。
+func runCommand(ctx context.Context, args []string, cfg *config.Config, log *slog.Logger) error {
 	if len(args) != 1 || args[0] != "migrate" {
 		return fmt.Errorf("未知命令；可用命令: migrate")
 	}
@@ -184,8 +168,6 @@ func runCommand(
 		return err
 	}
 	defer pool.Close()
-
-	// 手动命令显式保证表结构就绪，不受 RUN_MIGRATIONS=false 的服务配置影响。
 	if err := migrate.Run(ctx, pool, log); err != nil {
 		return err
 	}

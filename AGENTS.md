@@ -1,5 +1,9 @@
 # Timeline 项目指南
 
+> **文档版本**：0.1.1  
+> **最近更新**：2026-10-18  
+> **关联文档**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（后端目标架构权威）、[`docs/README.md`](docs/README.md)（文档索引）
+
 本文件面向首次接触本仓库的 AI 编码代理。项目文档、代码注释和界面文案主要使用简体中文；修改代码和文档时沿用这一语言习惯。本文区分**当前已实现的行为**与**文档中的目标设计**，不要把设计清单误当成已经完成的功能。
 
 ## 1. 项目概览
@@ -21,6 +25,8 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 
 验证状态：默认 Go 测试、`go vet`、`npm run build` 与隔离 schema 集成测试已通过；开发机已使用临时 PostgreSQL 实例完成 Docker 镜像构建、容器启动、健康检查、前端托管与基础 API 冒烟，并完成一次备份/恢复演练（含附件属主修正）。尚未执行：`docs/ACCEPTANCE.md` 中的完整 P0 人工验收，以及部署机上的真实环境复演。
 
+当前分支 `refactor/target-architecture` 已按 `docs/ARCHITECTURE.md` 完成目标架构接管运行路径：`cmd/server` → `internal/app`（组合根）→ `transport/router`（声明式路由）→ `modules/*`，旧 `internal/*` 业务包已退出运行路径、只保留旧测试/迁移参考，G5 cutover 后删除；新功能只写在目标结构中。改造进度与迁移序列见 `CODE_QUALITY_REFACTOR_PLAN.md`（过程文档）。
+
 ## 2. 技术栈与关键配置
 
 - 后端：Go 1.25（以 `go.mod` 为准），模块名 `github.com/great-magician-01/timeline`。
@@ -30,7 +36,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 - 前端构建：`vue-tsc -b && vite build`，类型检查和生产构建由同一个 `npm run build` 完成。
 - 静态资源：`web/embed.go` 使用 `go:embed all:dist` 嵌入 `web/dist`。
 - 数据库迁移：`migrations/embed.go` 嵌入 `migrations/*.sql`。
-- 本地配置：`.env.example` 是模板；`internal/config/config.go` 会读取根目录 `.env`，但已有进程环境变量优先。
+- 本地配置：`.env.example` 是模板；`internal/platform/config` 会读取根目录 `.env`，但已有进程环境变量优先（旧 `internal/config` 为 legacy）。
 
 关键文件：
 
@@ -44,7 +50,19 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 
 ## 3. 目录与模块划分
 
-- `cmd/server/main.go`：唯一服务入口。负责固定 `Asia/Shanghai` 时区、加载配置、初始化日志/ID 生成器/附件存储/后台作业运行器、启动 HTTP、后台连接数据库/迁移、优雅关闭，以及 `migrate` 子命令；迁移完成后输出初始化状态日志（人类用户数/超管数）。
+目标架构（`refactor/target-architecture` 分支，权威说明见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)）：
+
+- `internal/app/`：组合根。唯一装配全部平台依赖、跨模块端口与作业处理器并调用路由注册的地方；`cmd/server/main.go` 只保留进程生命周期、配置/日志初始化与 `migrate` 子命令。
+- `internal/platform/`：技术基座（无业务语义）。`clock`（唯一取时来源）、`db`（连接池与事务 `TxManager.WithTx`）、`id`（雪花 ID）、`logging`、`migrate`（迁移器 v2，支持 `no-transaction` 指令）、`storage`、`ratelimit`、`apperr`（领域错误 Kind/构造器）、`jobs`/`audit`/`settings`（分别拥有 `background_jobs`/`admin_audit_logs`/`system_settings`）、`websearch`、`aiclient`、`config`。
+- `internal/shared/`：无 IO 的共享内核。`model`（跨上下文行结构与枚举）、`access`（可见性/互动/角色/超管保护纯策略）、`contracts`（跨模块发布语言：端口接口与输入结构）、`page`（游标分页）、`richtext`（富文本/Markdown 清洗与链接化）。
+- `internal/transport/`：`httpx`（JSON 错误映射、请求解码、ID/时间/分页、viewer/session 上下文）、`middleware`（Ready/Security/AccessLog/RequestID）、`router`（唯一注册路由处：Policy 枚举 + 声明式路由表）。
+- `internal/server/`：slim server，只做 Gin 引擎与全局中间件装配、健康检查与前端静态托管；业务路由不在这里注册，由组合根在 `Engine()` 上调用 `transport/router` 注册。
+- `internal/modules/<域>/{domain,app,repo,http}/`：模块四层。域为 auth、content、social、notice、media、ai、agent、admin。`domain` 放实体不变式/状态机/纯校验；`app` 放用例、事务边界、取时与端口调用；`repo` 是唯一 SQL 层；`http` 放 Gin handler、参数解析、错误映射与 DTO 组装。
+
+- `cmd/server/main.go`：唯一服务入口。只负责固定 `Asia/Shanghai` 时区、加载配置、初始化日志/ID/存储、HTTP 先启动、数据库就绪后切换为组合根生成的完整 handler、优雅关闭与 `migrate` 子命令；业务装配全部在 `internal/app`，不在 main 中构造业务服务。
+
+以下为 legacy 旧包（仍保留在仓库但已退出运行路径，仅被旧测试/迁移参考引用，G5 cutover 后删除；对应新位置见上方目标架构）：
+
 - `internal/api/`：统一 JSON 错误与 `*api.Failure` 业务错误、请求体限制、雪花 ID 字符串、游标与列表响应。
 - `internal/access/`：跨模块复用的可见性、只读与互动授权判断（`CanViewPost`、`RequireInteractivePost` 等）。
 - `internal/admin/`：管理员账号处置、管理员授权/撤销（仅超管）、内容审核、后台作业处置、概览、注册与全局 AI 开关、审计查询。
@@ -64,7 +82,6 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 - `internal/notice/`：提及与通知写入、幂等去重、通知列表与已读。
 - `internal/ratelimit/`：单实例内存固定窗口限频器。
 - `internal/richtext/`：富文本清洗、Markdown 渲染、纯文本提取、话题与提及链接化。
-- `internal/server/`：Gin 路由与中间件装配、访问日志、运行时就绪状态、健康检查和前端托管。
 - `internal/settings/`：运行期系统设置与全局网页搜索配置读取。
 - `internal/social/`：关注与申请、点赞、评论与回复、纯转发、主页列表。
 - `internal/storage/`：本地卷附件的安全读写与类型嗅探（不提供删除能力）。
@@ -109,7 +126,7 @@ go run ./cmd/mock-llm             # 验收用本地 OpenAI 兼容 mock（默认 
 
 `cmd/server` 只保留 `migrate` 子命令：不再提供 `init-admin`，首个管理员通过注册页的首个注册账号自动产生（空库环境）。
 
-集成测试使用现有开发实例中的 `timeline_test` 与 `user_test` 隔离 schema，不创建数据库，也不写正式业务表；需要测试账号具有这两个 schema 的创建/使用权限。默认全部跳过，需显式开启：
+集成测试使用现有开发实例中的 `timeline_test` 与 `user_test` 隔离 schema，不创建数据库，也不写正式业务表；需要测试账号具有这两个 schema 的创建/使用权限。默认全部跳过，需显式开启。以下命令运行 `internal/server` 下的 legacy 集成测试与 `internal/ai` 旧测试，正在迁移到 `internal/testkit` + 各模块 `http`/harness，迁移完成前保留：
 
 ```bash
 TIMELINE_INTEGRATION=1 go test ./internal/server -run TestAccountIntegration -count=1 -v
@@ -153,6 +170,17 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 - 全系统固定使用 `Asia/Shanghai`，不增加用户时区换算。DSN 同时固定数据库会话时区和 `search_path=timeline,"user"`。
 - 日志使用项目初始化的 `slog.Logger`，不要另起一套日志框架；密钥和敏感请求头不得进入日志。
 
+### 目标架构分层与依赖约定（refactor 分支）
+
+- **handler 只在 `modules/*/http`**：`*gin.Context`、`c.JSON`、`net/http` 只出现在 `modules/*/http`、`transport/*` 与 `server`；`domain`/`app`/`repo` 不得出现 gin。
+- **SQL 只在 `modules/*/repo`**：所有 SQL 字符串、Scan、`FOR UPDATE`、计数更新只写在 repo；平台 `jobs`/`audit`/`settings`/`migrate` 各自拥有对应表的 SQL。禁止 repo 访问其它模块拥有的表，跨模块读写一律走端口。
+- **app/domain 不 import pgx**：`app` 不出现 `pgx`、`net/http`、`gin`、`pool.Begin/Commit/Rollback`；repo 通过 `db.ExecutorFrom(ctx, pool)` 自动复用 app 编排的当前事务。
+- **模块间只走 `shared/contracts`**：消费者在 `app` 中依赖窄接口（生产者 app 类型结构化实现），组合根注入；跨模块命令/查询/结果结构放 `shared/contracts`；禁止 `modules/x` import `modules/y`。
+- **路由策略组在 `transport/router`**：每条路由只声明 `Method/Path/Policy/Handler`，中间件链由 Policy 决定（Public/Optional/Login/HumanWrite/AdminRead/AdminWrite/SuperAdminWrite/GuestWrite）；handler 不自行拼装认证/CSRF 中间件。
+- **组合根在 `internal/app`**：`server` 只构造 Gin 引擎与全局中间件，`router` 只注册路由；`cmd/server/main.go` 不再装配业务服务。
+- **时间由应用 Clock 显式传入**：`platform/clock` 是 `time.Now()` 唯一来源（ID/日志/访问日志等白名单除外）；app 每个事务取一次 `now` 并作为参数传给 repo。**数据库不提供业务时间默认值**（`0011` 起移除），SQL 不出现 `now()/CURRENT_DATE/::date/interval`；`timeline.schema_migrations.applied_at` 是唯一白名单。
+- **测试与守卫**：新增逻辑按层补测（domain 纯函数表驱动、app fake 端口、repo 集成测试、http `httptest`）；`go test ./internal/architecture` 是结构不变量（import/SQL/时间函数/Gin 位置）的 CI 门禁。
+
 ### 前端
 
 - Vue 组件使用 `<script setup lang="ts">`，保持现有单引号、无分号风格；样式使用 Tailwind utility，不再新增 SFC `scoped` 样式块或手写组件 CSS。
@@ -179,7 +207,7 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 - 帖子、评论、附件等一律逻辑删除（记录保留，只更新状态/`deleted_at`）；已发布帖子的编辑和历史恢复采用追加版本，不覆盖旧历史。
 - 角色模型保持 `users.role` 为 `user`/`admin` 两值，不新增第三个角色；**超级管理员 = `role='admin'` 且 `is_super_admin=true`**，由空库首个注册用户自动获得且全库唯一（单超管部分唯一索引）。只有超级管理员可授权/撤销管理员；普通管理员不能操作超管账号；公开用户对象不返回 `is_super_admin`。
 
-迁移文件命名为 `NNNN_描述.sql`，按文件名排序，只允许追加，不能修改已应用迁移。当前迁移器只是按分号简单分句，不支持函数体等内部含分号的复合语句；需要复杂迁移时应先改进迁移工具，而不是绕过解析限制。
+迁移文件命名为 `NNNN_描述.sql`，按文件名排序，只允许追加，不能修改已应用迁移。当前迁移器 v2（`internal/platform/migrate`）仍按分号简单分句，不支持函数体等内部含分号的复合语句；需要复杂迁移时应先改进迁移工具，而不是绕过解析限制。首行为 `-- timeline:no-transaction` 的迁移文件**不包事务**，用于 `CREATE INDEX CONCURRENTLY` 等不能在事务内执行的语句（仓库 `0013`/`0014`），此类文件必须幂等（`IF NOT EXISTS`）且失败后需人工核对重跑，迁移器不自动回滚。业务时间列的 `DEFAULT now()` 已在 `0011` 移除：新写入必须由应用显式传入时间，数据库只保留 `schema_migrations.applied_at` 一个时间默认值；`pg_trgm` 等扩展需要数据库级权限，权限不足时应由 DBA 预先创建扩展（见 `docs/DEPLOYMENT.md`）。
 
 ## 6. 测试与验收
 
@@ -227,6 +255,7 @@ cd web && npm run build
 - `deploy/scripts/prepare.sh` 创建并授权宿主机数据目录；`backup.sh` 备份数据库、附件与 `ENCRYPTION_KEY`（独立 `encryption-key.txt`，权限 600）；`restore.sh` 校验目标库版本、恢复附件属主与权限。
 - 上传文件和日志使用绑定挂载；数据库与上传目录必须配套备份和恢复。
 - `/healthz` 用于应用存活，`/readyz` 用于数据库和迁移就绪检查。
+- **服务器时钟必须 NTP 同步**：应用 Clock 是业务时间权威（写库时间、定时发布触发、作业租约/退避、日界统计），服务器时钟漂移会直接改变业务时间与任务触发时间；部署前确认宿主机 `chrony`/`systemd-timesyncd` 等时间同步服务正常（容器使用宿主机内核时钟，无需在容器内单独配置 NTP）。
 - 初始化不再使用命令行：`cmd/server` 只保留 `migrate`；首次部署在 `/readyz` 就绪后立即通过注册页创建首个账号（自动成为唯一超级管理员）并登录，之后才对外开放或按需关闭注册；存量部署升级到 `0010_super_admin` 后没有超级管理员，启动日志会告警，需要时另行制定迁移方案。
 
 边界：开发机已完成 Docker 构建/容器启动与备份恢复演练的基础验证（临时 PostgreSQL 实例），但真实部署环境、外部数据库网络与浏览器 P0 人工验收仍需按 `docs/DEPLOYMENT.md` 第 11 章和 `docs/ACCEPTANCE.md` 执行。
@@ -248,3 +277,10 @@ cd web && npm run build
 - 数据库不使用外键约束，所有删除（含后台清理任务）一律逻辑删除：任何代码不得对业务数据执行物理 `DELETE`，也不得删除附件、衍生文件等持久化文件；引用完整性由应用层在事务内保证。
 - 业务接口只使用 GET 与 POST；删除、取消类操作通过语义化 POST action 路径实现，与 `docs/API.md` 保持一致。
 - 数据库迁移和验收只能针对明确的开发/测试实例，避免对真实数据环境进行破坏性试验。
+
+## 10. 变更记录
+
+| 日期 | 版本 | 变更内容 |
+| --- | --- | --- |
+| 2026-10-18 | 0.1.1 | 收尾同步：§1 改为“目标架构已接管运行路径（`cmd/server`→`internal/app`→`transport/router`→`modules/*`），旧包已退出运行路径待删除”；§2 本地配置指向 `internal/platform/config`；§3 目标架构新增 `internal/server`（slim 引擎/健康检查/前端托管）并把 `cmd/server/main.go` 移出 legacy 列表、legacy 列表标注“已退出运行路径、仅旧测试/迁移参考”，删除已改造的 `internal/server` 旧描述；§4 注明 `internal/server` 集成测试为 legacy（迁移到 `internal/testkit` 前保留）。 |
+| 2026-10-18 | 0.1.0 | 按目标架构改造（G8）同步：新增文档版本/日期/关联文档头与本节变更记录；§1 说明 `refactor/target-architecture` 分支新旧包并存策略；§3 新增 `internal/{app,platform,shared,transport,modules}` 目标目录与 legacy 旧包标注；§5 新增「目标架构分层与依赖约定」（handler 只在 `modules/*/http`、SQL 只在 `modules/*/repo`、app/domain 不 import gin/pgx、模块间只走 `shared/contracts`、路由 Policy 在 `transport/router`、组合根在 `internal/app`、时间由应用 Clock 显式传入且 DB 无业务时间默认值、`schema_migrations.applied_at` 唯一白名单）；迁移段落补充迁移器 v2 的 `no-transaction` 指令、`0011` 时间默认值移除与扩展权限；§8 部署边界补充 NTP/时钟同步要求。 |

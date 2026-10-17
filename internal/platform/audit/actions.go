@@ -1,0 +1,35 @@
+package audit
+
+// 审计动作类型（admin_audit_logs.action_type）。
+const (
+	ActionUserSuspend      = "user_suspend"
+	ActionUserUnsuspend    = "user_unsuspend"
+	ActionUserResetPwd     = "user_reset_password"
+	ActionUserGrantAdmin   = "user_grant_admin"
+	ActionUserRevokeAdmin  = "user_revoke_admin"
+	ActionPostDelete       = "post_delete"
+	ActionCommentDelete    = "comment_delete"
+	ActionAttachmentDelete = "attachment_delete"
+	ActionProviderCreate   = "provider_create"
+	ActionProviderUpdate   = "provider_update"
+	ActionProviderDelete   = "provider_delete"
+	ActionAICreate         = "ai_create"
+	ActionAIUpdate         = "ai_update"
+	ActionAIModelUpdate    = "ai_model_update"
+	ActionAIBehaviorUpdate = "ai_behavior_update"
+	ActionAIEnable         = "ai_enable"
+	ActionAIDisable        = "ai_disable"
+	ActionAIGenerate       = "ai_generate"
+	ActionAIPublish        = "ai_publish"
+	ActionMemoryCreate     = "memory_create"
+	ActionMemoryUpdate     = "memory_update"
+	ActionMemoryDelete     = "memory_delete"
+	ActionMemoryClear      = "memory_clear"
+	ActionTaskRetry        = "task_retry"
+	ActionTaskCancel       = "task_cancel"
+	ActionGlobalAIStop     = "ai_global_stop"
+	ActionGlobalAIStart    = "ai_global_start"
+	ActionSettingsUpdate   = "settings_update"
+	// ActionRegistrationUpdate 是注册开关的独立动作，便于后台按动作筛选。
+	ActionRegistrationUpdate = "settings_registration_update"
+)
