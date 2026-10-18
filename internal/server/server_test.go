@@ -232,3 +232,20 @@ func TestUntrustedProxyHeaderIgnored(t *testing.T) {
 		t.Fatalf("未配置受信代理时必须忽略转发头，got=%q", got)
 	}
 }
+
+// TestPanicRecoveredAsJSONInternalError 覆盖全局 Recovery 接线：请求处理 panic 被捕获，
+// 返回统一 JSON 500（gin.Recovery 只会返回空 500），错误栈由中间件写入应用日志。
+func TestPanicRecoveredAsJSONInternalError(t *testing.T) {
+	srv := newSlimServer(t, &config.Config{LogLevel: "debug"})
+	srv.Engine().GET("/panic-test", func(*gin.Context) { panic("接线验证") })
+
+	req := httptest.NewRequest(http.MethodGet, "/panic-test", nil)
+	resp := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("panic 应返回 500，实际 %d body=%s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "internal_error") {
+		t.Fatalf("panic 应返回统一 JSON 错误: %s", resp.Body.String())
+	}
+}

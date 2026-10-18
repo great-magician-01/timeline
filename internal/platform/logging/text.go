@@ -41,7 +41,9 @@ const (
 //   - 时间固定为北京时间毫秒；级别补齐到 5 列；模块标签补齐到 9 列，消息起始列对齐；
 //   - 访问日志（msg=http）压缩为「方法 路径 状态 耗时ms ip=... request_id=...」，
 //     字段顺序与结构化字段保持一致，json 格式不受影响；
-//   - err 字段固定放行尾并加引号；其它字符串值按需加引号，换行转义，保证一行一条。
+//   - err 字段固定放行尾并加引号；其它字符串值按需加引号，换行转义，保证一行一条；
+//   - stack 字段（错误调用栈）不内联，而是在记录之后按行缩进输出完整多行栈，
+//     方便直接阅读与复制；这是唯一允许多行的字段。
 type textHandler struct {
 	writer io.Writer
 	level  slog.Level
@@ -112,7 +114,15 @@ func (h *textHandler) Handle(_ context.Context, r slog.Record) error {
 
 	var errValue slog.Value
 	hasErr := false
+	var stackValue string
+	hasStack := false
 	for _, field := range fields {
+		// 调用栈单独渲染为多行块，不进入行尾字段列表（分组前缀也按 stack 识别）。
+		if field.attr.Key == StackAttr {
+			stackValue = field.attr.Value.Resolve().String()
+			hasStack = true
+			continue
+		}
 		if field.prefix == "" {
 			if skip[field.attr.Key] {
 				continue
@@ -132,9 +142,26 @@ func (h *textHandler) Handle(_ context.Context, r slog.Record) error {
 		b.WriteString(quoteTextValue(errValue.Resolve(), h.loc))
 	}
 	b.WriteByte('\n')
+	if hasStack {
+		writeTextStack(&b, stackValue)
+	}
 
 	_, err := io.WriteString(h.writer, b.String())
 	return err
+}
+
+// writeTextStack 把错误调用栈缩进两格、按原样逐行写在日志记录之后。
+// 栈是唯一允许多行的字段：不转义换行，便于在日志文件中直接阅读、复制和对照源码。
+func writeTextStack(b *strings.Builder, stack string) {
+	stack = strings.TrimRight(stack, "\r\n")
+	if stack == "" {
+		return
+	}
+	for line := range strings.SplitSeq(stack, "\n") {
+		b.WriteString("  ")
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
 }
 
 // textModule 返回最后一个非空模块标签（组合根接线时用 WithModule 注入）。

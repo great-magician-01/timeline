@@ -4,6 +4,9 @@
 //
 // 格式由 LOG_FORMAT 选择：text（默认）为单行对齐文本，含时间/级别/模块标签/消息/字段，
 // 访问日志压缩为「方法 路径 状态 耗时ms」；json 为每行一个 JSON 对象。
+//
+// ERROR 级别日志自动附加完整调用栈（见 stack.go）：text 格式把栈按行缩进写在记录之后，
+// json 格式输出为带换行的 stack 字符串字段；显式传入的 stack（如 panic 恢复）原样保留。
 package logging
 
 import (
@@ -103,5 +106,6 @@ func Init(level, format, filePath string, loc *time.Location) (*slog.Logger, io.
 	} else {
 		handler = newTextHandler(multi, lv, loc)
 	}
-	return slog.New(handler), w, nil
+	// 最外层统一附加 ERROR 调用栈：格式差异只影响渲染，不影响“有报错就有完整栈”。
+	return slog.New(newStackHandler(handler)), w, nil
 }

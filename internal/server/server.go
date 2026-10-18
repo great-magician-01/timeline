@@ -58,7 +58,9 @@ func New(cfg *config.Config, log *slog.Logger, readiness Readiness) *Server {
 		s.log.Error("受信代理配置无效，已回退为不信任代理头", "err", err)
 		_ = s.engine.SetTrustedProxies(nil)
 	}
-	s.engine.Use(gin.Recovery(),
+	// Recovery 必须最外层：panic 用 slog 写入完整调用栈（文件通道 + 标准输出），
+	// 而 gin.Recovery 只写 stderr，无法进入按天文件日志。
+	s.engine.Use(middleware.Recovery(platformlogging.WithModule(log, logModuleHTTP)),
 		middleware.AccessLog(platformlogging.WithModule(log, logModuleHTTP)),
 		middleware.SecurityHeaders(), middleware.RequestID())
 	s.registerHealth()

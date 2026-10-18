@@ -2,6 +2,7 @@ package logging
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -152,6 +153,64 @@ func TestInitJSONFormat(t *testing.T) {
 	if record["attempt"] != float64(3) {
 		t.Fatalf("json 属性错误: %#v", record)
 	}
+}
+
+// TestInitAutoStackOnError 覆盖 Init 后 ERROR 日志自动携带完整调用栈：
+// text 格式为记录之后的缩进多行块，json 格式为带换行的 stack 字符串字段。
+func TestInitAutoStackOnError(t *testing.T) {
+	t.Run("text", func(t *testing.T) {
+		path := testLogPath(t)
+		logger, closer, err := Init("info", "text", path, testLocation)
+		if err != nil {
+			t.Fatalf("Init 失败: %v", err)
+		}
+		defer closer.Close()
+
+		logger.Error("读取失败", "err", errors.New("连接超时"))
+
+		content := readLogFile(t, currentLogFile(t, closer.(*dailyWriter)))
+		if !strings.Contains(content, "读取失败") || !strings.Contains(content, "err=连接超时") {
+			t.Fatalf("ERROR 记录行缺失: %q", content)
+		}
+		if strings.Contains(content, "stack=") {
+			t.Fatalf("text 格式的调用栈不应内联到记录行: %q", content)
+		}
+		if !strings.Contains(content, "TestInitAutoStackOnError") {
+			t.Fatalf("调用栈应包含日志调用点: %q", content)
+		}
+		lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+		if len(lines) < 3 {
+			t.Fatalf("ERROR 日志应包含记录行与多行调用栈，实际 %q", content)
+		}
+		if !strings.HasPrefix(lines[1], "  ") {
+			t.Fatalf("调用栈行应以两个空格缩进: %q", lines[1])
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		path := testLogPath(t)
+		logger, closer, err := Init("info", "json", path, testLocation)
+		if err != nil {
+			t.Fatalf("Init 失败: %v", err)
+		}
+		defer closer.Close()
+
+		logger.Error("JSON 读取失败", "err", errors.New("连接超时"))
+
+		content := readLogFile(t, currentLogFile(t, closer.(*dailyWriter)))
+		line := strings.TrimSpace(strings.Split(content, "\n")[0])
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("json 格式日志无法解析: %v，内容 %q", err, line)
+		}
+		stack, ok := record["stack"].(string)
+		if !ok || stack == "" {
+			t.Fatalf("json 记录应包含 stack 字段: %#v", record)
+		}
+		if !strings.Contains(stack, "TestInitAutoStackOnError") || !strings.Contains(stack, "\n") {
+			t.Fatalf("json stack 字段应为完整多行调用栈: %q", stack)
+		}
+	})
 }
 
 // TestInitFiltersBelowLevel 覆盖级别过滤：info 级别下 debug 不写入文件。

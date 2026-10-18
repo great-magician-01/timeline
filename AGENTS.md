@@ -1,6 +1,6 @@
 # Timeline 项目指南
 
-> **文档版本**：0.2.1  
+> **文档版本**：0.2.2  
 > **最近更新**：2026-10-18  
 > **关联文档**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（后端目标架构权威）、[`docs/README.md`](docs/README.md)（文档索引）
 
@@ -31,7 +31,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 
 - 后端：Go 1.25（以 `go.mod` 为准），模块名 `github.com/great-magician-01/timeline`。
 - HTTP：Gin；数据库：PostgreSQL，通过 `pgx/v5/pgxpool` 连接。
-- 日志：标准库 `log/slog`，同时写标准输出和按日期分目录的文件。
+- 日志：标准库 `log/slog`，同时写标准输出和按日期分目录的文件；`ERROR` 级别日志自动附加完整调用栈（text 为记录行后的缩进多行块、json 为 `stack` 字段），`WARN`/`INFO` 与访问日志不附加，调用方显式传入的 stack 不重复采集；HTTP 请求 panic 由 `transport/middleware.Recovery` 恢复并记录完整栈、统一返回 500，后台作业/周期任务 panic 同样记录完整栈。
 - 前端：Vue 3、TypeScript、Vite、Tailwind CSS 4（`@tailwindcss/vite`），使用 Node.js 22+、npm 和 `web/package-lock.json`（版本要求见根目录 `README.md`）。
 - 前端构建：`vue-tsc -b && vite build`，类型检查和生产构建由同一个 `npm run build` 完成。
 - 静态资源：`web/embed.go` 使用 `go:embed all:dist` 嵌入 `web/dist`。
@@ -55,7 +55,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 - `internal/app/`：组合根（`app.go`/`wire.go` 装配，`readers.go` 跨模块只读适配，`adapters.go` 平台端口适配，`jobs.go` 作业处理器与周期任务；迁移后的初始化状态日志 `Bootstrap` 在 `app.go`）。唯一装配全部平台依赖、跨模块端口与作业处理器并调用路由注册的地方。
 - `internal/platform/`：技术基座（无业务语义）。`clock`（唯一取时来源）、`db`（连接池与事务 `TxManager.WithTx`）、`id`（雪花 ID）、`logging`、`migrate`（迁移器 v2，支持 `no-transaction` 指令）、`storage`、`ratelimit`、`apperr`（领域错误 Kind/构造器）、`jobs`/`audit`/`settings`（分别拥有 `background_jobs`/`admin_audit_logs`/`system_settings`）、`websearch`、`aiclient`、`config`。
 - `internal/shared/`：无 IO 的共享内核。`model`（跨上下文行结构与枚举）、`access`（可见性/互动/角色/超管保护纯策略）、`contracts`（跨模块发布语言：端口接口与输入结构）、`page`（游标分页）、`richtext`（富文本/Markdown 清洗与链接化）、`format`（雪花 ID/北京时间/附件 URL 纯格式化）、`view`（跨模块复用的响应 DTO 与构造辅助）。
-- `internal/transport/`：`httpx`（JSON 错误映射、请求解码、ID/时间/分页、viewer/session 上下文）、`middleware`（Ready/Security/AccessLog/RequestID）、`router`（唯一注册路由处：Policy 枚举 + 声明式路由表）。
+- `internal/transport/`：`httpx`（JSON 错误映射、请求解码、ID/时间/分页、viewer/session 上下文）、`middleware`（Ready/Recovery/Security/AccessLog/RequestID）、`router`（唯一注册路由处：Policy 枚举 + 声明式路由表）。
 - `internal/server/`：slim server，只做 Gin 引擎与全局中间件装配、健康检查与前端静态托管；业务路由不在这里注册，由组合根在 `Engine()` 上调用 `transport/router` 注册。
 - `internal/modules/<域>/{domain,app,repo,http}/`：模块四层。域为 auth、content、social、notice、media、ai、agent、admin。`domain` 放实体不变式/状态机/纯校验；`app` 放用例、事务边界、取时与端口调用；`repo` 是唯一 SQL 层；`http` 放 Gin handler、参数解析、错误映射与 DTO 组装。
 - `internal/architecture/`：架构守卫测试（`go test ./internal/architecture`），静态扫描新树、`internal/server`、`internal/transport/router` 与 `cmd/`，并对 `internal/testkit` 做显式例外；越界在 CI 失败。
@@ -178,7 +178,7 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 - 保持现有小包划分和依赖方向，业务入口不要堆积到 `cmd/server/main.go`。
 - 注释、错误信息和面向用户的文案沿用现有简体中文风格；公开标识符和 API 字段仍使用既定英文命名。
 - 全系统固定使用 `Asia/Shanghai`，不增加用户时区换算。DSN 同时固定数据库会话时区和 `search_path=timeline,"user"`。
-- 日志使用项目初始化的 `slog.Logger`，不要另起一套日志框架；密钥和敏感请求头不得进入日志。
+- 日志使用项目初始化的 `slog.Logger`，不要另起一套日志框架；密钥和敏感请求头不得进入日志。ERROR 级别日志由 `logging.Init` 包装的 handler 自动附加完整调用栈（跳过 slog/logging 内部帧，首帧为业务调用点），显式记录 panic 现场时传 `slog.String(logging.StackAttr, string(debug.Stack()))`，已提供 stack 不会重复采集；WARN/INFO 与访问日志（`msg=http`）不附加。panic 恢复统一走 `transport/middleware.Recovery` 与 `platform/jobs`：记录完整栈与请求/作业标识，HTTP 未写出响应时返回统一 500 `internal_error`、客户端断开（EPIPE/ECONNRESET/`http.ErrAbortHandler`）按 WARN 记录摘要且不打印栈；不要使用只写 stderr 的 `gin.Recovery`，也不要把 panic 细节返回客户端。
 
 ### 目标架构分层与依赖约定（refactor 分支）
 
@@ -223,7 +223,7 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 
 当前自动化测试覆盖：
 
-- 单元测试：雪花 ID、密码与令牌、注册/资料校验、固定窗口限频、游标与 JSON 约束、代理配置、迁移安全约束（无外键/无物理删除）、路由方法与健康检查、富文本清洗与 Markdown 渲染（含 XSS 用例）、附件类型嗅探与图片缩放、帖子 DTO 与时间游标、评论状态机与幂等键、AI 密钥加解密与生成参数解析、AI 决策解析与频率判断、网页搜索 URL/重试/结果裁剪/密钥脱敏、有限工具轮次与降级、搜索设置加密与校验、候选范围二次授权、空工具调用兼容与控制字符校验。
+- 单元测试：雪花 ID、密码与令牌、注册/资料校验、固定窗口限频、游标与 JSON 约束、代理配置、迁移安全约束（无外键/无物理删除）、路由方法与健康检查、富文本清洗与 Markdown 渲染（含 XSS 用例）、附件类型嗅探与图片缩放、帖子 DTO 与时间游标、评论状态机与幂等键、AI 密钥加解密与生成参数解析、AI 决策解析与频率判断、网页搜索 URL/重试/结果裁剪/密钥脱敏、有限工具轮次与降级、搜索设置加密与校验、候选范围二次授权、空工具调用兼容与控制字符校验；ERROR 日志调用栈与 panic 恢复：`internal/platform/logging/stack_test.go`（首帧为业务调用点、跳过日志内部帧、深栈扩容、WARN/INFO/访问日志不附加、显式 stack 去重、WithAttrs/WithGroup）、`TestInitAutoStackOnError`（Init 后 text 记录后多行缩进栈与 json `stack` 字段）、`internal/transport/middleware/recovery_test.go`（panic 记录完整栈并返回 500 `internal_error`、已写出不覆盖、EPIPE/`ErrAbortHandler` 按 WARN 无栈、nil logger 回退）、`internal/server` 的 panic 全局接线用例与 `internal/platform/jobs` 的作业/周期任务 panic 栈断言。
 - 集成测试（默认跳过，需要测试 schema）：`TestAccountIntegration`（账号全链路）、`TestContentIntegration`（帖子/草稿/定时/版本/附件/可见性/时间线/关注/点赞/评论/转发/通知/标签/搜索/管理审核）、`TestAdminSettingsAndAttachmentIntegration`（系统设置即时生效、全局搜索密钥加密/清除、存储配额、附件审核/删除、用户统计、定时失败状态）、`TestBootstrapIntegration`（空库首注册超管、并发唯一超管、空库忽略注册开关的隔离 schema 用例）、`TestAdminGrantIntegration`（超管授权/撤销管理员、普通管理员越权与超管保护、审计与幂等）、`TestGlobalAISwitchIntegration`（全局 AI 开关即时生效、紧急停止取消待执行任务并暂停后台作业）、`TestAIAdminIntegration`（模型预设、AI 配置、`allow_web_search`、记忆、生成任务）。
 - 前端以 `npm run build`（`vue-tsc` + `vite`）作为类型与构建校验，没有独立 lint/test 脚本。
 
@@ -292,6 +292,7 @@ cd web && npm run build
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.2.2 | 同步 ERROR 日志自动调用栈与 panic 恢复：§2 日志技术栈补 ERROR 自动完整栈、WARN/INFO 与访问日志不附加、显式 stack 去重、HTTP/后台作业/周期任务 panic 记录恢复；§3 `transport/middleware` 补 `Recovery`；§5 补日志约定（`logging.Init` 自动附加、panic 显式传 `debug.Stack()`、不得用只写 stderr 的 `gin.Recovery`、不向客户端泄露 panic 细节）；§6 测试覆盖补 `stack_test.go`/`TestInitAutoStackOnError`/`recovery_test.go`/server panic 接线/作业与周期任务栈断言；`docs/REQUIREMENTS.md` 0.24.2、`docs/DEPLOYMENT.md` 0.4.4、`docs/ARCHITECTURE.md` 0.3.1、`docs/ACCEPTANCE.md` 0.2.7、`docs/README.md` 0.1.10 已同步。 |
 | 2026-10-18 | 0.2.1 | SQL 最简原则全仓审查与改造落地：迁移范围补到 `0001`–`0020`（`0017`/`0018` 查询索引增删、`0019` `author_is_ai` 快照列与 `attachment_usage` 配额冗余表及回填、`0020` 作者类型索引）；`shared/` 新增 `search` 纯函数辅助包；`docs/DATA_MODEL.md` 0.9.0、`docs/ARCHITECTURE.md` 0.3.0、`docs/DEPLOYMENT.md` 0.4.2、`migrations/README.md` 与 `docs/README.md` 已同步。改造范围：个人主页统计收敛为 3 项单表计数、管理端统计拆单表查询、关键词过滤统一 `LIKE + ESCAPE`、同请求重复读取与 N+1 批量化、`author_is_ai` 替代全量账号 ID 数组过滤、上传配额 O(1) 计数、AI 调度/记忆复核降低全表扫描。未执行：真实数据库 `EXPLAIN` 基线、完整 P0 人工验收与部署机复演。 |
 | 2026-10-18 | 0.2.0 | 重构完成 + 本次行为修复同步：§1 状态改为“旧包已删除、架构守卫全绿、默认与集成测试通过”，迁移范围补到 `0001`–`0016`，并注明本次修复补充的默认测试；§2 删除“旧 `internal/config` 为 legacy”；§3 旧包列表改为“已从仓库删除的旧→新位置映射表”，补充 `internal/architecture`/`internal/testkit` 与真实目录结构（`app` 无独立 `bootstrap.go`、`shared/format`、`shared/view`）；§4 集成测试说明改为 `internal/testkit` 载体、命令 `go test ./internal/ai` 改为 `go test ./internal/modules/ai/http`，补 `TestGlobalAISwitchIntegration`、`-p 1` 串行建议与 `pg_trgm` 前置，运行期行为补 `/api` 就绪前 503；§5 守卫说明同步 9 条规则与覆盖范围；§6 集成测试清单补全局 AI 开关用例。 |
 | 2026-10-18 | 0.1.1 | 收尾同步：§1 改为“目标架构已接管运行路径（`cmd/server`→`internal/app`→`transport/router`→`modules/*`），旧包已退出运行路径待删除”；§2 本地配置指向 `internal/platform/config`；§3 目标架构新增 `internal/server`（slim 引擎/健康检查/前端托管）并把 `cmd/server/main.go` 移出 legacy 列表、legacy 列表标注“已退出运行路径、仅旧测试/迁移参考”，删除已改造的 `internal/server` 旧描述；§4 注明 `internal/server` 集成测试为 legacy（迁移到 `internal/testkit` 前保留）。 |

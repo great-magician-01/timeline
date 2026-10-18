@@ -188,6 +188,13 @@ func TestExecuteHandlesHandlerOutcomes(t *testing.T) {
 		runner := NewRunner(fakePoolProvider{newUnreachablePool(t)}, &testIDs{next: 100}, slog.New(capture), clk)
 		runner.Register(TypeAITask, func(context.Context, Job) error { panic("处理器崩溃") })
 		runner.execute(context.Background(), Job{ID: 1, Type: TypeAITask, Attempts: 3, MaxAttempts: 3})
+		panicRecord := capture.waitFor(t, "后台作业 panic")
+		stack := attrString(panicRecord, "stack")
+		for _, want := range []string{"goroutine", "panic(", "(*Runner).execute"} {
+			if !strings.Contains(stack, want) {
+				t.Fatalf("作业 panic 日志的调用栈应包含 %q（含 panic 现场帧），实际 %q", want, stack)
+			}
+		}
 		record := capture.waitFor(t, "后台作业失败")
 		errValue := attrString(record, "err")
 		if !strings.Contains(errValue, "作业 panic: 处理器崩溃") {
@@ -345,6 +352,10 @@ func TestRunPeriodicExecutesAndRecoversPanic(t *testing.T) {
 	record := capture.waitFor(t, "周期任务 panic")
 	if got := attrString(record, "panic"); !strings.Contains(got, "周期任务崩溃") {
 		t.Fatalf("panic 日志属性错误: %q", got)
+	}
+	if stack := attrString(record, "stack"); !strings.Contains(stack, "goroutine") ||
+		!strings.Contains(stack, "panic(") || !strings.Contains(stack, "(*Runner).runPeriodic") {
+		t.Fatalf("周期任务 panic 日志的调用栈应包含 panic 现场帧，实际 %q", stack)
 	}
 	cancel()
 	waitDone(t, done, "runPeriodic")

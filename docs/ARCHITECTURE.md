@@ -1,9 +1,9 @@
 # Timeline 后端目标架构
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.3.0  
+> **文档版本**：0.3.1  
 > **最近更新**：2026-10-18  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.2  
 > **关联文档**：[`DATA_MODEL.md`](DATA_MODEL.md)、[`WORKFLOWS.md`](WORKFLOWS.md)、[`API.md`](API.md)、[`DEPLOYMENT.md`](DEPLOYMENT.md)  
 > **用途**：后端分层、依赖边界、数据所有权与架构守卫的权威说明；改造过程细节见仓库根目录 `CODE_QUALITY_REFACTOR_PLAN.md`（过程文档，非长期权威）
 
@@ -47,7 +47,7 @@ internal/
 │   └── format/ view/               # 雪花 ID/北京时间/附件 URL 纯格式化、跨模块响应 DTO
 ├── transport/
 │   ├── httpx/                      # JSON 错误/解码/ID/时间/分页/上下文读取
-│   ├── middleware/                 # Ready、Security、AccessLog、RequestID
+│   ├── middleware/                 # Ready、Recovery、Security、AccessLog、RequestID
 │   └── router/                     # 唯一注册路由的地方：Policy + 声明式路由表
 ├── server/                         # Gin 引擎、健康检查、前端静态托管（不含业务路由）
 ├── architecture/                   # 静态架构守卫测试（go/parser 扫描）
@@ -131,6 +131,7 @@ cmd/server ──▶ internal/app
 
 - `platform/apperr`：`Kind`（NotFound/Forbidden/Unauthenticated/Invalid/Validation/Conflict/Suspended/RateLimited/Unavailable）+ `Code/Message/Details/RetryAfter`。
 - `transport/httpx.Respond` 是唯一 HTTP 映射入口；handler/中间件共用；未知错误 → 500 并记录日志。
+- ERROR 级别日志自动附加完整调用栈：`platform/logging` 在最外层 handler 统一包装（跳过 slog/logging 内部帧，首帧为业务调用点），text 格式在记录行后缩进多行输出、json 格式为带 `\n` 转义的 `stack` 字符串字段；WARN/INFO 与访问日志不附加，调用方显式传入 stack（panic 恢复、作业 panic）时原样保留、不重复采集。HTTP 请求处理 panic 由 `transport/middleware.Recovery`（全局中间件最外层，替换 `gin.Recovery`）用 slog 记录完整栈（`debug.Stack()`，含 goroutine 头）并返回统一 500 `internal_error`，响应已写出不覆盖，客户端断开按 WARN 记录摘要且不打印栈；后台作业/周期任务 panic 同样记录完整栈。
 - 错误码、状态码、JSON 字段保持 `docs/API.md` 契约不变；公开用户 DTO 不含 `is_super_admin`。
 
 **时间**
@@ -216,6 +217,7 @@ cmd/server ──▶ internal/app
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.3.1 | 同步 ERROR 日志调用栈与 panic 恢复：§2 目录结构 `transport/middleware` 补 `Recovery`；§6 错误规范补充 ERROR 日志自动带完整调用栈（text 记录后多行缩进 / json `stack` 字段、首帧为业务调用点、WARN/INFO 与访问日志不附加）、HTTP 请求 panic 由 `transport/middleware.Recovery` 记录完整栈并返回统一 500 `internal_error`（已写出不覆盖、客户端断开按 WARN 无栈）、后台作业/周期任务 panic 记录完整栈；分层、依赖边界与数据所有权不变。 |
 | 2026-10-18 | 0.3.0 | SQL 最简原则改造同步：§9 迁移状态更新到 `0001`–`0020` 并说明 `0017`–`0020`（查询索引批次、冗余/无效索引删除、`author_is_ai` 快照列 + 回填、`attachment_usage` 配额冗余表）；§10 进度更新迁移范围；数据所有权与依赖边界不变（新增 `shared/search` 纯函数辅助包；`attachment_usage` 归 media、`author_is_ai` 随所属内容表由 content/social 写）。 |
 | 2026-10-18 | 0.2.0 | 重构完成 + 本次行为修复同步：§2 目录按实际结构修正（`app` 无独立 `bootstrap.go`，Bootstrap 在 `app.go`；补 `readers.go`/`adapters.go`、`shared/format`、`shared/view`、`internal/architecture`、`internal/testkit`）；§3 修正 `cmd/server` 实际 import 白名单（`app`、`platform/{config,db,id,logging,migrate,storage}`、`server`）；§8 守卫改为覆盖新树/`cmd/`/`internal/server` 与 `internal/testkit` 例外，新增 import 白名单、事务原语与遗留符号规则，删除“旧包待删除”表述；§9 迁移补 `0016_review_fixes` 并明确 INVALID 索引处置与 `pg_trgm` schema 要求；§10 进度更新为“目标架构完成 + 本次行为修复清单 + 待完成项”。 |
 | 2026-10-18 | 0.1.1 | 版本/基线同步（不改变架构结构）：需求基线更新至 `REQUIREMENTS.md` 0.24.1；§10 改造进度更新为当前状态（`internal/app` 组合根与 `transport/router` 已接管运行路径、八域模块四层实现完成、旧包退出运行路径仅剩删除与测试迁移、G6–G8 收尾项）。 |

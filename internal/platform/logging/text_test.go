@@ -204,3 +204,34 @@ func TestWithModule(t *testing.T) {
 		t.Fatal("空模块名应原样返回 logger")
 	}
 }
+
+// TestTextHandlerStackBlock 覆盖 stack 字段渲染为记录之后的多行缩进块，不进入行尾字段。
+func TestTextHandlerStackBlock(t *testing.T) {
+	buf, handler := newTestTextHandler(t, slog.LevelDebug)
+	rec := newRecord(slog.LevelError, "写入失败",
+		slog.Any("err", errors.New("磁盘已满")),
+		slog.Int("attempt", 2),
+		slog.String(StackAttr, "main.foo\n\t/app/main.go:10\nmain.bar\n\t/app/main.go:20"),
+	)
+	handleRecord(t, handler, rec)
+
+	want := "2026-10-18 18:46:35.123 ERROR 写入失败 attempt=2 err=磁盘已满\n" +
+		"  main.foo\n" +
+		"  \t/app/main.go:10\n" +
+		"  main.bar\n" +
+		"  \t/app/main.go:20\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("调用栈渲染不符合预期:\n got=%q\nwant=%q", got, want)
+	}
+}
+
+// TestTextHandlerEmptyStackIgnored 覆盖空 stack 不产生多余行。
+func TestTextHandlerEmptyStackIgnored(t *testing.T) {
+	buf, handler := newTestTextHandler(t, slog.LevelInfo)
+	handleRecord(t, handler, newRecord(slog.LevelInfo, "普通日志", slog.String(StackAttr, "")))
+
+	want := "2026-10-18 18:46:35.123 INFO  普通日志\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("空调用栈不应输出额外内容:\n got=%q\nwant=%q", got, want)
+	}
+}

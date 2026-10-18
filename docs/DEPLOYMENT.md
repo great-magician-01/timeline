@@ -1,9 +1,9 @@
 # Timeline Docker 单机部署
 
 > **文档状态**：部署基线，与当前实现同步  
-> **文档版本**：0.4.3  
+> **文档版本**：0.4.4  
 > **最近更新**：2026-10-18  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.2  
 > **关联文档**：[接口设计](API.md)、[数据模型设计](DATA_MODEL.md)、[验收用例](ACCEPTANCE.md)  
 > **用途**：部署脚本与 Compose 实现、运维操作和验收用例的依据
 
@@ -301,8 +301,9 @@ backups/20261017-030000/
 ## 10. 日志、健康与排障
 
 1. 日志有两个通道：标准输出用 `docker compose logs` 查看（配置轮转上限避免写满）；文件日志在 `deploy/data/logs/<yyyyMMdd>/` 下按天留档，可直接按日期目录排查与清理。两通道使用同一格式与级别，格式由 `LOG_FORMAT` 选择：
-   - `text`（默认）：单行对齐文本，结构为「北京时间毫秒 级别 [模块] 消息 key=value ...」；模块标签包括 `[main]`、`[app]`、`[server]`、`[http]`、`[db]`、`[migrate]`、`[jobs]`、`[auth]`、`[content]`、`[social]`、`[notice]`、`[media]`、`[ai]`、`[agent]`、`[admin]`；访问日志压缩为 `GET /api/v1/timeline 200 12ms ip=... request_id=...`，错误字段 `err` 固定放行尾。示例：`2026-10-18 18:46:35.456 INFO  [http]    GET /api/v1/timeline 200 12ms ip=10.0.0.5 request_id=9f2c8a1b... user_id=1001`。
-   - `json`：每行一个 JSON 对象，字段与 `text` 一致（访问日志保留 `method/path/status/latency_ms` 等结构化字段），适合接入日志采集与检索。
+   - `text`（默认）：单行对齐文本，结构为「北京时间毫秒 级别 [模块] 消息 key=value ...」；模块标签包括 `[main]`、`[app]`、`[server]`、`[http]`、`[db]`、`[migrate]`、`[jobs]`、`[auth]`、`[content]`、`[social]`、`[notice]`、`[media]`、`[ai]`、`[agent]`、`[admin]`；访问日志压缩为 `GET /api/v1/timeline 200 12ms ip=... request_id=...`，错误字段 `err` 固定放行尾。示例：`2026-10-18 18:46:35.456 INFO  [http]    GET /api/v1/timeline 200 12ms ip=10.0.0.5 request_id=9f2c8a1b... user_id=1001`；ERROR 级别日志在记录行之后按行缩进两个空格、原样输出完整多行调用栈（`stack` 不内联，是唯一允许多行的字段）。
+   - `json`：每行一个 JSON 对象，字段与 `text` 一致（访问日志保留 `method/path/status/latency_ms` 等结构化字段），适合接入日志采集与检索；ERROR 级别日志新增 `stack` 字符串字段，多行栈在单行 JSON 内以 `\n` 转义输出。
+   - 有报错时必须带完整调用栈：`ERROR` 及以上级别由初始化后的 logger 自动附加（调用方已显式传入 `stack` 时原样保留、不重复采集），`WARN`/`INFO` 与访问日志不附加，避免高频日志膨胀。HTTP 请求处理 panic 由 `transport/middleware.Recovery` 恢复并记录 ERROR（`method/path/request_id/ip/panic/stack`，栈为含 goroutine 头的 `debug.Stack()` 完整栈），响应未写出时返回统一 500 JSON `internal_error`、不向客户端泄露 panic 细节，已写出不覆盖；客户端断开（EPIPE/ECONNRESET/`http.ErrAbortHandler`）按 `WARN` 记录摘要、不打印栈、不写响应。后台作业与周期任务 panic 同样记录完整栈。
 2. 健康检查：本部署只对 `app` 容器做健康检查（`/healthz`）；数据库连通性通过 `/readyz` 体现，数据库实例自身的可用性监控由实例管理方负责。
 3. 排障入口：管理后台的“全局任务”页面查看失败任务（定时发布、媒体处理、记忆整理、AI 任务）及错误原因。
 4. 附件目录的磁盘占用需要监控；数据库实例侧的磁盘与连接数由该实例管理方监控。
@@ -344,6 +345,7 @@ backups/20261017-030000/
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.4.4 | 需求基线更新至 0.24.2；§10 日志说明补充 ERROR 调用栈与 panic 恢复：text 在记录行后缩进多行输出完整栈（唯一允许多行字段）、json 新增带 `\n` 转义的 `stack` 字段，WARN/INFO 与访问日志不附加、显式 stack 不重复采集；HTTP 处理 panic 由 `transport/middleware.Recovery` 记录完整栈并返回统一 500 `internal_error`（已写出不覆盖、客户端断开按 WARN 无栈、不泄露 panic 细节），后台作业/周期任务 panic 同样记录完整栈。部署结构、端口、迁移与环境变量不变。 |
 | 2026-10-18 | 0.4.3 | 日志 `text` 格式改为人类可读对齐文本：北京时间毫秒 + 5 列级别 + 9 列模块标签（`[]` 内为模块名）+ 中文消息 + `key=value` 行尾字段；访问日志压缩为「方法 路径 状态 耗时ms」，`err` 固定放尾；`json` 格式与双通道、按天目录行为不变。§5 环境变量表的 `LOG_FORMAT` 说明与 §10 日志说明同步；部署结构、端口、迁移与环境变量不变。 |
 | 2026-10-18 | 0.4.2 | SQL 最简原则改造迁移运维补充：§9 新增 `0017`–`0020` 升级说明（`0017`/`0018`/`0020` 并发索引增删须按序、低峰执行与 INVALID 索引重跑；`0019` 新增作者类型快照列与 `attachment_usage` 配额冗余表并从明细回填，可重复执行、不改业务时间列，升级前完整备份）；部署结构、端口与环境变量不变。 |
 | 2026-10-18 | 0.4.1 | 迁移运维补充（部署结构不变）：§6 新增 `CREATE INDEX CONCURRENTLY` 失败后 INVALID 索引的只读检查与 `DROP INDEX CONCURRENTLY` 重跑处置，并明确 `pg_trgm` 扩展必须安装到连接 `search_path` 内的 schema（生产为 `timeline`，附 `ALTER EXTENSION ... SET SCHEMA` 处理）；§9 新增 `0016_review_fixes` 升级说明（头像回填 + 删除不匹配的 `ai_tasks_daily` 索引，向后兼容、回填量取决于历史头像数）并顺延回滚条目编号；§11 首次部署检查清单新增 `deploy/scripts/check-time-defaults.sql` 只读核查（查询一 0 行、查询二 1 行白名单）。 |

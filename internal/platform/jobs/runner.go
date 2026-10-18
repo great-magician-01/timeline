@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -151,7 +152,9 @@ func (r *Runner) runPeriodic(ctx context.Context, task periodicTask) {
 				defer cancel()
 				defer func() {
 					if rec := recover(); rec != nil {
-						r.log.Error("周期任务 panic", "task", task.name, "panic", rec)
+						// panic 必须在恢复现场采集完整栈：栈需要包含 panic 触发帧与 goroutine 头。
+						r.log.Error("周期任务 panic",
+							"task", task.name, "panic", rec, "stack", string(debug.Stack()))
 					}
 				}()
 				task.fn(runCtx)
@@ -215,6 +218,9 @@ func (r *Runner) execute(ctx context.Context, job Job) {
 	func() {
 		defer func() {
 			if rec := recover(); rec != nil {
+				// 作业 panic 是程序缺陷，必须带完整栈记录；错误本身继续走失败/重试状态机。
+				r.log.Error("后台作业 panic",
+					"job_id", job.ID, "type", job.Type, "panic", rec, "stack", string(debug.Stack()))
 				err = fmt.Errorf("作业 panic: %v", rec)
 			}
 		}()
