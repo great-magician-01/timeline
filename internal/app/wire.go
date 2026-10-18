@@ -33,10 +33,25 @@ import (
 	"github.com/great-magician-01/timeline/internal/platform/config"
 	"github.com/great-magician-01/timeline/internal/platform/db"
 	platformjobs "github.com/great-magician-01/timeline/internal/platform/jobs"
+	platformlogging "github.com/great-magician-01/timeline/internal/platform/logging"
 	platformsettings "github.com/great-magician-01/timeline/internal/platform/settings"
 	"github.com/great-magician-01/timeline/internal/platform/storage"
 	"github.com/great-magician-01/timeline/internal/shared/contracts"
 	"github.com/great-magician-01/timeline/internal/transport/router"
+)
+
+// 日志模块标签：业务模块名由组合根维护，platform/logging 只负责渲染与补齐列宽。
+const (
+	logModuleApp     = "app"
+	logModuleJobs    = "jobs"
+	logModuleAuth    = "auth"
+	logModuleContent = "content"
+	logModuleSocial  = "social"
+	logModuleNotice  = "notice"
+	logModuleMedia   = "media"
+	logModuleAI      = "ai"
+	logModuleAgent   = "agent"
+	logModuleAdmin   = "admin"
 )
 
 // 延迟绑定包装：content/social/media/notice/agent 之间存在构造环，
@@ -66,6 +81,10 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 	if log == nil {
 		log = slog.Default()
 	}
+	// 模块标签：text 格式渲染为消息前的 [module] 列，json 格式保留 module 字段。
+	moduleLog := func(module string) *slog.Logger {
+		return platformlogging.WithModule(log, module)
+	}
 	pool := readiness.Pool()
 	clk := clock.System()
 	tx := db.NewTxManager(pool)
@@ -77,7 +96,8 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 	auditWriter := platformaudit.NewWriter(pool, ids)
 	auditAdapter := auditAdapter{writer: auditWriter}
 
-	jobRunner := platformjobs.NewRunner(readiness, ids, log, clk)
+	jobRunner := platformjobs.NewRunner(readiness, ids,
+		moduleLog(logModuleJobs), clk)
 	jobsAdapter := jobsAdapter{pool: pool, runner: jobRunner}
 
 	// admin 只读 read-model：同时服务 admin 审核/概览与 auth 个人主页统计。
@@ -98,7 +118,7 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Tx:           tx,
 		IDs:          ids,
 		Clock:        clk,
-		Logger:       log,
+		Logger:       moduleLog(logModuleAuth),
 		Settings:     settingsRead,
 		Audit:        auditAdapter,
 		Relations:    relations,
@@ -112,7 +132,7 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Tx:       tx,
 		Clock:    clk,
 		IDs:      ids,
-		Log:      log,
+		Log:      moduleLog(logModuleContent),
 		Users:    authApp,
 		Media:    mediaLazy,
 		Social:   socialLazy,
@@ -156,7 +176,7 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Tx:       tx,
 		Clock:    clk,
 		IDs:      ids,
-		Log:      log,
+		Log:      moduleLog(logModuleMedia),
 		Storage:  store,
 		Jobs:     jobsAdapter,
 		Audit:    auditAdapter,
@@ -171,7 +191,7 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Tx:        tx,
 		IDs:       ids,
 		Clock:     clk,
-		Log:       log,
+		Log:       moduleLog(logModuleAI),
 		SecretKey: cfg.SecretKey,
 		Users:     authApp,
 		Auth:      authApp,
@@ -188,7 +208,7 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Clock:          clk,
 		IDs:            ids,
 		Tx:             tx,
-		Log:            log,
+		Log:            moduleLog(logModuleAgent),
 		Tasks:          agentRepo,
 		CallLogs:       agentRepo,
 		Counters:       agentRepo,
@@ -207,7 +227,7 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 	adminApp := adminapp.New(adminapp.Deps{
 		Tx:       tx,
 		Clock:    clk,
-		Log:      log,
+		Log:      moduleLog(logModuleAdmin),
 		Read:     adminReadModel,
 		Audit:    auditAdapter,
 		Auth:     authApp,
@@ -233,11 +253,11 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 	handlers := router.Deps{
 		Auth:    authhttp.New(authApp),
 		Content: contenthttp.New(contentApp),
-		Social:  socialhttp.New(socialApp, log),
-		Notice:  noticehttp.New(noticeApp, log),
+		Social:  socialhttp.New(socialApp, moduleLog(logModuleSocial)),
+		Notice:  noticehttp.New(noticeApp, moduleLog(logModuleNotice)),
 		Media:   mediahttp.New(mediaApp),
 		AI:      aihttp.New(aiApp),
-		Agent:   agenthttp.New(agentApp, log),
+		Agent:   agenthttp.New(agentApp, moduleLog(logModuleAgent)),
 		Admin:   adminhttp.New(adminApp),
 	}
 	router.Register(engine, handlers, readiness)
@@ -245,11 +265,12 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 	// ── 作业与周期任务 ──
 	registerJobs(jobRunner, contentApp, mediaApp, agentApp)
 
-	return newApp(engine, jobRunner, readiness, clk, log, func(ctx context.Context) (int64, int64, error) {
-		status, err := authApp.BootstrapStatus(ctx)
-		if err != nil {
-			return 0, 0, err
-		}
-		return status.HumanUsers, status.SuperAdmins, nil
-	}, nil), nil
+	return newApp(engine, jobRunner, readiness, clk, moduleLog(logModuleApp),
+		func(ctx context.Context) (int64, int64, error) {
+			status, err := authApp.BootstrapStatus(ctx)
+			if err != nil {
+				return 0, 0, err
+			}
+			return status.HumanUsers, status.SuperAdmins, nil
+		}, nil), nil
 }

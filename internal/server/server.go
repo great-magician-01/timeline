@@ -11,7 +11,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/great-magician-01/timeline/internal/platform/config"
+	platformlogging "github.com/great-magician-01/timeline/internal/platform/logging"
 	"github.com/great-magician-01/timeline/internal/transport/middleware"
+)
+
+// 日志模块标签：服务端自身与访问日志中间件（业务模块标签由组合根维护）。
+const (
+	logModuleServer = "server"
+	logModuleHTTP   = "http"
 )
 
 // Readiness 是 server 需要的运行时就绪状态能力；*platform/db.Readiness 直接满足，
@@ -45,12 +52,15 @@ func New(cfg *config.Config, log *slog.Logger, readiness Readiness) *Server {
 	if cfg.LogLevel != "debug" {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	s := &Server{cfg: cfg, log: log, readiness: readiness, engine: gin.New()}
+	s := &Server{cfg: cfg, log: platformlogging.WithModule(log, logModuleServer),
+		readiness: readiness, engine: gin.New()}
 	if err := s.engine.SetTrustedProxies(cfg.TrustedProxies); err != nil {
-		log.Error("受信代理配置无效，已回退为不信任代理头", "err", err)
+		s.log.Error("受信代理配置无效，已回退为不信任代理头", "err", err)
 		_ = s.engine.SetTrustedProxies(nil)
 	}
-	s.engine.Use(gin.Recovery(), middleware.AccessLog(log), middleware.SecurityHeaders(), middleware.RequestID())
+	s.engine.Use(gin.Recovery(),
+		middleware.AccessLog(platformlogging.WithModule(log, logModuleHTTP)),
+		middleware.SecurityHeaders(), middleware.RequestID())
 	s.registerHealth()
 	s.registerFrontend()
 	s.handler = s.engine

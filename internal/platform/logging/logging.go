@@ -1,6 +1,9 @@
 // Package logging 提供双通道日志：标准输出 + 按天目录的文件。
 // 文件通道写入「LOG_FILE 所在目录/yyyyMMdd/文件名」，按北京时间每天新建目录，跨天自动切换
 // （见 docs/REQUIREMENTS.md §17.6 与 docs/DEPLOYMENT.md §5）。
+//
+// 格式由 LOG_FORMAT 选择：text（默认）为单行对齐文本，含时间/级别/模块标签/消息/字段，
+// 访问日志压缩为「方法 路径 状态 耗时ms」；json 为每行一个 JSON 对象。
 package logging
 
 import (
@@ -94,12 +97,11 @@ func Init(level, format, filePath string, loc *time.Location) (*slog.Logger, io.
 	}
 
 	multi := io.MultiWriter(os.Stdout, w)
-	opts := &slog.HandlerOptions{Level: lv}
 	var handler slog.Handler
 	if format == "json" {
-		handler = slog.NewJSONHandler(multi, opts)
+		handler = slog.NewJSONHandler(multi, &slog.HandlerOptions{Level: lv})
 	} else {
-		handler = slog.NewTextHandler(multi, opts)
+		handler = newTextHandler(multi, lv, loc)
 	}
 	return slog.New(handler), w, nil
 }

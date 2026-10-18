@@ -36,6 +36,13 @@ const (
 // appVersion 由构建参数注入（Dockerfile: -ldflags "-X main.appVersion=..."）。
 var appVersion = "dev"
 
+// 日志模块标签：进程生命周期、数据库等待与迁移（业务模块标签由组合根维护）。
+const (
+	logModuleMain    = "main"
+	logModuleDB      = "db"
+	logModuleMigrate = "migrate"
+)
+
 func main() {
 	os.Exit(run())
 }
@@ -60,26 +67,32 @@ func run() int {
 	}
 	defer func() { _ = logCloser.Close() }()
 
-	log.Info("时间线服务启动", "version", appVersion, "timezone", loc.String(),
+	// 模块标签：进程生命周期日志标 main，数据库等待与迁移各用独立标签；
+	// 组合根/服务端在各自构造处标注模块（见 internal/app、internal/server）。
+	mainLog := logging.WithModule(log, logModuleMain)
+	dbLog := logging.WithModule(log, logModuleDB)
+	migrateLog := logging.WithModule(log, logModuleMigrate)
+
+	mainLog.Info("时间线服务启动", "version", appVersion, "timezone", loc.String(),
 		"log_file", cfg.LogFile, "listen", listenAddr)
 	if tzErr != nil {
-		log.Warn("系统缺少时区数据，已退回固定 +08:00 时区", "err", tzErr)
+		mainLog.Warn("系统缺少时区数据，已退回固定 +08:00 时区", "err", tzErr)
 	}
 	if !cfg.SecretKeyFromEnv {
-		log.Warn("未配置 ENCRYPTION_KEY，接口预设的 API Key 使用由数据库连接信息派生的密钥加密；生产环境建议显式配置")
+		mainLog.Warn("未配置 ENCRYPTION_KEY，接口预设的 API Key 使用由数据库连接信息派生的密钥加密；生产环境建议显式配置")
 	}
 	if err := os.MkdirAll(cfg.UploadDir, 0o755); err != nil {
-		log.Warn("创建上传目录失败（发布附件前需修复）", "dir", cfg.UploadDir, "err", err)
+		mainLog.Warn("创建上传目录失败（发布附件前需修复）", "dir", cfg.UploadDir, "err", err)
 	}
 
 	ids, err := id.NewGenerator(cfg.SnowflakeWorkerID)
 	if err != nil {
-		log.Error("雪花 ID 生成器初始化失败", "err", err)
+		mainLog.Error("雪花 ID 生成器初始化失败", "err", err)
 		return 1
 	}
 	store, err := storage.New(cfg.UploadDir)
 	if err != nil {
-		log.Error("附件存储初始化失败", "dir", cfg.UploadDir, "err", err)
+		mainLog.Error("附件存储初始化失败", "dir", cfg.UploadDir, "err", err)
 		return 1
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -108,26 +121,26 @@ func run() int {
 
 	// 后台：连接数据库 → 迁移 → 在独立 server 上装配 → 切换 handler → 标记就绪。
 	go func() {
-		pool, err := db.Wait(ctx, cfg.DSN(), log)
+		pool, err := db.Wait(ctx, cfg.DSN(), dbLog)
 		if err != nil {
 			return // ctx 取消
 		}
 		readiness.SetPool(pool)
 		if cfg.RunMigrations {
-			if err := migrate.Run(ctx, pool, log); err != nil {
-				log.Error("数据库迁移失败，服务保持未就绪", "err", err)
+			if err := migrate.Run(ctx, pool, migrateLog); err != nil {
+				mainLog.Error("数据库迁移失败，服务保持未就绪", "err", err)
 				readiness.SetMigrationError(err)
 				return
 			}
 		} else {
-			log.Info("RUN_MIGRATIONS=false，跳过自动迁移")
+			mainLog.Info("RUN_MIGRATIONS=false，跳过自动迁移")
 		}
 
 		// 独立 fullSrv：路由在监听之外构建，避免与在途请求并发修改 Gin 路由树。
 		fullSrv := server.New(cfg, log, readiness)
 		instance, err := app.New(cfg, log, readiness, ids, store, fullSrv.Engine())
 		if err != nil {
-			log.Error("组合根装配失败，服务保持未就绪", "err", err)
+			mainLog.Error("组合根装配失败，服务保持未就绪", "err", err)
 			readiness.SetMigrationError(err)
 			return
 		}
@@ -137,23 +150,23 @@ func run() int {
 		readiness.MarkMigrationsDone()
 		instance.Start(ctx)
 		instance.Bootstrap(ctx)
-		log.Info("数据库与迁移就绪，/readyz 可返回 200")
+		mainLog.Info("数据库与迁移就绪，/readyz 可返回 200")
 	}()
 
 	go func() {
-		log.Info("HTTP 服务开始监听", "addr", listenAddr)
+		mainLog.Info("HTTP 服务开始监听", "addr", listenAddr)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("HTTP 服务异常退出", "err", err)
+			mainLog.Error("HTTP 服务异常退出", "err", err)
 			stop()
 		}
 	}()
 
 	<-ctx.Done()
-	log.Info("收到退出信号，开始优雅关闭")
+	mainLog.Info("收到退出信号，开始优雅关闭")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
-		log.Warn("HTTP 关闭超时", "err", err)
+		mainLog.Warn("HTTP 关闭超时", "err", err)
 	}
 	if instance := application.Load(); instance != nil {
 		instance.Close()
@@ -161,7 +174,7 @@ func run() int {
 	if pool := readiness.Pool(); pool != nil {
 		pool.Close()
 	}
-	log.Info("已退出")
+	mainLog.Info("已退出")
 	return 0
 }
 
@@ -170,14 +183,15 @@ func runCommand(ctx context.Context, args []string, cfg *config.Config, log *slo
 	if len(args) != 1 || args[0] != "migrate" {
 		return fmt.Errorf("未知命令；可用命令: migrate")
 	}
-	pool, err := db.Wait(ctx, cfg.DSN(), log)
+	migrateLog := logging.WithModule(log, logModuleMigrate)
+	pool, err := db.Wait(ctx, cfg.DSN(), logging.WithModule(log, logModuleDB))
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	if err := migrate.Run(ctx, pool, log); err != nil {
+	if err := migrate.Run(ctx, pool, migrateLog); err != nil {
 		return err
 	}
-	log.Info("手动数据库迁移完成")
+	migrateLog.Info("手动数据库迁移完成")
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,9 @@ import (
 
 // testLocation 固定北京时间，日志日期目录由写入时刻换算，避免依赖进程本地时区。
 var testLocation = time.FixedZone("CST", 8*60*60)
+
+// datePattern 匹配 text 格式行首的北京时间毫秒前缀与对齐级别列。
+var datePattern = regexp.MustCompile(`(?m)^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} INFO  `)
 
 // testLogPath 返回 t.TempDir() 下的日志文件路径，不写仓库内任何位置。
 func testLogPath(t *testing.T) string {
@@ -113,11 +117,11 @@ func TestInitWritesDailyTextFile(t *testing.T) {
 	logger.Info("日志写入测试", "key", "value")
 
 	content := readLogFile(t, currentLogFile(t, w))
-	if !strings.Contains(content, "msg=日志写入测试") || !strings.Contains(content, "key=value") {
-		t.Fatalf("日志文件内容缺少消息或属性: %q", content)
+	if !strings.Contains(content, "INFO  日志写入测试 key=value") {
+		t.Fatalf("text 格式应包含对齐前缀、消息与属性: %q", content)
 	}
-	if !strings.Contains(content, "level=INFO") {
-		t.Fatalf("text 格式应包含 level=INFO: %q", content)
+	if !datePattern.MatchString(content) {
+		t.Fatalf("text 格式应以北京时间毫秒开头: %q", content)
 	}
 	if len(w.day) != 8 {
 		t.Fatalf("日期目录应为 yyyyMMdd，实际 %q", w.day)

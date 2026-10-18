@@ -10,6 +10,7 @@ import (
 )
 
 // AccessLog 用 slog 记录访问日志（5xx→Error，4xx→Warn，其余 Info）。
+// msg 固定为 "http"：text 格式把它压缩为「方法 路径 状态 耗时ms」摘要，json 格式保留完整结构化字段。
 // 字段包含 method/path/status/latency_ms/ip/request_id；已登录请求额外带 user_id。
 func AccessLog(logger *slog.Logger) gin.HandlerFunc {
 	if logger == nil {
