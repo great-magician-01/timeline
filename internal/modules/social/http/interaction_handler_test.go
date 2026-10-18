@@ -11,6 +11,7 @@ import (
 
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
 	"github.com/great-magician-01/timeline/internal/platform/ratelimit"
+	"github.com/great-magician-01/timeline/internal/shared/format"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
 
@@ -187,6 +188,36 @@ func TestRepostHandler(t *testing.T) {
 		if body["reposted"] != true || body["repost_count"] != float64(6) {
 			t.Fatalf("转发响应 = %+v", body)
 		}
+		repost, ok := body["repost"].(map[string]any)
+		if !ok {
+			t.Fatalf("转发响应必须带 repost 对象: %+v", body)
+		}
+		// 首次转发生成 ID 101（测试 seqIDs 从 100 递增），时间来自应用时钟。
+		if repost["id"] != format.FormatID(101) || repost["created_at"] != format.FormatTime(testNow) {
+			t.Fatalf("repost 对象 = %+v，期望 id=101 created_at=%q", repost, format.FormatTime(testNow))
+		}
+	})
+
+	t.Run("重复转发返回既有转发行", func(t *testing.T) {
+		f := newFixture()
+		f.posts.counter = 6
+		f.reposts.activateChanged = false
+		f.reposts.activateID = 900
+		settledAt := testNow.Add(-time.Hour)
+		f.reposts.activateAt = settledAt
+		c, recorder := newTestContext(http.MethodPost, "/api/v1/posts/20/repost")
+		withParam(c, "id", "20")
+		withViewer(c, viewerFor(uidViewer))
+		f.handler().Repost(c)
+		requireStatus(t, recorder, http.StatusOK)
+		body := decodeBody[map[string]any](t, recorder)
+		repost, ok := body["repost"].(map[string]any)
+		if !ok {
+			t.Fatalf("幂等转发也必须返回 repost 对象: %+v", body)
+		}
+		if repost["id"] != format.FormatID(900) || repost["created_at"] != format.FormatTime(settledAt) {
+			t.Fatalf("幂等 repost 对象 = %+v，期望既有行 id=900 created_at=%q", repost, format.FormatTime(settledAt))
+		}
 	})
 
 	t.Run("取消转发成功", func(t *testing.T) {
@@ -200,6 +231,9 @@ func TestRepostHandler(t *testing.T) {
 		body := decodeBody[map[string]any](t, recorder)
 		if body["reposted"] != false || body["repost_count"] != float64(4) {
 			t.Fatalf("取消转发响应 = %+v", body)
+		}
+		if _, ok := body["repost"]; ok {
+			t.Fatalf("取消转发响应不应包含 repost: %+v", body)
 		}
 	})
 

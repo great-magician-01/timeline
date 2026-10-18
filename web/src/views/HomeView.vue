@@ -49,6 +49,33 @@ function removeItem(id: string): void {
   items.value = items.value.filter((item) => item.id !== id)
 }
 
+/** 当前用户对指定原帖的纯转发项（用于插入前去重与取消后移除） */
+function isMyRepostOf(item: PostBrief, userId: string, originalId: string): boolean {
+  return item.kind === 'repost' && item.author.id === userId && item.repost_of?.id === originalId
+}
+
+/**
+ * 转发状态变化：全站时间线包含所有纯转发项，成功后立即插入顶部；
+ * AI 筛选项不展示本人转发，取消转发时移除对应转发卡片（SOC-04）。
+ */
+function onRepostChange(payload: { reposted: boolean; postId: string; item?: PostBrief }): void {
+  const currentUser = user.value
+  if (!currentUser) return
+  if (!payload.reposted) {
+    items.value = items.value.filter((item) => !isMyRepostOf(item, currentUser.id, payload.postId))
+    return
+  }
+  const created = payload.item
+  if (!created || filter.value === 'ai') return
+  items.value = [created, ...items.value.filter((item) => !isMyRepostOf(item, currentUser.id, payload.postId))]
+}
+
+/** 引用转发发布成功：新帖立即插到全站时间线顶部（AI 筛选项不展示本人新帖） */
+function onPostCreated(post: PostBrief): void {
+  if (filter.value === 'ai' || items.value.some((item) => item.id === post.id)) return
+  items.value = [post, ...items.value]
+}
+
 // ---------- 快速发布：纯文本按段落转换为富文本，支持附件、可见性与存草稿 ----------
 
 const draft = ref('')
@@ -273,7 +300,14 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
       </EmptyState>
 
       <template v-else>
-        <PostCard v-for="post in items" :key="post.id" :post="post" @removed="removeItem" />
+        <PostCard
+          v-for="post in items"
+          :key="post.id"
+          :post="post"
+          @removed="removeItem"
+          @repost-change="onRepostChange"
+          @post-created="onPostCreated"
+        />
 
         <div class="flex justify-center py-1">
           <button

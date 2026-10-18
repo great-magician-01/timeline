@@ -86,6 +86,43 @@ function removeItem(id: string): void {
   items.value = items.value.filter((item) => item.id !== id)
 }
 
+/** 当前用户对指定原帖的纯转发项（用于插入前去重与取消后移除） */
+function isMyRepostItem(
+  entry: PostBrief | TimelineCommentItem,
+  userId: string,
+  originalId: string,
+): boolean {
+  return (
+    !isCommentItem(entry) &&
+    entry.kind === 'repost' &&
+    entry.author.id === userId &&
+    entry.repost_of?.id === originalId
+  )
+}
+
+/**
+ * 转发状态变化：仅本人主页的「转发」页签同步插入/移除；
+ * 别人的主页展示的是对方的转发，其它页签的接口不返回纯转发，均只依赖卡片提示反馈。
+ */
+function onRepostChange(payload: { reposted: boolean; postId: string; item?: PostBrief }): void {
+  const currentUser = my.value
+  if (!currentUser || !isSelf.value || tab.value !== 'reposts') return
+  if (!payload.reposted) {
+    items.value = items.value.filter((entry) => !isMyRepostItem(entry, currentUser.id, payload.postId))
+    return
+  }
+  const created = payload.item
+  if (!created) return
+  items.value = [created, ...items.value.filter((entry) => !isMyRepostItem(entry, currentUser.id, payload.postId))]
+}
+
+/** 引用转发发布成功：仅本人主页的「帖子」/「转发」页签把新帖插到顶部 */
+function onPostCreated(post: PostBrief): void {
+  if (!isSelf.value || (tab.value !== 'posts' && tab.value !== 'reposts')) return
+  if (items.value.some((entry) => entry.id === post.id)) return
+  items.value = [post, ...items.value]
+}
+
 function openPost(postId: string): void {
   void router.push(`/posts/${postId}`)
 }
@@ -290,7 +327,13 @@ async function toggleFollow(): Promise<void> {
 
         <template v-else>
           <template v-for="row in rows" :key="row.item.id">
-            <PostCard v-if="row.type === 'post'" :post="row.item" @removed="removeItem" />
+            <PostCard
+              v-if="row.type === 'post'"
+              :post="row.item"
+              @removed="removeItem"
+              @repost-change="onRepostChange"
+              @post-created="onPostCreated"
+            />
             <div
               v-else
               :class="[ui.card, ui.cardPad, 'grid cursor-pointer gap-2 text-ink hover:border-soft-hover']"

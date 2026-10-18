@@ -65,21 +65,6 @@ func TestNormalizeScopeTerms(t *testing.T) {
 	}
 }
 
-// TestSelectFollowingIDs 校验关注时间线的关注集合传递。
-func TestSelectFollowingIDs(t *testing.T) {
-	ids := []int64{3, 1, 2}
-	if got := selectFollowingIDs(false, ids); got != nil {
-		t.Fatalf("非关注时间线不应传关注集合，实际 %#v", got)
-	}
-	got := selectFollowingIDs(true, ids)
-	if len(got) != 3 || got[0] != 3 || got[2] != 2 {
-		t.Fatalf("关注时间线应原样传关注集合，实际 %#v", got)
-	}
-	if got := selectFollowingIDs(true, nil); got != nil {
-		t.Fatalf("空关注集合应为 nil，实际 %#v", got)
-	}
-}
-
 // TestPublicContentNotFound 校验「帖子行不存在」统一对外文案。
 func TestPublicContentNotFound(t *testing.T) {
 	if err := publicContentNotFound(nil); err != nil {

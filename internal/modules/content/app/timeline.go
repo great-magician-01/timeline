@@ -326,12 +326,15 @@ func (s *Service) fetchTimelineCandidates(
 	}
 	if params.includeReposts && s.deps.Social != nil {
 		events, err := s.deps.Social.ListTimelineReposts(ctx, contracts.RepostTimelineQuery{
-			AuthorID:     params.authorID,
-			FollowingIDs: selectFollowingIDs(params.followingOnly, followingIDs),
-			Filter:       params.filter,
-			AfterAt:      after.Time,
-			AfterID:      after.ID,
-			Limit:        batchLimit,
+			AuthorID: params.authorID,
+			// 关注时间线始终把关注集合与 FollowingOnly 一起下传：FollowingOnly=true 时
+			// social 端无条件按集合过滤（空集合返回空结果），不能退化为全站转发。
+			FollowingIDs:  followingIDs,
+			FollowingOnly: params.followingOnly,
+			Filter:        params.filter,
+			AfterAt:       after.Time,
+			AfterID:       after.ID,
+			Limit:         batchLimit,
 		})
 		if err != nil {
 			return nil, s.wrap(err, "读取转发时间线失败")
@@ -369,14 +372,6 @@ func (s *Service) fetchTimelineCandidates(
 		candidates[i].post = posts[candidates[i].row.PostID]
 	}
 	return candidates, nil
-}
-
-// selectFollowingIDs 关注时间线需要把关注集合传给 social 的转发查询。
-func selectFollowingIDs(followingOnly bool, followingIDs []int64) []int64 {
-	if !followingOnly {
-		return nil
-	}
-	return followingIDs
 }
 
 // assembleTimeline 把候选批量组装成时间线列表项。

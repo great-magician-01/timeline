@@ -655,13 +655,15 @@ func (s *Service) ListRecentFollowees(ctx context.Context, userID int64, limit i
 
 // ListTimelineReposts 读取生效中的纯转发事件，供 content 合并时间线。
 // human/ai 过滤直接映射为 reposts.author_is_ai 快照列条件，不再先查询全量账号 ID 数组。
+// FollowingOnly/FollowingIDs 原样透传：关注时间线即使关注集合为空也必须显式过滤。
 func (s *Service) ListTimelineReposts(ctx context.Context, query contracts.RepostTimelineQuery) ([]contracts.RepostEvent, error) {
 	repoQuery := RepostEventQuery{
-		AuthorID:     query.AuthorID,
-		FollowingIDs: query.FollowingIDs,
-		AfterAt:      query.AfterAt,
-		AfterID:      query.AfterID,
-		Limit:        query.Limit,
+		AuthorID:      query.AuthorID,
+		FollowingIDs:  query.FollowingIDs,
+		FollowingOnly: query.FollowingOnly,
+		AfterAt:       query.AfterAt,
+		AfterID:       query.AfterID,
+		Limit:         query.Limit,
 	}
 	switch query.Filter {
 	case "human", "ai":

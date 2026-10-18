@@ -210,6 +210,8 @@ export interface LikeState {
 export interface RepostState {
   reposted: boolean
   repost_count: number
+  /** 本次新创建的纯转发记录（仅 reposted=true 时返回）；ID 保持字符串防止精度丢失 */
+  repost?: { id: string; created_at: string }
 }
 
 /** 关注申请 */

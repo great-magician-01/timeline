@@ -44,16 +44,17 @@ func (f fakeUsers) IsSuspended(context.Context, int64) (bool, error) {
 	return f.suspended, f.suspendErr
 }
 
-// fakeSocial 只覆写关注集合读取。
+// fakeSocial 只覆写关注集合读取与纯转发时间线查询；repostCalls 用于断言端口入参。
 type fakeSocial struct {
 	contracts.SocialService
-	following map[int64]bool
-	followErr error
-	reposts   []contracts.RepostEvent
-	repostErr error
-	state     string
-	states    contracts.PostViewerStates
-	statesErr error
+	following   map[int64]bool
+	followErr   error
+	reposts     []contracts.RepostEvent
+	repostErr   error
+	repostCalls *[]contracts.RepostTimelineQuery
+	state       string
+	states      contracts.PostViewerStates
+	statesErr   error
 }
 
 func (f fakeSocial) FollowingSet(context.Context, int64) (map[int64]bool, error) {
@@ -68,7 +69,12 @@ func (f fakeSocial) ViewerPostStates(context.Context, int64, []int64) (contracts
 	return f.states, f.statesErr
 }
 
-func (f fakeSocial) ListTimelineReposts(context.Context, contracts.RepostTimelineQuery) ([]contracts.RepostEvent, error) {
+func (f fakeSocial) ListTimelineReposts(
+	_ context.Context, query contracts.RepostTimelineQuery,
+) ([]contracts.RepostEvent, error) {
+	if f.repostCalls != nil {
+		*f.repostCalls = append(*f.repostCalls, query)
+	}
 	return f.reposts, f.repostErr
 }
 

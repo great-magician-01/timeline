@@ -4,23 +4,29 @@ import (
 	"context"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
 	"github.com/great-magician-01/timeline/internal/shared/contracts"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
 
-// TestRepostSuccess 验证纯转发成功路径：计数 +1、通知帖子作者。
+// TestRepostSuccess 验证纯转发成功路径：计数 +1、通知帖子作者、返回本次转发行 id/时间。
 func TestRepostSuccess(t *testing.T) {
 	stubs := newStubSet()
 	stubs.posts.counterValue = 6
 	stubs.reposts.activateID = 800
+	repostedAt := stubNow.Add(-2 * time.Minute)
+	stubs.reposts.activateAt = repostedAt
 	svc := stubs.service()
 
 	got, err := svc.Repost(context.Background(), stubViewer(), stubPostID)
 	requireOK(t, err)
 	if !got.Reposted || got.Count != 6 {
 		t.Fatalf("转发结果 = (%v, %d)，期望 (true, 6)", got.Reposted, got.Count)
+	}
+	if got.RepostID != 800 || !got.RepostedAt.Equal(repostedAt) {
+		t.Fatalf("生效转发标识 = (%d, %v)，期望 (800, %v)", got.RepostID, got.RepostedAt, repostedAt)
 	}
 	if len(stubs.reposts.activates) != 1 {
 		t.Fatalf("转发写入调用 = %d，期望 1", len(stubs.reposts.activates))
@@ -53,14 +59,20 @@ func TestRepostSuccess(t *testing.T) {
 	}
 }
 
-// TestRepostIdempotent 验证重复转发不重复计数并返回当前计数。
+// TestRepostIdempotent 验证重复转发不重复计数并返回当前计数与既有转发行信息。
 func TestRepostIdempotent(t *testing.T) {
 	stubs := newStubSet()
 	stubs.reposts.activateChanged = false
+	stubs.reposts.activateID = 801
+	repostedAt := stubNow.Add(-time.Hour)
+	stubs.reposts.activateAt = repostedAt
 	got, err := stubs.service().Repost(context.Background(), stubViewer(), stubPostID)
 	requireOK(t, err)
 	if !got.Reposted || got.Count != 5 {
 		t.Fatalf("重复转发结果 = (%v, %d)，期望 (true, 5)", got.Reposted, got.Count)
+	}
+	if got.RepostID != 801 || !got.RepostedAt.Equal(repostedAt) {
+		t.Fatalf("幂等路径应返回既有转发行 = (%d, %v)，期望 (801, %v)", got.RepostID, got.RepostedAt, repostedAt)
 	}
 	if len(stubs.posts.counters) != 0 || len(stubs.notices.notifications) != 0 {
 		t.Fatal("重复转发不应调整计数或写通知")
@@ -180,6 +192,9 @@ func TestUnrepost(t *testing.T) {
 		requireOK(t, err)
 		if got.Reposted || got.Count != 4 {
 			t.Fatalf("取消转发结果 = (%v, %d)，期望 (false, 4)", got.Reposted, got.Count)
+		}
+		if got.RepostID != 0 || !got.RepostedAt.IsZero() {
+			t.Fatalf("取消转发不应返回转发行信息，实际 (%d, %v)", got.RepostID, got.RepostedAt)
 		}
 		if len(stubs.reposts.deactivates) != 1 || stubs.reposts.deactivates[0].postID != stubPostID {
 			t.Fatalf("取消转发参数 = %+v", stubs.reposts.deactivates)

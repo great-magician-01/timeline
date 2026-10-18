@@ -417,6 +417,8 @@ func (f *fakeComments) ParentID(context.Context, int64) (*int64, error) { return
 type fakeReposts struct {
 	app.RepostRepo
 
+	activateID        int64
+	activateAt        time.Time
 	activateChanged   bool
 	deactivateChanged bool
 }
@@ -426,9 +428,17 @@ func newFakeReposts() *fakeReposts {
 }
 
 func (f *fakeReposts) Activate(
-	_ context.Context, id, _, _ int64, _ bool, _ time.Time,
-) (int64, bool, error) {
-	return id, f.activateChanged, nil
+	_ context.Context, id, _, _ int64, _ bool, at time.Time,
+) (int64, time.Time, bool, error) {
+	repostID := f.activateID
+	if repostID == 0 {
+		repostID = id
+	}
+	repostedAt := f.activateAt
+	if repostedAt.IsZero() {
+		repostedAt = at
+	}
+	return repostID, repostedAt, f.activateChanged, nil
 }
 
 func (f *fakeReposts) Deactivate(context.Context, int64, int64, time.Time) (int64, bool, error) {

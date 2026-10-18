@@ -61,23 +61,34 @@ func (s *Service) setRepost(
 			if err != nil {
 				return err
 			}
-			repostID, changed, err := s.deps.Reposts.Activate(ctx, id, actorID, post.ID, actorIsAI, now)
+			repostID, repostedAt, changed, err := s.deps.Reposts.Activate(ctx, id, actorID, post.ID, actorIsAI, now)
 			if err != nil {
 				return err
 			}
 			if !changed {
+				// 已生效的重复转发：沿用既有转发行的时间，不重复计数/通知。
 				current, err := s.deps.Posts.GetPost(ctx, post.ID)
 				if err != nil {
 					return err
 				}
-				result = RepostResult{Reposted: true, Count: current.RepostCount}
+				result = RepostResult{
+					Reposted:   true,
+					Count:      current.RepostCount,
+					RepostID:   repostID,
+					RepostedAt: repostedAt,
+				}
 				return nil
 			}
 			count, err := s.bumpPostCounter(ctx, post.ID, contracts.PostCounterRepost, domain.CountDelta(false, true), now)
 			if err != nil {
 				return err
 			}
-			result = RepostResult{Reposted: true, Count: count}
+			result = RepostResult{
+				Reposted:   true,
+				Count:      count,
+				RepostID:   repostID,
+				RepostedAt: repostedAt,
+			}
 			return s.deps.Notices.CreateNotification(ctx, contracts.NotificationInput{
 				IdempotencyKey: notifyKey("repost", repostID),
 				RecipientID:    post.AuthorID,

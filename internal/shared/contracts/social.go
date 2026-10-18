@@ -84,12 +84,17 @@ type ReplyQuery struct {
 // RepostTimelineQuery 读取纯转发事件，供时间线合并分支使用。
 // 消费者：content（全站/关注/个人主页时间线中的 repost 条目）。
 type RepostTimelineQuery struct {
-	AuthorID     int64   // >0 时只看该用户的转发
-	FollowingIDs []int64 // 非空时只看这些用户（关注时间线）
-	Filter       string  // all / human / ai（作者类型过滤）
-	AfterAt      time.Time
-	AfterID      int64
-	Limit        int
+	AuthorID int64 // >0 时只看该用户的转发
+	// FollowingIDs 是关注时间线的用户集合；仅在 FollowingOnly=true 时生效。
+	FollowingIDs []int64
+	// FollowingOnly 表示必须显式按关注集合过滤：true 时无条件追加
+	// user_id = ANY(FollowingIDs) 条件，空集合表示无任何匹配（返回空结果）。
+	// 不能用 nil/空 FollowingIDs 表示“不过滤”，否则关注时间线会退化为全站转发。
+	FollowingOnly bool
+	Filter        string // all / human / ai（作者类型过滤）
+	AfterAt       time.Time
+	AfterID       int64
+	Limit         int
 }
 
 // RepostEvent 是一条生效中的纯转发事件。消费者：content（时间线合并）。

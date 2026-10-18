@@ -88,6 +88,32 @@ func followRequestResponseFor(item app.RequestItem) followRequestResponse {
 	}
 }
 
+// repostBrief 是本次生效转发的行标识与转发时间（docs/API.md §6.1）。
+type repostBrief struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"created_at"`
+}
+
+// repostResponse 是纯转发/取消转发的响应 DTO：
+// repost 仅在有效转发时出现，供前端在当前列表即时插入转发项。
+type repostResponse struct {
+	Reposted    bool         `json:"reposted"`
+	RepostCount int          `json:"repost_count"`
+	Repost      *repostBrief `json:"repost,omitempty"`
+}
+
+// repostResponseFor 组装转发响应；取消转发不携带 repost 对象。
+func repostResponseFor(result app.RepostResult) repostResponse {
+	resp := repostResponse{Reposted: result.Reposted, RepostCount: result.Count}
+	if result.Reposted {
+		resp.Repost = &repostBrief{
+			ID:        format.FormatID(result.RepostID),
+			CreatedAt: format.FormatTime(result.RepostedAt),
+		}
+	}
+	return resp
+}
+
 func formatTimePtr(t *time.Time) *string {
 	if t == nil {
 		return nil

@@ -1105,6 +1105,41 @@ func TestListTimelineReposts(t *testing.T) {
 			!repoQuery.AfterAt.Equal(afterAt) || len(repoQuery.FollowingIDs) != 1 || repoQuery.AuthorIsAI != nil {
 			t.Fatalf("repo 查询参数 = %+v", repoQuery)
 		}
+		if repoQuery.FollowingOnly {
+			t.Fatalf("全站时间线不应设置 FollowingOnly: %+v", repoQuery)
+		}
+	})
+
+	t.Run("关注过滤透传", func(t *testing.T) {
+		// 关注时间线即使关注集合为空，也必须显式下传 FollowingOnly=true 与空集合，
+		// 由 repo 用 ANY(空数组) 过滤出空结果；不能用空切片表示“不过滤”。
+		stubs := newStubSet()
+		_, err := stubs.service().ListTimelineReposts(ctx, contracts.RepostTimelineQuery{
+			FollowingOnly: true,
+			FollowingIDs:  []int64{},
+			Limit:         5,
+		})
+		requireOK(t, err)
+		empty := stubs.reposts.lastQuery
+		if !empty.FollowingOnly {
+			t.Fatalf("FollowingOnly 未透传到 repo: %+v", empty)
+		}
+		if empty.FollowingIDs == nil || len(empty.FollowingIDs) != 0 {
+			t.Fatalf("空关注集合应按非 nil 空切片透传，实际 %#v", empty.FollowingIDs)
+		}
+
+		stubs = newStubSet()
+		_, err = stubs.service().ListTimelineReposts(ctx, contracts.RepostTimelineQuery{
+			FollowingOnly: true,
+			FollowingIDs:  []int64{stubAuthorID, stubOtherID},
+			Limit:         5,
+		})
+		requireOK(t, err)
+		filled := stubs.reposts.lastQuery
+		if !filled.FollowingOnly || len(filled.FollowingIDs) != 2 ||
+			filled.FollowingIDs[0] != stubAuthorID || filled.FollowingIDs[1] != stubOtherID {
+			t.Fatalf("关注集合透传错误: %+v", filled)
+		}
 	})
 
 	t.Run("AI 过滤", func(t *testing.T) {

@@ -1,15 +1,17 @@
 <script setup lang="ts">
 // 帖子卡片：时间线、个人主页、标签与搜索结果统一复用（docs/DESIGN_SYSTEM.md）。
 // 互动按钮在后端再次鉴权，前端只负责交互与状态提示。
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import AttachmentGallery from './AttachmentGallery.vue'
 import PostActionMenu from './PostActionMenu.vue'
+import RepostDialog from './RepostDialog.vue'
+import type { RepostDialogResult } from './RepostDialog.types'
 import UserAvatar from './UserAvatar.vue'
-import type { PostBrief } from '../api/types'
+import type { PostBrief, RepostState, UserBrief } from '../api/types'
 import { errorMessage } from '../api/client'
-import { likePost, repostPost, unlikePost, unrepostPost } from '../api/social'
+import { likePost, unlikePost } from '../api/social'
 import { authState } from '../stores/auth'
 import { relativeTime, timeTitle } from '../utils/format'
 import { ui } from '../styles/ui'
@@ -25,7 +27,13 @@ const props = withDefaults(
   { detail: false, actions: true },
 )
 
-const emit = defineEmits<{ (event: 'removed', id: string): void }>()
+const emit = defineEmits<{
+  (event: 'removed', id: string): void
+  /** 转发状态变化：成功后父列表可用 item 即时插入纯转发卡片；取消后按 postId 移除对应转发项 */
+  (event: 'repost-change', payload: { reposted: boolean; postId: string; item?: PostBrief }): void
+  /** 引用转发发布成功：父列表可把新帖即时插入顶部 */
+  (event: 'post-created', post: PostBrief): void
+}>()
 
 const router = useRouter()
 const my = computed(() => authState.user)
@@ -62,7 +70,39 @@ watch(
 )
 
 const busy = ref(false)
+
+/** 转发弹窗开关：点击转发按钮先打开弹窗，留空为纯转发、填写内容为引用转发 */
+const repostOpen = ref(false)
+
+// ---------- 操作提示：成功/取消约 3 秒自动消失，失败保留到下一次操作 ----------
+
 const notice = ref('')
+/** 成功/取消操作使用 success 语气，失败提示使用 warning */
+const noticeKind = ref<'success' | 'warning'>('warning')
+let noticeTimer: number | null = null
+
+function clearNoticeTimer(): void {
+  if (noticeTimer === null) return
+  window.clearTimeout(noticeTimer)
+  noticeTimer = null
+}
+
+/** 展示提示；autoHide 仅用于成功/取消这类操作反馈，约 3 秒后自动消失 */
+function showNotice(message: string, kind: 'success' | 'warning', autoHide = false): void {
+  clearNoticeTimer()
+  notice.value = message
+  noticeKind.value = kind
+  if (!autoHide) return
+  noticeTimer = window.setTimeout(() => {
+    notice.value = ''
+    noticeTimer = null
+  }, 3000)
+}
+
+function clearNotice(): void {
+  clearNoticeTimer()
+  notice.value = ''
+}
 
 /** 转发项：作者是转发者，正文与互动计数属于被转发的原帖 */
 const target = computed<PostBrief>(() => (props.post.kind === 'repost' && props.post.repost_of ? props.post.repost_of : props.post))
@@ -80,31 +120,81 @@ function requireLogin(): boolean {
 async function toggleLike(): Promise<void> {
   if (!requireLogin() || busy.value) return
   busy.value = true
-  notice.value = ''
+  clearNotice()
   try {
     const result = liked.value ? await unlikePost(target.value.id) : await likePost(target.value.id)
     liked.value = result.liked
     likeCount.value = result.like_count
   } catch (err) {
-    notice.value = errorMessage(err)
+    showNotice(errorMessage(err), 'warning')
   } finally {
     busy.value = false
   }
 }
 
-async function toggleRepost(): Promise<void> {
-  if (!requireLogin() || busy.value) return
-  busy.value = true
-  notice.value = ''
-  try {
-    const result = reposted.value ? await unrepostPost(target.value.id) : await repostPost(target.value.id)
-    reposted.value = result.reposted
-    repostCount.value = result.repost_count
-  } catch (err) {
-    notice.value = errorMessage(err)
-  } finally {
-    busy.value = false
+/**
+ * 用转发响应构造纯转发列表项：作者是当前登录用户，正文与互动信息属于被转发的原帖。
+ * 时间线接口不保证立即返回刚创建的转发，父列表用该对象即时插入。
+ */
+function buildRepostItem(original: PostBrief, result: RepostState): PostBrief | null {
+  const viewer = my.value
+  if (!result.repost || !viewer) return null
+  const author: UserBrief = {
+    id: viewer.id,
+    username: viewer.username,
+    nickname: viewer.nickname,
+    avatar_url: viewer.avatar_url,
+    is_ai: viewer.is_ai,
+    is_suspended: viewer.status === 'suspended',
   }
+  return {
+    id: result.repost.id,
+    kind: 'repost',
+    author,
+    visibility: original.visibility,
+    content_html: '',
+    published_at: original.published_at,
+    reposted_at: result.repost.created_at,
+    edited: false,
+    like_count: original.like_count,
+    comment_count: original.comment_count,
+    repost_count: result.repost_count,
+    attachments: [],
+    viewer_state: { liked: liked.value, reposted: true },
+    repost_of: original,
+  }
+}
+
+/** 打开转发弹窗：留空提交纯转发，填写内容发布引用转发 */
+function openRepostDialog(): void {
+  if (!requireLogin() || busy.value || !canInteract.value) return
+  clearNotice()
+  repostOpen.value = true
+}
+
+/**
+ * 转发弹窗完成：纯转发/取消转发更新本地状态并通知父列表；
+ * 引用转发把新帖交给父列表插入（详情页等无列表场景只依赖成功提示）。
+ */
+function onRepostCompleted(payload: RepostDialogResult): void {
+  repostOpen.value = false
+  if (payload.kind === 'pure') {
+    reposted.value = payload.result.reposted
+    repostCount.value = payload.result.repost_count
+    const item = buildRepostItem(target.value, payload.result)
+    if (item) emit('repost-change', { reposted: true, postId: target.value.id, item })
+    showNotice('已转发到你的主页，可在个人主页「转发」页签查看。', 'success', true)
+    return
+  }
+  if (payload.kind === 'unrepost') {
+    reposted.value = payload.result.reposted
+    repostCount.value = payload.result.repost_count
+    emit('repost-change', { reposted: false, postId: target.value.id })
+    showNotice('已取消转发。', 'success', true)
+    return
+  }
+  emit('post-created', payload.post)
+  showNotice('已发布引用转发，可在个人主页查看。', 'success', true)
 }
 
 /** 更多菜单删除成功：转发卡片删除的是原帖，父列表按卡片自身 id 移除 */
@@ -113,7 +203,7 @@ function handleRemoved(): void {
 }
 
 function handleMenuError(message: string): void {
-  notice.value = message
+  showNotice(message, 'warning')
 }
 
 function openDetail(): void {
@@ -135,6 +225,9 @@ watch(
   () => [props.post.content_html, props.detail],
   () => void nextTick(updateClamped),
 )
+
+// 提示定时器在卸载时清理，避免组件销毁后仍触发状态更新
+onUnmounted(clearNoticeTimer)
 
 // 富文本正文的容器级样式（含原有后代选择器的等价 utility）
 const richContentClass =
@@ -213,7 +306,14 @@ const richContentClass =
       </blockquote>
     </div>
 
-    <p v-if="notice" :class="[ui.alert, ui.alertVariants.warning.root]">{{ notice }}</p>
+    <p v-if="notice" :class="[ui.alert, ui.alertVariants[noticeKind].root]">
+      <AppIcon
+        :name="noticeKind === 'success' ? 'check-circle' : 'alert'"
+        :size="17"
+        :class="[ui.alertIcon, ui.alertVariants[noticeKind].icon]"
+      />
+      <span :class="ui.alertText">{{ notice }}</span>
+    </p>
 
     <footer v-if="actions && !authorSuspended" class="flex gap-4 border-t border-solid border-border pt-[6px]">
       <button
@@ -226,12 +326,13 @@ const richContentClass =
         <span>{{ target.comment_count }}</span>
       </button>
       <button
+        v-if="target.visibility === 'public'"
         type="button"
         class="inline-flex items-center gap-[5px] rounded-[8px] px-2 py-[5px] text-[13px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-ink! disabled:cursor-not-allowed disabled:opacity-60"
         :class="reposted ? 'text-primary! font-bold' : ''"
         :disabled="busy || !canInteract"
         :title="canInteract ? '转发' : '登录后可转发'"
-        @click="toggleRepost"
+        @click="openRepostDialog"
       >
         <AppIcon name="repeat" :size="17" />
         <span>{{ repostCount }}</span>
@@ -255,5 +356,13 @@ const richContentClass =
       <AppIcon name="lock" :size="14" />
       作者已停用，互动入口已关闭
     </p>
+
+    <RepostDialog
+      v-if="repostOpen"
+      :post="target"
+      :reposted="reposted"
+      @close="repostOpen = false"
+      @completed="onRepostCompleted"
+    />
   </article>
 </template>

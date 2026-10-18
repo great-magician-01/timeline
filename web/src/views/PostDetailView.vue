@@ -2,7 +2,7 @@
 // 帖子详情（docs/PAGES_AND_PERMISSIONS.md P-07）：
 // 正文、附件、引用、作者关注入口、互动栏、评论与楼中楼回复；顶部提供返回上一页入口。
 // 所有权限提示只做展示，实际授权由后端逐个接口执行。
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiError, errorMessage } from '../api/client'
 import { getPost } from '../api/posts'
@@ -12,10 +12,8 @@ import {
   followUser,
   likePost,
   listComments,
-  repostPost,
   unfollowUser,
   unlikePost,
-  unrepostPost,
 } from '../api/social'
 import type { Comment, FollowState, PostBrief, PostDetail } from '../api/types'
 import AlertNote from '../components/AlertNote.vue'
@@ -24,6 +22,8 @@ import AttachmentGallery from '../components/AttachmentGallery.vue'
 import CommentItem from '../components/CommentItem.vue'
 import EmptyState from '../components/EmptyState.vue'
 import PostActionMenu from '../components/PostActionMenu.vue'
+import RepostDialog from '../components/RepostDialog.vue'
+import type { RepostDialogResult } from '../components/RepostDialog.types'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useBackNavigation } from '../composables/useBackNavigation'
 import { useCursorList } from '../composables/useCursorList'
@@ -55,8 +55,36 @@ const liked = ref(false)
 const likeCount = ref(0)
 const reposted = ref(false)
 const repostCount = ref(0)
+/** 转发弹窗开关：留空为纯转发、填写内容为引用转发 */
+const repostOpen = ref(false)
 const busy = ref(false)
 const actionNotice = ref('')
+/** 成功/取消操作为 success 语气，失败提示沿用 warning（与原有提示一致） */
+const actionNoticeKind = ref<'success' | 'warning'>('warning')
+let actionNoticeTimer: number | null = null
+
+function clearActionNoticeTimer(): void {
+  if (actionNoticeTimer === null) return
+  window.clearTimeout(actionNoticeTimer)
+  actionNoticeTimer = null
+}
+
+/** 展示操作提示；autoHide 用于转发成功/取消这类反馈，约 3 秒后自动消失 */
+function showActionNotice(message: string, kind: 'success' | 'warning', autoHide = false): void {
+  clearActionNoticeTimer()
+  actionNotice.value = message
+  actionNoticeKind.value = kind
+  if (!autoHide) return
+  actionNoticeTimer = window.setTimeout(() => {
+    actionNotice.value = ''
+    actionNoticeTimer = null
+  }, 3000)
+}
+
+function clearActionNotice(): void {
+  clearActionNoticeTimer()
+  actionNotice.value = ''
+}
 
 const visibilityLabel = computed(() => {
   if (target.value?.visibility === 'followers') return '仅关注者可见'
@@ -126,22 +154,22 @@ async function toggleFollow(): Promise<void> {
   if (authorFollow.value === 'following' || authorFollow.value === 'pending') {
     if (!window.confirm(authorFollow.value === 'pending' ? '确认取消关注申请？' : '确认取消关注？')) return
     followBusy.value = true
-    actionNotice.value = ''
+    clearActionNotice()
     try {
       authorFollow.value = (await unfollowUser(current.author.username)).follow_state
     } catch (err) {
-      actionNotice.value = errorMessage(err)
+      showActionNotice(errorMessage(err), 'warning')
     } finally {
       followBusy.value = false
     }
     return
   }
   followBusy.value = true
-  actionNotice.value = ''
+  clearActionNotice()
   try {
     authorFollow.value = (await followUser(current.author.username)).follow_state
   } catch (err) {
-    actionNotice.value = errorMessage(err)
+    showActionNotice(errorMessage(err), 'warning')
   } finally {
     followBusy.value = false
   }
@@ -158,7 +186,7 @@ async function loadPost(): Promise<void> {
   notFound.value = false
   loadError.value = ''
   post.value = null
-  actionNotice.value = ''
+  clearActionNotice()
   authorFollow.value = null
   try {
     const data = await getPost(postId.value)
@@ -193,32 +221,41 @@ async function toggleLike(): Promise<void> {
     return
   }
   busy.value = true
-  actionNotice.value = ''
+  clearActionNotice()
   try {
     const result = liked.value ? await unlikePost(current.id) : await likePost(current.id)
     liked.value = result.liked
     likeCount.value = result.like_count
   } catch (err) {
-    actionNotice.value = errorMessage(err)
+    showActionNotice(errorMessage(err), 'warning')
   } finally {
     busy.value = false
   }
 }
 
-async function toggleRepost(): Promise<void> {
-  const current = target.value
-  if (!current || busy.value || !canShare.value) return
-  busy.value = true
-  actionNotice.value = ''
-  try {
-    const result = reposted.value ? await unrepostPost(current.id) : await repostPost(current.id)
-    reposted.value = result.reposted
-    repostCount.value = result.repost_count
-  } catch (err) {
-    actionNotice.value = errorMessage(err)
-  } finally {
-    busy.value = false
+/** 打开转发弹窗：留空为纯转发，填写内容发布引用转发 */
+function openRepostDialog(): void {
+  if (busy.value || !canShare.value) return
+  clearActionNotice()
+  repostOpen.value = true
+}
+
+/** 转发弹窗完成：更新本地状态并提示；详情页不插入新列表项 */
+function onRepostCompleted(payload: RepostDialogResult): void {
+  repostOpen.value = false
+  if (payload.kind === 'pure') {
+    reposted.value = payload.result.reposted
+    repostCount.value = payload.result.repost_count
+    showActionNotice('已转发到你的主页，可在个人主页「转发」页签查看。', 'success', true)
+    return
   }
+  if (payload.kind === 'unrepost') {
+    reposted.value = payload.result.reposted
+    repostCount.value = payload.result.repost_count
+    showActionNotice('已取消转发。', 'success', true)
+    return
+  }
+  showActionNotice('已发布引用转发。', 'success', true)
 }
 
 function quotePost(): void {
@@ -230,6 +267,11 @@ function quotePost(): void {
 /** 更多菜单删除成功：详情页不再存在，返回首页 */
 async function onPostRemoved(): Promise<void> {
   await router.push('/')
+}
+
+/** 更多菜单操作失败：沿用 warning 提示语气 */
+function handleActionError(message: string): void {
+  showActionNotice(message, 'warning')
 }
 
 // ---------- 评论 ----------
@@ -298,6 +340,9 @@ const canManage = computed(() => {
 
 // 路由参数变化（含首次进入）时加载详情，成功后按需加载评论首屏
 watch(postId, () => void loadPost(), { immediate: true })
+
+// 提示定时器在卸载时清理，避免组件销毁后仍触发状态更新
+onUnmounted(clearActionNoticeTimer)
 </script>
 
 <template>
@@ -370,7 +415,7 @@ watch(postId, () => void loadPost(), { immediate: true })
                 :can-view-history="post.can_view_history"
                 :can-delete="post.can_delete"
                 @removed="onPostRemoved"
-                @error="actionNotice = $event"
+                @error="handleActionError"
               />
             </div>
           </header>
@@ -411,7 +456,7 @@ watch(postId, () => void loadPost(), { immediate: true })
             <p v-else :class="[ui.muted]">原内容不可见</p>
           </blockquote>
 
-          <AlertNote v-if="actionNotice" kind="warning">{{ actionNotice }}</AlertNote>
+          <AlertNote v-if="actionNotice" :kind="actionNoticeKind">{{ actionNotice }}</AlertNote>
 
           <footer v-if="!authorSuspended" class="flex gap-4 border-t border-solid border-border pt-2">
             <button
@@ -426,12 +471,13 @@ watch(postId, () => void loadPost(), { immediate: true })
               <span>{{ likeCount }}</span>
             </button>
             <button
+              v-if="target.visibility === 'public'"
               type="button"
               class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-[5px] text-[13.5px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-ink disabled:cursor-not-allowed disabled:opacity-60"
               :class="reposted && 'font-bold text-primary'"
               :disabled="busy || !canShare"
               :title="shareHint || '转发'"
-              @click="toggleRepost"
+              @click="openRepostDialog"
             >
               <AppIcon name="repeat" :size="18" />
               <span>{{ repostCount }}</span>
@@ -452,6 +498,14 @@ watch(postId, () => void loadPost(), { immediate: true })
             作者已停用，互动入口已关闭
           </p>
         </article>
+
+        <RepostDialog
+          v-if="repostOpen"
+          :post="target"
+          :reposted="reposted"
+          @close="repostOpen = false"
+          @completed="onRepostCompleted"
+        />
 
         <section :class="[ui.card, ui.cardPad, 'grid gap-3']">
           <h2 :class="[ui.pageHead, ui.pageTitle]">评论（{{ target.comment_count }}）</h2>

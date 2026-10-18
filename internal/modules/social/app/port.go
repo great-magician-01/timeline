@@ -120,9 +120,13 @@ type CommentRepo interface {
 
 // RepostRepo 是纯转发 SQL 端口。
 type RepostRepo interface {
-	// Activate 转发；authorIsAI 是转发者账号类型快照（写入 reposts.author_is_ai），
-	// 只有从失效翻转为生效时 changed 为 true。
-	Activate(ctx context.Context, id, userID, postID int64, authorIsAI bool, now time.Time) (repostID int64, changed bool, err error)
+	// Activate 转发；authorIsAI 是转发者账号类型快照（写入 reposts.author_is_ai）。
+	// 返回本次生效转发行的 ID 与时间：从失效翻转为生效时 changed 为 true，
+	// 重新转发会刷新 created_at；已生效的重复转发 changed 为 false，返回既有行。
+	// 返回值供 HTTP 响应组装 repost 对象、供时间线展示最近一次转发时间。
+	Activate(
+		ctx context.Context, id, userID, postID int64, authorIsAI bool, now time.Time,
+	) (repostID int64, repostedAt time.Time, changed bool, err error)
 	// Deactivate 取消转发；changed 表示本次是否真正翻转。
 	Deactivate(ctx context.Context, userID, postID int64, now time.Time) (repostID int64, changed bool, err error)
 	// IsActive 报告用户是否已转发帖子。

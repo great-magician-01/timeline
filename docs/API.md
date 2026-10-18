@@ -1,7 +1,7 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.7.4  
+> **文档版本**：0.7.5  
 > **最近更新**：2026-10-18  
 > **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
@@ -191,6 +191,10 @@
 | --- | --- | --- | --- |
 | POST | `/api/v1/posts/:id/repost` | 纯转发（要求原帖公开）；幂等 | 登录用户 |
 | POST | `/api/v1/posts/:id/unrepost` | 取消纯转发 | 登录用户 |
+
+- `POST /posts/:id/repost` 成功返回 `{"reposted": true, "repost_count": n, "repost": {"id": "雪花ID字符串", "created_at": "+08:00 时间字符串"}}`；`repost` 是本次生效转发行的标识与转发时间字符串，供前端在当前列表即时插入转发项。重复转发（已生效）同样返回该对象，`repost_count` 为当前计数。
+- `POST /posts/:id/unrepost` 成功返回 `{"reposted": false, "repost_count": n}`，不含 `repost` 字段。
+- 取消转发是逻辑失效；对同一帖子再次转发会刷新转发行的时间，时间线按最近一次转发时间排序与展示（详见 `DATA_MODEL.md` §6.15）。
 
 带评论的引用转发使用 `POST /api/v1/posts` 携带 `quoted_post_id`。
 
@@ -403,6 +407,7 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.7.5 | 纯转发接口补全响应契约（修复“点击转发只有计数+1”的前端可见性缺陷）：`POST /posts/:id/repost` 返回新增 `repost: {id, created_at}`，供前端即时插入转发项；`/unrepost` 仍返回 `{reposted, repost_count}`。同步说明重新转发会刷新转发时间、关注时间线的纯转发项严格按关注集合过滤。 |
 | 2026-10-18 | 0.7.4 | 修复文档格式缺陷（接口契约不变）：§2.6 错误码表的 `503 service_unavailable` 行原被“实现说明”段落截断，现移回表格并补充 `/api/*` 就绪前 503、就绪后未知路径 404 的边界说明；实现说明补一句“本轮后端重构与行为缺陷修复不新增/删除接口、不改变既有成功响应与错误码约定”。 |
 | 2026-10-18 | 0.7.2 | 需求基线更新至 0.24.0；`GET /auth/config` 增加 `bootstrap_required`；注册接口说明空库首个注册用户返回 `role=admin`+`is_super_admin=true`、未初始化时忽略注册开关、不自动登录；新增 private_user 对象（`is_super_admin`，公开 user_brief 不含）；新增 `POST /admin/users/:id/grant-admin` 与 `.../revoke-admin` 契约（仅超管、CSRF 先行、幂等、400/403/404、审计动作、返回 `{user}`）；§12.1 明确普通管理员不能操作超级管理员账号；审计 `action_type` 增加两个动作。 |
 | 2026-10-18 | 0.7.3 | 仅补充实现说明（接口契约不变）：§2.2 说明响应时间由服务端应用时钟生成并格式化为 `+08:00`，业务时间由应用显式传参、数据库不提供时间默认值；§2.6 说明领域错误由 `platform/apperr` 表达、`transport/httpx.Respond` 为 Kind→HTTP 映射唯一入口。 |

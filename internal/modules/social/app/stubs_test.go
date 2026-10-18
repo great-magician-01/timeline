@@ -905,6 +905,7 @@ type stubReposts struct {
 	RepostRepo
 
 	activateID        int64
+	activateAt        time.Time
 	activateChanged   bool
 	deactivateID      int64
 	deactivateChanged bool
@@ -931,14 +932,22 @@ func newStubReposts() *stubReposts {
 
 func (s *stubReposts) Activate(
 	_ context.Context, id, userID, postID int64, authorIsAI bool, at time.Time,
-) (int64, bool, error) {
+) (int64, time.Time, bool, error) {
 	if s.activateErr != nil {
-		return 0, false, s.activateErr
+		return 0, time.Time{}, false, s.activateErr
 	}
 	s.activates = append(s.activates, stubRepostCall{
 		id: id, userID: userID, postID: postID, authorIsAI: authorIsAI, at: at,
 	})
-	return s.activateID, s.activateChanged, nil
+	repostID := s.activateID
+	if repostID == 0 {
+		repostID = id
+	}
+	repostedAt := s.activateAt
+	if repostedAt.IsZero() {
+		repostedAt = at
+	}
+	return repostID, repostedAt, s.activateChanged, nil
 }
 
 func (s *stubReposts) Deactivate(_ context.Context, userID, postID int64, at time.Time) (int64, bool, error) {

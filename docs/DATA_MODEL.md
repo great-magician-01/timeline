@@ -1,7 +1,7 @@
 # Timeline 数据模型设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.9.0  
+> **文档版本**：0.9.1  
 > **最近更新**：2026-10-18  
 > **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[核心状态机与流程](WORKFLOWS.md)  
@@ -271,11 +271,12 @@
 
 ### 6.15 reposts（`timeline`）
 
-- `id`、`user_id`、`post_id`、`created_at`。
+- `id`、`user_id`、`post_id`、`created_at`、`updated_at`。
 - `author_is_ai`：转发者类型快照（`0019` 新增，回填自 `"user".users.is_ai`），供转发时间线按作者类型过滤。
 - 唯一组合：`(user_id, post_id)`。
 - 表示不带正文的纯转发；带正文的引用转发使用 `posts.quoted_post_id`。
-- 仅允许公开帖子；取消转发只做逻辑失效标记，不物理删除记录。
+- 仅允许公开帖子；取消转发只做逻辑失效标记（`is_active=false`），不物理删除记录。
+- 重新转发是同一行的逻辑生效：取消后再次转发会刷新 `created_at`/`updated_at`，时间线按最近一次转发时间排序与展示；首次转发与重新转发都返回该行 id 与时间，供前端即时插入转发项。
 
 ### 6.16 mentions（`timeline`）
 
@@ -525,6 +526,7 @@
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.9.1 | 修复纯转发语义缺陷：§6.15 明确重新转发是同一 `reposts` 行的逻辑生效，取消后再次转发刷新 `created_at`/`updated_at`（时间线按最近一次转发时间排序展示），并补充 `is_active`/`updated_at` 与“转发时间由应用 Clock 显式传入”的既有约定；转发接口响应同步返回转发行 `id` 与时间（见 `API.md` §6.1）。 |
 | 2026-10-18 | 0.9.0 | SQL 最简原则改造（迁移 `0017`–`0020`）：①`posts`/`reposts` 新增 `author_is_ai` 快照列（`0019` 回填自 `users.is_ai`）并新增作者类型时间线索引（`0020`），替代应用层全量账号 ID 数组过滤；②新增 `attachment_usage` 配额冗余计数表（`0019` 回填），上传路径由实时 `SUM(size_bytes)` 改为 O(1) 计数；③`0017` 新增/替换查询索引（关注游标覆盖、评论作者/顶层/trigram、附件有效/清理候选/文件名 trigram、提及时间窗、后台作业 running、AI 任务 running/last_success、用户与标签搜索、引用帖、`ai_action_counters` 列序），`0018` 删除冗余/无查询索引；④个人主页统计只保留响应消费的 3 项（posts/followers/following）并各走单表索引；⑤§4.5 增加 `0019` 回填评审例外与 §8/§10 同步。 |
 | 2026-10-18 | 0.8.1 | 补迁移 `0016_review_fixes`（普通事务）：`§4.5` 新增“数据回填为显式例外”条目，说明当 `avatar_url` 恰为附件内容路径时用正则回填 `"user".users.avatar_attachment_id`（仅 NULL、幂等、不改 `updated_at` 与业务时间）并删除与查询不匹配的 `timeline.ai_tasks_daily` 索引（保留 `ai_call_logs_retention_id`）；`§6.1` 补 `avatar_attachment_id` 字段与回填说明；`§8` 标注 `ai_tasks_daily` 已删除；需求基线对齐 `REQUIREMENTS.md` 0.24.1。 |
 | 2026-10-18 | 0.8.0 | §4.4 时区约定改为“业务时间权威在应用侧”：业务时间由应用 Clock 生成传参、同一事务一个 `now`，数据库不再提供业务时间默认值（`0011_drop_time_defaults` 移除 43 个 `DEFAULT now()`，`timeline.schema_migrations.applied_at` 为唯一白名单）也不承担业务时间比较，日界在应用侧按北京时间半开区间计算。迁移 0011-0015：`0011` 时间默认值移除、`0012` `users.avatar_attachment_id`（只结构不回填）、`0013` 时间线/任务/附件索引（no-transaction + `CONCURRENTLY`）、`0014` `pg_trgm` 搜索索引（no-transaction + `CONCURRENTLY`）、`0015` 删除未使用索引 `post_search_updated`。 |

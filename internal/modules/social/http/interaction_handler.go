@@ -34,7 +34,7 @@ func (h *Handler) setRepost(c *gin.Context, active bool) {
 		h.fail(c, "更新转发状态失败", err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"reposted": result.Reposted, "repost_count": result.Count})
+	c.JSON(http.StatusOK, repostResponseFor(result))
 }
 
 // LikePost 点赞帖子。

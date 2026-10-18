@@ -133,9 +133,13 @@ type LikeResult struct {
 }
 
 // RepostResult 是转发/取消转发的结果。
+// RepostID/RepostedAt 是本次生效转发行的标识与时间（未转发时为零值），
+// 供 HTTP 响应组装 repost 对象，便于前端在当前列表即时插入转发项。
 type RepostResult struct {
-	Reposted bool
-	Count    int
+	Reposted   bool
+	Count      int
+	RepostID   int64
+	RepostedAt time.Time
 }
 
 // ===== contracts.RelationReader 实现（供 content/notice/agent 复用） =====
