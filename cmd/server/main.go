@@ -112,8 +112,11 @@ func run() int {
 	readiness := db.NewReadiness()
 	bootstrapSrv := server.New(cfg, log, readiness)
 	httpSrv := &http.Server{
-		Addr:              listenAddr,
-		Handler:           bootstrapSrv.Handler(),
+		Addr: listenAddr,
+		// 必须把 bootstrapSrv 本身（实现了 http.Handler，每个请求读取当前 handler）
+		// 交给 http.Server；不能在这里调用 bootstrapSrv.Handler() 取快照，否则后面
+		// SwapHandler 切换的完整 handler 不会生效，业务接口就绪后全部 404。
+		Handler:           bootstrapSrv,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

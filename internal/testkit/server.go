@@ -62,7 +62,9 @@ func NewServerFromEnv(t *testing.T, env *Env, options ServerOptions) *Server {
 	t.Cleanup(application.Close)
 	srv.SwapHandler(application.Handler())
 
-	httpServer := httptest.NewServer(srv.Handler())
+	// 与生产 start-up 一致：把 srv 本身交给 httptest（每个请求读取当前 handler），
+	// 而不是 Handler() 快照，保证测试覆盖启动期 handler 切换路径。
+	httpServer := httptest.NewServer(srv)
 	t.Cleanup(httpServer.Close)
 
 	server := &Server{

@@ -101,15 +101,20 @@ func NewEnv(t *testing.T, options EnvOptions) *Env {
 	if clk == nil {
 		clk = clock.System()
 	}
-	// 一次性 schema 的 search_path 默认只有新 schema；数据库级扩展（pg_trgm）若已由
-	// 之前共享 schema 迁移安装到别的 schema，0014 的 gin_trgm_ops 会解析失败。
-	// 这里把扩展所在 schema 追加到 search_path（迁移与测试连接共用）。
-	searchPath := []string{options.Schemas.Timeline, options.Schemas.User}
-	if options.DropSchemasOnCleanup {
-		if extSchema := ExtensionSchema(t, ctx, cfg.DSN(), "pg_trgm"); extSchema != "" {
-			searchPath = appendIfMissing(searchPath, extSchema)
-		}
+	// 数据库级扩展 pg_trgm 是 0014/0017 迁移的前置条件：测试数据库连接用测试 schema
+	// 覆盖了 search_path，测试 schema 迁移必须能把扩展所在 schema 一起放入 search_path，
+	// 否则 gin_trgm_ops 无法解析。共享 schema 与一次性隔离 schema 都需要追加（生产约定
+	// 扩展位于 timeline，见 docs/DEPLOYMENT.md §6.10）。
+	//
+	// 扩展缺失时直接 Skip，而不是让测试 schema 迁移去创建：0014 的
+	// CREATE EXTENSION IF NOT EXISTS 会装进当时的第一个 search_path schema（测试 schema），
+	// 导致之后生产迁移 0014 找不到 opclass，需要人工 ALTER EXTENSION 修复。
+	extSchema := ExtensionSchema(t, ctx, cfg.DSN(), "pg_trgm")
+	if extSchema == "" {
+		t.Skipf("数据库未安装 pg_trgm 扩展：请先启动应用完成迁移（生产迁移会把扩展安装到 timeline schema），或由 DBA 预装后重试")
 	}
+	searchPath := []string{options.Schemas.Timeline, options.Schemas.User}
+	searchPath = appendIfMissing(searchPath, extSchema)
 	dsn, err := integrationDSNForSchemas(cfg.DSN(), searchPath)
 	if err != nil {
 		t.Fatal(err)

@@ -77,6 +77,15 @@ func (s *Server) Handler() http.Handler {
 	return s.handler
 }
 
+// ServeHTTP 让 Server 本身可以作为 http.Handler 使用，并在每个请求上读取当前 handler。
+//
+// 启动期必须先监听、DB 就绪后再 SwapHandler，因此交给 http.Server 的必须是 Server 本身，
+// 不能是构造 http.Server 时的 Handler() 快照——否则 SwapHandler 永远不生效，
+// 业务接口在就绪后会全部落到 bootstrap 引擎的 404 兜底。
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.Handler().ServeHTTP(w, r)
+}
+
 // SwapHandler 原子替换对外 handler（app.New 完成后由 main 调用）。
 func (s *Server) SwapHandler(handler http.Handler) {
 	if handler == nil {

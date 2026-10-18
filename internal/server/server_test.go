@@ -169,6 +169,39 @@ func TestSwapHandlerActivatesFullEngine(t *testing.T) {
 	}
 }
 
+// TestHTTPHandlerFollowsHandlerSwap 复现启动期真实监听路径：http.Server 拿到的是
+// Server 本身（动态读取当前 handler），而不是构造时的 Handler() 快照。
+// 快照 bug 会让 SwapHandler 后的业务接口全部 404（bootstrap 引擎的未知 /api 兜底）。
+func TestHTTPHandlerFollowsHandlerSwap(t *testing.T) {
+	cfg := &config.Config{LogLevel: "debug"}
+	bootstrap := server.New(cfg, discardLogger(), fakeReadiness{})
+	full := server.New(cfg, discardLogger(), fakeReadiness{ready: true, migrations: true})
+	full.Engine().GET("/api/v1/full-only", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	ts := httptest.NewServer(bootstrap)
+	defer ts.Close()
+
+	get := func(path string) int {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatalf("请求 %s 失败: %v", path, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return resp.StatusCode
+	}
+
+	if got := get("/api/v1/full-only"); got != http.StatusServiceUnavailable {
+		t.Fatalf("切换前 bootstrap 引擎未就绪应返回 503，status=%d", got)
+	}
+	bootstrap.SwapHandler(full.Handler())
+	if got := get("/api/v1/full-only"); got != http.StatusOK {
+		t.Fatalf("SwapHandler 后应命中完整引擎，status=%d（404 说明 http.Server 持有旧 Handler 快照）", got)
+	}
+}
+
 func TestTrustedProxyClientIP(t *testing.T) {
 	cfg := &config.Config{LogLevel: "debug", TrustedProxies: []string{"127.0.0.1"}}
 	srv := newSlimServer(t, cfg)
