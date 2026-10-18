@@ -112,7 +112,7 @@ func TestPrecheckUploadRateLimited(t *testing.T) {
 		t.Fatal("首次消耗额度应成功")
 	}
 
-	err := svc.PrecheckUpload(context.Background(), model.Viewer{ID: 1, Authenticated: true})
+	_, err := svc.PrecheckUpload(context.Background(), model.Viewer{ID: 1, Authenticated: true})
 	if !apperr.IsKind(err, apperr.KindRateLimited) {
 		t.Fatalf("预检应返回 rate_limited，实际 %v", err)
 	}
@@ -121,7 +121,7 @@ func TestPrecheckUploadRateLimited(t *testing.T) {
 // TestPrecheckUploadRejectsNonWritable 停用/未登录账号在预检阶段即被拒绝。
 func TestPrecheckUploadRejectsNonWritable(t *testing.T) {
 	svc := &Service{settings: cleanupSettings{}, log: discardLogger()}
-	if err := svc.PrecheckUpload(context.Background(), model.Viewer{ID: 1, Authenticated: true, IsSuspended: true}); !apperr.IsKind(err, apperr.KindSuspended) {
+	if _, err := svc.PrecheckUpload(context.Background(), model.Viewer{ID: 1, Authenticated: true, IsSuspended: true}); !apperr.IsKind(err, apperr.KindSuspended) {
 		t.Fatalf("停用账号应返回 account_suspended，实际 %v", err)
 	}
 }

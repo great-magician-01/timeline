@@ -23,6 +23,9 @@ type UserRepo interface {
 	UpdatePassword(ctx context.Context, id int64, passwordHash string, tokenVersion int64, at time.Time) error
 	UpdateAvatar(ctx context.Context, id int64, attachmentID *int64, avatarURL string, at time.Time) error
 	Search(ctx context.Context, keyword string, cursor int64, limit int) ([]model.User, error)
+	// HasHumanUser 用 EXISTS 判断是否已有至少一个人类账号（初始化判定）。
+	HasHumanUser(ctx context.Context) (bool, error)
+	// CountHumanUsers 统计人类账号数；仅启动日志使用，运行期初始化判定用 HasHumanUser。
 	CountHumanUsers(ctx context.Context) (int64, error)
 	CountSuperAdmins(ctx context.Context) (int64, error)
 	GetUsers(ctx context.Context, ids []int64) (map[int64]model.User, error)
@@ -57,19 +60,20 @@ type IDGenerator interface {
 	Next() (int64, error)
 }
 
-// ProfileStats 是个人主页的内容与关系统计（读模型，由组合根注入的端口提供）。
+// ProfileStats 是个人主页真正消费的三项统计（读模型，由组合根注入的端口提供）。
+//
+// 公开个人主页响应只有 post_count/following_count/follower_count 三个字段
+// （modules/auth/http/view.go 的 profileResponse）；评论/点赞/转发项前端不消费，
+// 因此不在本契约内计算。三项分别命中 posts_author_published、follows_follower_active、
+// follows_followee_active 三个索引，不再是跨表多子查询聚合。
 type ProfileStats struct {
-	Posts         int64
-	Comments      int64
-	Followers     int64
-	Following     int64
-	LikesGiven    int64
-	LikesReceived int64
-	Reposts       int64
+	Posts     int64
+	Followers int64
+	Following int64
 }
 
-// ProfileStatsReader 读取个人主页统计；旧实现直接跨表 COUNT，目标架构中由
-// 组合根以只读适配器提供（缺失时 GetProfile 返回零值，不阻塞主页资料）。
+// ProfileStatsReader 读取个人主页统计；由组合根以只读适配器提供
+// （缺失时 GetProfile 返回零值，不阻塞主页资料）。
 type ProfileStatsReader interface {
 	ProfileStats(ctx context.Context, userID int64) (ProfileStats, error)
 }

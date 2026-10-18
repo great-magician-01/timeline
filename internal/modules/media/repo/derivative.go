@@ -130,12 +130,18 @@ func CancelIncompleteForAttachment(ctx context.Context, exec db.Executor, attach
 }
 
 // CancelIncompleteForDeletedAttachments 取消全部已失效附件上尚未就绪的衍生文件。
+// 状态条件写成正向列表（pending/processing/failed，即 NOT IN (ready,canceled) 的补集），
+// 这样能命中 attachment_derivatives_status (status, id) 索引；再由 EXISTS 按主键探查
+// 附件状态，避免每次清理都全量重扫历史上所有已逻辑删除的附件。
 func CancelIncompleteForDeletedAttachments(ctx context.Context, exec db.Executor, at time.Time) (int64, error) {
 	tag, err := exec.Exec(ctx, `
-		UPDATE attachment_derivatives
+		UPDATE attachment_derivatives AS d
 		SET status = 'canceled', updated_at = $1
-		WHERE status NOT IN ('ready', 'canceled')
-		  AND attachment_id IN (SELECT id FROM attachments WHERE status = 'deleted')`, at)
+		WHERE d.status IN ('pending', 'processing', 'failed')
+		  AND EXISTS (
+			SELECT 1 FROM attachments AS a
+			WHERE a.id = d.attachment_id AND a.status = 'deleted'
+		  )`, at)
 	if err != nil {
 		return 0, err
 	}

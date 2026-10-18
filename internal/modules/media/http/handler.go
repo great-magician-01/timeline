@@ -34,14 +34,15 @@ func (h *Handler) Upload(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	// 先做写权限、上传限频与配额已满预检，失败时不读取请求体（与旧实现顺序一致）。
-	if err := h.svc.PrecheckUpload(ctx, viewer); err != nil {
+	// 预检同时返回设置/已用字节快照，后续 Upload 直接复用，不再重复读设置或 SUM。
+	precheck, err := h.svc.PrecheckUpload(ctx, viewer)
+	if err != nil {
 		h.respondError(c, err)
 		return
 	}
 
 	// 即使客户端伪造 Content-Length，超限请求也会在读取时被中断。
-	maxRequestBytes, _ := h.svc.UploadLimits(ctx)
-	c.Request.Body = stdhttp.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBytes)
+	c.Request.Body = stdhttp.MaxBytesReader(c.Writer, c.Request.Body, precheck.MaxRequestBytes)
 
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
@@ -61,12 +62,12 @@ func (h *Handler) Upload(c *gin.Context) {
 	defer source.Close()
 
 	result, err := h.svc.Upload(ctx, app.UploadInput{
-		Viewer:     viewer,
-		Filename:   fileHeader.Filename,
-		Purpose:    c.PostForm("purpose"),
-		SizeHint:   fileHeader.Size,
-		Prechecked: true,
-		Content:    source,
+		Viewer:   viewer,
+		Filename: fileHeader.Filename,
+		Purpose:  c.PostForm("purpose"),
+		SizeHint: fileHeader.Size,
+		Precheck: &precheck,
+		Content:  source,
 	})
 	if err != nil {
 		h.respondError(c, err)

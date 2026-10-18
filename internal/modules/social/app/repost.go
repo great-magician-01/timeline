@@ -21,7 +21,7 @@ func (s *Service) Repost(ctx context.Context, viewer model.Viewer, postID int64)
 	if err := s.allowAction(s.deps.LikeLimiter, viewer); err != nil {
 		return RepostResult{}, err
 	}
-	return s.setRepost(ctx, viewer.ID, post, true)
+	return s.setRepost(ctx, viewer.ID, viewer.IsAI, post, true)
 }
 
 // Unrepost 取消纯转发，幂等。
@@ -36,11 +36,13 @@ func (s *Service) Unrepost(ctx context.Context, viewer model.Viewer, postID int6
 	if err := s.allowAction(s.deps.LikeLimiter, viewer); err != nil {
 		return RepostResult{}, err
 	}
-	return s.setRepost(ctx, viewer.ID, post, false)
+	return s.setRepost(ctx, viewer.ID, viewer.IsAI, post, false)
 }
 
-// setRepost 在事务内执行纯转发/取消转发并返回最新计数。
-func (s *Service) setRepost(ctx context.Context, actorID int64, post model.Post, active bool) (RepostResult, error) {
+// setRepost 在事务内执行纯转发/取消转发并返回最新计数；actorIsAI 作为转发者类型快照写入转发行。
+func (s *Service) setRepost(
+	ctx context.Context, actorID int64, actorIsAI bool, post model.Post, active bool,
+) (RepostResult, error) {
 	if active && post.AuthorID != actorID {
 		suspended, err := s.authorSuspended(ctx, post.AuthorID)
 		if err != nil {
@@ -59,7 +61,7 @@ func (s *Service) setRepost(ctx context.Context, actorID int64, post model.Post,
 			if err != nil {
 				return err
 			}
-			repostID, changed, err := s.deps.Reposts.Activate(ctx, id, actorID, post.ID, now)
+			repostID, changed, err := s.deps.Reposts.Activate(ctx, id, actorID, post.ID, actorIsAI, now)
 			if err != nil {
 				return err
 			}

@@ -177,9 +177,16 @@ func (r *UserRepo) UpdateAvatar(ctx context.Context, id int64, attachmentID *int
 }
 
 // Search 按用户名或昵称搜索账号，ID 游标倒序；只返回公开可展示的账号行。
+//
+// keyword 必须由调用方先小写并用 shared/search.EscapeLikePattern 转义（`\ % _`），
+// SQL 通过 `LIKE ... ESCAPE '\'` 按字面量做子串匹配：这是唯一能命中 0017 的
+// LOWER(username)/LOWER(nickname) trigram 表达式索引的写法。
+// 局限：trigram 索引要求关键词至少 3 个字符，1–2 字符短词仍会退化为顺序扫描
+// （保持既有行为，不在应用层限制最小长度）。
 func (r *UserRepo) Search(ctx context.Context, keyword string, cursor int64, limit int) ([]model.User, error) {
-	where := []string{"(STRPOS(LOWER(username), $1) > 0 OR STRPOS(LOWER(nickname), $1) > 0)"}
-	args := []any{strings.ToLower(keyword)}
+	where := []string{`(LOWER(username) LIKE '%' || $1 || '%' ESCAPE '\' ` +
+		`OR LOWER(nickname) LIKE '%' || $1 || '%' ESCAPE '\')`}
+	args := []any{keyword}
 	if cursor > 0 {
 		args = append(args, cursor)
 		where = append(where, fmt.Sprintf("id < $%d", len(args)))
@@ -204,7 +211,18 @@ func (r *UserRepo) Search(ctx context.Context, keyword string, cursor int64, lim
 	return users, rows.Err()
 }
 
-// CountHumanUsers 统计人类账号数（AI 不计入），用于初始化判定。
+// HasHumanUser 判断系统是否已存在至少一个人类账号（初始化判定）。
+// 用 EXISTS 短路并命中 0017 的 users (id) WHERE NOT is_ai 部分索引；
+// 与 CountHumanUsers 相比只表达“是否存在”，成本与账号总量无关。
+func (r *UserRepo) HasHumanUser(ctx context.Context) (bool, error) {
+	var exists bool
+	err := r.exec(ctx).QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE NOT is_ai)`).Scan(&exists)
+	return exists, err
+}
+
+// CountHumanUsers 统计人类账号数（AI 不计入），仅供启动日志使用；
+// 运行期初始化判定请用 HasHumanUser（EXISTS），不要在高频路径调用本方法。
 func (r *UserRepo) CountHumanUsers(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.exec(ctx).QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE NOT is_ai`).Scan(&count)

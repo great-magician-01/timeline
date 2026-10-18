@@ -72,8 +72,11 @@ type TaskFilter struct {
 	TriggerType string
 	ActionType  string
 	Status      string
-	Cursor      int64
-	Limit       int
+	// StartedBefore 非 nil 时只返回 started_at 早于该时刻的任务，供 Reconcile 下推租约判定
+	// （命中 ai_tasks_running (started_at) WHERE status='running' 部分索引）。
+	StartedBefore *time.Time
+	Cursor        int64
+	Limit         int
 }
 
 // TaskResultUpdate 描述一次任务终态写回。
@@ -201,24 +204,25 @@ func (r *Repo) GetTask(ctx context.Context, taskID int64) (Task, error) {
 	return task, err
 }
 
-// ClaimTask 把任务置为 running（attempts+1）；租约超时的 running 任务可被重新领取。
-func (r *Repo) ClaimTask(ctx context.Context, taskID int64, now time.Time, lease time.Duration) (int, bool, error) {
-	var attempts int
-	err := r.ex(ctx).QueryRow(ctx, `
+// ClaimTask 把任务置为 running（attempts+1）并返回领取到的任务行（attempts 为累加后的值）；
+// 租约超时的 running 任务可被重新领取。领取失败时 claimed=false。
+// 一次 UPDATE ... RETURNING 完成状态机与读取，调用方无需再按 ID 读一次任务。
+func (r *Repo) ClaimTask(ctx context.Context, taskID int64, now time.Time, lease time.Duration) (Task, bool, error) {
+	task, err := scanTask(r.ex(ctx).QueryRow(ctx, `
 		UPDATE ai_tasks
 		SET status = 'running', started_at = $2, attempts = attempts + 1
 		WHERE id = $1 AND (
 			status IN ('pending', 'failed')
 			OR (status = 'running' AND started_at < $3)
 		)
-		RETURNING attempts`, taskID, now, now.Add(-lease)).Scan(&attempts)
+		RETURNING `+taskColumns, taskID, now, now.Add(-lease)))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, false, nil
+		return Task{}, false, nil
 	}
 	if err != nil {
-		return 0, false, err
+		return Task{}, false, err
 	}
-	return attempts, true, nil
+	return task, true, nil
 }
 
 // UpdateTaskResult 写回任务终态。
@@ -267,6 +271,9 @@ func (r *Repo) ListTasks(ctx context.Context, filter TaskFilter) ([]Task, bool, 
 	}
 	if filter.Status != "" {
 		ctxSQL += ` AND status = ` + addArg(filter.Status)
+	}
+	if filter.StartedBefore != nil {
+		ctxSQL += ` AND started_at < ` + addArg(*filter.StartedBefore)
 	}
 	if filter.Cursor > 0 {
 		ctxSQL += ` AND id < ` + addArg(filter.Cursor)
@@ -350,12 +357,39 @@ func (r *Repo) ListMemoryRefs(ctx context.Context, taskID int64) ([]MemoryRef, e
 	return refs, rows.Err()
 }
 
+// ListMemoryRefsByTaskIDs 批量读取一批任务注入的记忆引用（管理端任务列表使用，避免逐任务查询）。
+// 返回 task_id → 引用（按 id 升序）；没有引用的任务不出现在 map 中。
+func (r *Repo) ListMemoryRefsByTaskIDs(ctx context.Context, taskIDs []int64) (map[int64][]MemoryRef, error) {
+	refs := make(map[int64][]MemoryRef, len(taskIDs))
+	if len(taskIDs) == 0 {
+		return refs, nil
+	}
+	rows, err := r.ex(ctx).Query(ctx, `
+		SELECT task_id, memory_id, memory_type FROM ai_task_memory_refs
+		WHERE task_id = ANY($1) ORDER BY task_id, id`, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var taskID int64
+		var ref MemoryRef
+		if err := rows.Scan(&taskID, &ref.MemoryID, &ref.MemoryType); err != nil {
+			return nil, err
+		}
+		refs[taskID] = append(refs[taskID], ref)
+	}
+	return refs, rows.Err()
+}
+
 // BumpActionCounter 原子累加某 AI 某动作的当日计数。
+// ON CONFLICT 列序与 0017 的 ai_action_counters_daily_unique (ai_id, counter_date, action_type) 对齐；
+// 唯一索引按列集合推断，语义与旧列序一致。
 func (r *Repo) BumpActionCounter(ctx context.Context, id, aiID int64, actionType string, day, at time.Time) error {
 	_, err := r.ex(ctx).Exec(ctx, `
 		INSERT INTO ai_action_counters (id, ai_id, action_type, counter_date, count, updated_at)
 		VALUES ($1, $2, $3, $4, 1, $5)
-		ON CONFLICT (ai_id, action_type, counter_date)
+		ON CONFLICT (ai_id, counter_date, action_type)
 		DO UPDATE SET count = ai_action_counters.count + 1, updated_at = EXCLUDED.updated_at`,
 		id, aiID, actionType, day, at)
 	return err
@@ -377,6 +411,32 @@ func (r *Repo) TotalActions(ctx context.Context, aiID int64, day time.Time) (int
 		SELECT COALESCE(SUM(count), 0) FROM ai_action_counters
 		WHERE ai_id = $1 AND counter_date = $2`, aiID, day).Scan(&count)
 	return count, err
+}
+
+// TotalActionsByAIIDs 批量读取一批 AI 当日全部动作计数（管理端 AI 列表使用，避免逐 AI 查询）。
+// 命中 ai_action_counters_daily_unique 的 (ai_id, counter_date) 前缀；无当日记录的 AI 不出现在 map 中。
+func (r *Repo) TotalActionsByAIIDs(ctx context.Context, aiIDs []int64, day time.Time) (map[int64]int64, error) {
+	counts := make(map[int64]int64, len(aiIDs))
+	if len(aiIDs) == 0 {
+		return counts, nil
+	}
+	rows, err := r.ex(ctx).Query(ctx, `
+		SELECT ai_id, SUM(count) FROM ai_action_counters
+		WHERE ai_id = ANY($1) AND counter_date = $2
+		GROUP BY ai_id`, aiIDs, day)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var aiID int64
+		var count int64
+		if err := rows.Scan(&aiID, &count); err != nil {
+			return nil, err
+		}
+		counts[aiID] = count
+	}
+	return counts, rows.Err()
 }
 
 // LastSucceededAt 读取某 AI 某触发类型最近成功任务完成时间。

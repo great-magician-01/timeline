@@ -397,18 +397,21 @@ func TestCreateCommentTopLevelSuccess(t *testing.T) {
 		t.Fatalf("通知时间 = %v，期望 %v", notice.At, stubNow)
 	}
 
-	if len(stubs.notices.rebuilds) != 1 || len(stubs.notices.mentions) != 1 {
-		t.Fatalf("提及重建/通知调用 = (%d, %d)，期望各 1 次", len(stubs.notices.rebuilds), len(stubs.notices.mentions))
+	if len(stubs.notices.publications) != 1 {
+		t.Fatalf("提及派生调用 = %d，期望 1 次（重建提及 + 提及通知合并为一次契约调用）", len(stubs.notices.publications))
 	}
-	rebuild := stubs.notices.rebuilds[0]
-	if rebuild.SourceType != model.NoticeSourceComment || rebuild.SourceID != 101 || rebuild.PostID != stubPostID {
-		t.Fatalf("提及重建参数 = %+v", rebuild)
+	publish := stubs.notices.publications[0]
+	if publish.SourceType != model.NoticeSourceComment || publish.SourceID != 101 || publish.PostID != stubPostID {
+		t.Fatalf("提及派生参数 = %+v", publish)
 	}
-	if len(rebuild.MentionNames) != 1 || rebuild.MentionNames[0] != "carol" {
-		t.Fatalf("提及用户名 = %v，期望 [carol]", rebuild.MentionNames)
+	if publish.AuthorID != stubViewerID || !publish.At.Equal(stubNow) {
+		t.Fatalf("提及派生作者/时间 = (%d, %v)，期望 (%d, %v)", publish.AuthorID, publish.At, stubViewerID, stubNow)
 	}
-	if mention := stubs.notices.mentions[0]; mention.AuthorID != stubViewerID || mention.SourceID != 101 {
-		t.Fatalf("提及通知参数 = %+v", mention)
+	if len(publish.MentionNames) != 1 || publish.MentionNames[0] != "carol" {
+		t.Fatalf("提及用户名 = %v，期望 [carol]", publish.MentionNames)
+	}
+	if publish.PlainText != "你好 世界 @carol" {
+		t.Fatalf("提及派生纯文本 = %q", publish.PlainText)
 	}
 }
 
@@ -494,9 +497,8 @@ func TestCreateCommentPrivatePostSkipsMentions(t *testing.T) {
 		context.Background(), stubViewer(), stubPostID, "richtext", "<p>@carol 你好</p>", nil,
 	)
 	requireOK(t, err)
-	if len(stubs.notices.rebuilds) != 0 || len(stubs.notices.mentions) != 0 {
-		t.Fatalf("非公开内容不应产生提及: rebuilds=%d mentions=%d",
-			len(stubs.notices.rebuilds), len(stubs.notices.mentions))
+	if len(stubs.notices.publications) != 0 {
+		t.Fatalf("非公开内容不应产生提及派生，实际调用 %d 次", len(stubs.notices.publications))
 	}
 }
 
@@ -529,8 +531,7 @@ func TestCreateCommentErrors(t *testing.T) {
 		}, true},
 		{"帖子计数失败", nil, nil, func(s *stubSet) { s.posts.counterErr = boom }, false},
 		{"通知写入失败", nil, nil, func(s *stubSet) { s.notices.createErr = boom }, false},
-		{"提及重建失败", nil, nil, func(s *stubSet) { s.notices.rebuildErr = boom }, false},
-		{"提及通知失败", nil, nil, func(s *stubSet) { s.notices.mentionErr = boom }, false},
+		{"提及派生失败", nil, nil, func(s *stubSet) { s.notices.publishErr = boom }, false},
 		{"作者摘要失败", nil, nil, func(s *stubSet) { s.users.briefsErr = boom }, false},
 	}
 	for _, tc := range cases {

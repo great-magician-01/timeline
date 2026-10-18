@@ -45,7 +45,7 @@ type MentionRepo interface {
 	Upsert(ctx context.Context, id int64, sourceType string, sourceID, userID int64, now time.Time) error
 	// DeactivateAll 停用来源对象上的全部提及。
 	DeactivateAll(ctx context.Context, sourceType string, sourceID int64) error
-	// ListActive since 之后某用户生效中的提及（ID 倒序）。
+	// ListActive since 之后某用户生效中的提及（(created_at, id) 倒序）。
 	ListActive(ctx context.Context, userID int64, since time.Time, limit int) ([]MentionRow, error)
 	// GetActive 读取单条生效提及；不存在返回领域 not_found。
 	GetActive(ctx context.Context, mentionID int64) (MentionRow, error)

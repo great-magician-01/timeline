@@ -43,13 +43,16 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (model.User, e
 	if err != nil {
 		return model.User{}, internal(err, "读取注册开关失败")
 	}
-	// 快速拒绝路径：非空库且注册关闭时直接返回；事务内持锁后会再次复核。
-	bootstrap, err := s.BootstrapRequired(ctx)
-	if err != nil {
-		return model.User{}, err
-	}
-	if !settings.RegistrationEnabled && !bootstrap {
-		return model.User{}, apperr.Forbidden("当前未开放注册")
+	// 快速拒绝路径：只有注册关闭时才需要读取初始化状态（EXISTS 短路）。
+	// 注册开启（默认）时跳过该查询：空库/非空库都会继续走事务，由事务内 EXISTS 复核。
+	if !settings.RegistrationEnabled {
+		bootstrap, err := s.BootstrapRequired(ctx)
+		if err != nil {
+			return model.User{}, err
+		}
+		if !bootstrap {
+			return model.User{}, apperr.Forbidden("当前未开放注册")
+		}
 	}
 
 	// bcrypt 成本较高，放在事务外执行，锁内只做计数、INSERT 与开关复核。
@@ -68,11 +71,11 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (model.User, e
 		if err := s.locks.AcquireBootstrapLock(txCtx); err != nil {
 			return internal(err, "获取注册初始化锁失败")
 		}
-		humanUsers, err := s.users.CountHumanUsers(txCtx)
+		hasHuman, err := s.users.HasHumanUser(txCtx)
 		if err != nil {
 			return internal(err, "读取初始化状态失败")
 		}
-		bootstrapTx := humanUsers == 0
+		bootstrapTx := !hasHuman
 		if !bootstrapTx && !settings.RegistrationEnabled {
 			return apperr.Forbidden("当前未开放注册")
 		}

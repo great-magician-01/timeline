@@ -20,11 +20,12 @@ import (
 
 // ===== 上传 =====
 
-// uploadSuccessResults 是图片上传成功所需的查询顺序：预检统计 + 上传统计 + 两条 INSERT。
+// uploadSuccessResults 是图片上传成功所需的查询顺序：预检读一次已用空间，
+// 事务内写附件行、累加 attachment_usage、写衍生文件行（各一条命令）。
 func uploadSuccessResults() []pgResult {
 	return []pgResult{
-		sumSizeResult(0),
-		sumSizeResult(0),
+		usageResult(0),
+		commandResult("INSERT 0 1"),
 		commandResult("INSERT 0 1"),
 		commandResult("INSERT 0 1"),
 	}
@@ -130,7 +131,7 @@ func TestUploadUnauthenticated(t *testing.T) {
 func TestUploadRequestTooLarge(t *testing.T) {
 	env := newHTTPTestEnv(t)
 	env.settings.values.MaxRequestBytes = 64
-	env.expect(sumSizeResult(0))
+	env.expect(usageResult(0))
 	c, recorder := newUploadRequest(t, humanViewer(7), "photo.png", domain.PurposePost, testPNG(t, 64, 64))
 	env.handler.Upload(c)
 	if recorder.Code != http.StatusRequestEntityTooLarge {
@@ -144,7 +145,7 @@ func TestUploadRequestTooLarge(t *testing.T) {
 // TestUploadMissingFile 缺少 file 字段时返回 400 invalid_request。
 func TestUploadMissingFile(t *testing.T) {
 	env := newHTTPTestEnv(t)
-	env.expect(sumSizeResult(0))
+	env.expect(usageResult(0))
 	c, recorder := newUploadRequest(t, humanViewer(7), "", domain.PurposePost, nil)
 	env.handler.Upload(c)
 	if recorder.Code != http.StatusBadRequest {
@@ -171,7 +172,7 @@ func TestUploadDomainRejections(t *testing.T) {
 			content: testPNG(t, 16, 16),
 			setup: func(env *httpTestEnv) {
 				env.settings.values.MaxUploadBytes = 8
-				env.expect(sumSizeResult(0), sumSizeResult(0))
+				env.expect(usageResult(0))
 			},
 			wantStatus: http.StatusRequestEntityTooLarge, wantCode: "content_too_large",
 		},
@@ -179,7 +180,7 @@ func TestUploadDomainRejections(t *testing.T) {
 			name: "不支持的文件类型", filename: "evil.html", purpose: domain.PurposePost,
 			content: testHTMLBytes(),
 			setup: func(env *httpTestEnv) {
-				env.expect(sumSizeResult(0), sumSizeResult(0))
+				env.expect(usageResult(0))
 			},
 			wantStatus: http.StatusUnsupportedMediaType, wantCode: "unsupported_media_type",
 		},
@@ -187,7 +188,7 @@ func TestUploadDomainRejections(t *testing.T) {
 			name: "非法用途", filename: "a.png", purpose: "video",
 			content: testPNG(t, 8, 8),
 			setup: func(env *httpTestEnv) {
-				env.expect(sumSizeResult(0), sumSizeResult(0))
+				env.expect(usageResult(0))
 			},
 			wantStatus: http.StatusBadRequest, wantCode: "invalid_request",
 		},
@@ -196,7 +197,7 @@ func TestUploadDomainRejections(t *testing.T) {
 			content: testPNG(t, 8, 8),
 			setup: func(env *httpTestEnv) {
 				env.settings.values.StorageQuotaBytes = 1024
-				env.expect(sumSizeResult(2048))
+				env.expect(usageResult(2048))
 			},
 			wantStatus: http.StatusRequestEntityTooLarge, wantCode: "content_too_large",
 		},
@@ -220,7 +221,7 @@ func TestUploadDomainRejections(t *testing.T) {
 // TestUploadInternalError 后端未装配作业队列等内部错误统一 500，不泄露细节。
 func TestUploadInternalError(t *testing.T) {
 	env := newHTTPTestEnv(t, func(deps *app.Deps) { deps.Jobs = nil })
-	env.expect(sumSizeResult(0))
+	env.expect(usageResult(0))
 	c, recorder := newUploadRequest(t, humanViewer(7), "a.png", domain.PurposePost, testPNG(t, 8, 8))
 	env.handler.Upload(c)
 	if recorder.Code != http.StatusInternalServerError {

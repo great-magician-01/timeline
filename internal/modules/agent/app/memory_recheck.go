@@ -24,26 +24,29 @@ func (s *Service) recheckSourceMemories(ctx context.Context, aiID int64) error {
 }
 
 // recheckSourceMemoriesLimit 是带扫描上限的来源复核，供调度巡检批量使用。
+// 每轮按 (source_type, source_id) keyset 游标读取一批来源，游标记录在 Service 内
+// （按 AI 隔离，用尽后归零从头轮转），避免每分钟重复复核同一批来源。
 func (s *Service) recheckSourceMemoriesLimit(ctx context.Context, aiID int64, limit int) error {
 	if limit <= 0 {
 		limit = memoryRefBatch
 	}
-	sources, err := s.deps.AI.ListActiveMemorySourceRefs(ctx, aiID, limit)
+	after := s.memoryRecheckAfter(aiID)
+	sources, err := s.deps.AI.ListActiveMemorySourceRefs(ctx, aiID, after, limit)
 	if err != nil {
 		return err
 	}
 	if len(sources) == 0 {
+		// 已扫到尾部：下一轮从头开始轮转，保证新增来源也会被复核。
+		s.resetMemoryRecheckCursor(aiID)
 		return nil
 	}
 	at := s.now()
-	for _, source := range sources {
-		available, err := s.sourcePubliclyAvailable(ctx, source)
-		if err != nil {
-			return err
-		}
-		if available {
-			continue
-		}
+	unavailable, err := s.unavailableSources(ctx, sources)
+	if err != nil {
+		// 读取失败不推进游标，下一轮重试同一批（失效写入是幂等的）。
+		return err
+	}
+	for _, source := range unavailable {
 		if err := s.deps.AI.InvalidateBySource(ctx, contracts.InvalidateBySourceInput{
 			AIID: aiID, SourceType: source.SourceType, SourceID: source.SourceID, At: at,
 		}); err != nil {
@@ -63,42 +66,108 @@ func (s *Service) recheckSourceMemoriesLimit(ctx context.Context, aiID int64, li
 			"ai_id", aiID, "source_type", source.SourceType,
 			"source_id", source.SourceID, "affected", affected)
 	}
+	// 整批处理成功后推进游标；不足一批说明已取尽，归零轮转。
+	s.advanceMemoryRecheckCursor(aiID, sources, len(sources) < limit)
 	return nil
 }
 
-// sourcePubliclyAvailable 判断记忆来源是否仍是公开且已发布内容：
-// post 需要公开已发布；comment 需要未删除且所在帖子公开已发布。
-func (s *Service) sourcePubliclyAvailable(ctx context.Context, source contracts.MemorySourceRef) (bool, error) {
-	switch source.SourceType {
-	case domain.RefPost:
-		post, err := s.deps.Content.GetVisiblePost(ctx, model.GuestViewer(), source.SourceID)
-		if err != nil {
-			if isNotFound(err) {
-				return false, nil
-			}
-			return false, err
+// unavailableSources 批量判定一批来源是否仍公开可用：
+// 评论一次批量读取，帖子（直接引用的帖子 + 评论所属帖子）再一次批量读取，共 2 条查询。
+// 判定规则与旧实现一致：post 需要已发布且公开；comment 需要未删除且所属帖子已发布且公开。
+func (s *Service) unavailableSources(
+	ctx context.Context,
+	sources []contracts.MemorySourceRef,
+) ([]contracts.MemorySourceRef, error) {
+	commentIDs := make([]int64, 0, len(sources))
+	for _, source := range sources {
+		if source.SourceType == domain.RefComment && source.SourceID > 0 {
+			commentIDs = append(commentIDs, source.SourceID)
 		}
-		return post.Visibility == model.VisibilityPublic, nil
-	case domain.RefComment:
-		comment, err := s.deps.Social.GetComment(ctx, source.SourceID)
-		if err != nil {
-			if isNotFound(err) {
-				return false, nil
-			}
-			return false, err
-		}
-		if comment.Deleted() {
-			return false, nil
-		}
-		post, err := s.deps.Content.GetVisiblePost(ctx, model.GuestViewer(), comment.PostID)
-		if err != nil {
-			if isNotFound(err) {
-				return false, nil
-			}
-			return false, err
-		}
-		return post.Visibility == model.VisibilityPublic, nil
-	default:
-		return true, nil
 	}
+	comments := map[int64]model.Comment{}
+	if len(commentIDs) > 0 {
+		loaded, err := s.deps.Social.GetComments(ctx, commentIDs)
+		if err != nil {
+			return nil, err
+		}
+		comments = loaded
+	}
+	postIDs := make([]int64, 0, len(sources))
+	seenPost := make(map[int64]bool, len(sources))
+	addPostID := func(postID int64) {
+		if postID <= 0 || seenPost[postID] {
+			return
+		}
+		seenPost[postID] = true
+		postIDs = append(postIDs, postID)
+	}
+	for _, source := range sources {
+		if source.SourceType == domain.RefPost {
+			addPostID(source.SourceID)
+		}
+	}
+	for _, comment := range comments {
+		addPostID(comment.PostID)
+	}
+	posts := map[int64]model.Post{}
+	if len(postIDs) > 0 {
+		loaded, err := s.deps.Content.GetPosts(ctx, postIDs)
+		if err != nil {
+			return nil, err
+		}
+		posts = loaded
+	}
+	postAvailable := func(postID int64) bool {
+		post, ok := posts[postID]
+		return ok && post.Status == model.PostStatusPublished && post.Visibility == model.VisibilityPublic
+	}
+	unavailable := make([]contracts.MemorySourceRef, 0, len(sources))
+	for _, source := range sources {
+		switch source.SourceType {
+		case domain.RefPost:
+			if !postAvailable(source.SourceID) {
+				unavailable = append(unavailable, source)
+			}
+		case domain.RefComment:
+			comment, ok := comments[source.SourceID]
+			if !ok || comment.Deleted() || !postAvailable(comment.PostID) {
+				unavailable = append(unavailable, source)
+			}
+		default:
+			// 未知来源类型不参与复核（与原实现一致）。
+		}
+	}
+	return unavailable, nil
+}
+
+// memoryRecheckAfter 读取某 AI 的来源复核游标；零值表示从头开始。
+func (s *Service) memoryRecheckAfter(aiID int64) contracts.MemorySourceRef {
+	s.memoryRecheckMu.Lock()
+	defer s.memoryRecheckMu.Unlock()
+	return s.memoryRecheckCursor[aiID]
+}
+
+// advanceMemoryRecheckCursor 推进某 AI 的来源复核游标；exhausted=true 时归零，下一轮从头轮转。
+func (s *Service) advanceMemoryRecheckCursor(
+	aiID int64,
+	sources []contracts.MemorySourceRef,
+	exhausted bool,
+) {
+	s.memoryRecheckMu.Lock()
+	defer s.memoryRecheckMu.Unlock()
+	if exhausted {
+		delete(s.memoryRecheckCursor, aiID)
+		return
+	}
+	if s.memoryRecheckCursor == nil {
+		s.memoryRecheckCursor = map[int64]contracts.MemorySourceRef{}
+	}
+	s.memoryRecheckCursor[aiID] = sources[len(sources)-1]
+}
+
+// resetMemoryRecheckCursor 把某 AI 的游标归零，下一轮从头开始轮转。
+func (s *Service) resetMemoryRecheckCursor(aiID int64) {
+	s.memoryRecheckMu.Lock()
+	defer s.memoryRecheckMu.Unlock()
+	delete(s.memoryRecheckCursor, aiID)
 }

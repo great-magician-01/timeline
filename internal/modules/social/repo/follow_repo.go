@@ -25,6 +25,17 @@ const (
 		SELECT 1 FROM follows WHERE follower_id = $1 AND followee_id = $2 AND is_active
 	)`
 
+	// 单条三 EXISTS 合并读取关系状态：三项均为等值条件，分别命中
+	// follows_pair_unique 与 follow_requests_pending_unique 部分唯一索引，
+	// 把「关注状态」从 3 次往返降为 1 次（帖子详情/个人主页主链路）。
+	sqlFollowState = `SELECT
+		EXISTS (SELECT 1 FROM follows
+			WHERE follower_id = $1 AND followee_id = $2 AND is_active),
+		EXISTS (SELECT 1 FROM follow_requests
+			WHERE requester_id = $1 AND target_id = $2 AND status = 'pending'),
+		EXISTS (SELECT 1 FROM follow_requests
+			WHERE requester_id = $2 AND target_id = $1 AND status = 'pending')`
+
 	sqlFollowingSet = `SELECT followee_id FROM follows WHERE follower_id = $1 AND is_active`
 
 	// 只有状态真的从失效翻转为生效时才返回行：唯一索引兜底并发幂等。
@@ -62,6 +73,15 @@ func (r *FollowRepo) Following(ctx context.Context, followerID, followeeID int64
 	var active bool
 	err := db.ExecutorFrom(ctx, r.pool).QueryRow(ctx, sqlFollowing, followerID, followeeID).Scan(&active)
 	return active, err
+}
+
+// FollowState 用单条三 EXISTS 查询返回访问者对目标的三项关系状态。
+func (r *FollowRepo) FollowState(
+	ctx context.Context, viewerID, targetID int64,
+) (following, pending, incomingPending bool, err error) {
+	err = db.ExecutorFrom(ctx, r.pool).QueryRow(ctx, sqlFollowState, viewerID, targetID).
+		Scan(&following, &pending, &incomingPending)
+	return following, pending, incomingPending, err
 }
 
 // FollowingSet 返回 follower 的生效关注集合；游客（ID<=0）返回空集。

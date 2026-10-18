@@ -684,8 +684,9 @@ func TestListPaginationAndActors(t *testing.T) {
 		if len(f.users.briefCalls) != 1 || !slices.Equal(f.users.briefCalls[0], []int64{7, 8}) {
 			t.Fatalf("Actor 摘要入参 = %v，期望仅包含本页两个作者 [7 8]", f.users.briefCalls)
 		}
-		if len(f.rels.calls) != 1 || f.rels.calls[0] != 1 {
-			t.Fatalf("关注集合入参 = %v，期望访问者 1", f.rels.calls)
+		// 本页通知目标全是公开帖子：关注集合不影响可见性，不应加载（懒加载）。
+		if len(f.rels.calls) != 0 {
+			t.Fatalf("公开帖子预览不应加载关注集合，实际调用 %d 次", len(f.rels.calls))
 		}
 	})
 
@@ -733,6 +734,7 @@ func TestListPortErrors(t *testing.T) {
 	sentinel := errors.New("端口故障")
 	postID := int64(101)
 	commentID := int64(201)
+	followersPostID := int64(102)
 	postRow := model.Notification{
 		ID: 1, ActorID: 7, Type: model.NoticeTypePostLike,
 		TargetType: model.NoticeTargetPost, TargetID: postID, PostID: &postID,
@@ -741,8 +743,12 @@ func TestListPortErrors(t *testing.T) {
 		ID: 2, ActorID: 7, Type: model.NoticeTypeComment,
 		TargetType: model.NoticeTargetComment, TargetID: commentID, PostID: &postID, CommentID: &commentID,
 	}
+	followersPostRow := model.Notification{
+		ID: 3, ActorID: 7, Type: model.NoticeTypePostLike,
+		TargetType: model.NoticeTargetPost, TargetID: followersPostID, PostID: &followersPostID,
+	}
 	followRow := model.Notification{
-		ID: 3, ActorID: 7, Type: model.NoticeTypeFollow,
+		ID: 4, ActorID: 7, Type: model.NoticeTypeFollow,
 		TargetType: model.NoticeTargetUser, TargetID: 42,
 	}
 	cases := []struct {
@@ -786,9 +792,15 @@ func TestListPortErrors(t *testing.T) {
 			},
 		},
 		{
-			name: "关注集合读取失败",
-			rows: []model.Notification{followRow},
+			name: "关注集合读取失败（仅关注者可见帖子才需要关注集合）",
+			rows: []model.Notification{followersPostRow},
 			setup: func(f *fixture) {
+				f.posts.posts = map[int64]model.Post{
+					followersPostID: {
+						ID: followersPostID, AuthorID: 42,
+						Status: model.PostStatusPublished, Visibility: model.VisibilityFollowers,
+					},
+				}
 				f.rels.err = sentinel
 			},
 		},
@@ -803,6 +815,61 @@ func TestListPortErrors(t *testing.T) {
 				t.Fatalf("错误 = %v，期望透传 %v", err, sentinel)
 			}
 		})
+	}
+}
+
+// TestListPreviewsShortCircuit 验证纯关注类通知（无帖子/评论目标）直接短路：
+// 不查询评论、帖子、纯文本，也不加载关注集合。
+func TestListPreviewsShortCircuit(t *testing.T) {
+	f := newFixture()
+	f.notices.rows = []model.Notification{
+		{ID: 3, ActorID: 7, Type: model.NoticeTypeFollow, TargetType: model.NoticeTargetUser, TargetID: 42},
+		{ID: 2, ActorID: 8, Type: model.NoticeTypeFollowRequest, TargetType: model.NoticeTargetUser, TargetID: 43},
+	}
+	page, err := f.svc.List(context.Background(), authedViewer(1), "", "", 0, 20)
+	if err != nil {
+		t.Fatalf("List 返回错误: %v", err)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("通知条数 = %d，期望 2", len(page.Items))
+	}
+	for i, item := range page.Items {
+		if item.Preview != nil {
+			t.Fatalf("第 %d 条关注类通知预览 = %q，期望 nil", i+1, *item.Preview)
+		}
+	}
+	if len(f.comments.calls) != 0 || len(f.posts.getCalls) != 0 || len(f.posts.textCalls) != 0 || len(f.rels.calls) != 0 {
+		t.Fatalf("纯关注通知应短路全部预览查询，实际 comments=%d posts=%d texts=%d following=%d",
+			len(f.comments.calls), len(f.posts.getCalls), len(f.posts.textCalls), len(f.rels.calls))
+	}
+}
+
+// TestListPreviewsLazyFollowing 验证仅当存在「已发布 + 仅关注者可见 + 非本人」帖子时
+// 才加载关注集合；关注者可见帖子按关注集合返回正文。
+func TestListPreviewsLazyFollowing(t *testing.T) {
+	followersPostID := int64(102)
+	f := newFixture()
+	f.notices.rows = []model.Notification{
+		{ID: 2, ActorID: 7, PostID: int64Ptr(followersPostID)},
+	}
+	f.posts.posts = map[int64]model.Post{
+		followersPostID: {
+			ID: followersPostID, AuthorID: 42,
+			Status: model.PostStatusPublished, Visibility: model.VisibilityFollowers,
+		},
+	}
+	f.posts.texts = map[int64]string{followersPostID: "仅关注者可见正文"}
+	f.rels.following = map[int64]bool{42: true}
+
+	page, err := f.svc.List(context.Background(), authedViewer(1), "", "", 0, 20)
+	if err != nil {
+		t.Fatalf("List 返回错误: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Preview == nil || *page.Items[0].Preview != "仅关注者可见正文" {
+		t.Fatalf("预览 = %+v，期望关注者可见正文", page.Items)
+	}
+	if len(f.rels.calls) != 1 || f.rels.calls[0] != 1 {
+		t.Fatalf("关注集合入参 = %v，期望访问者 1 且只加载一次", f.rels.calls)
 	}
 }
 
@@ -1682,6 +1749,182 @@ func TestMentionNotificationsIdempotencyKeyStable(t *testing.T) {
 	}
 }
 
+// ===== PublishMentions =====
+
+// TestPublishMentions 覆盖「只解析一次用户名、重建提及 + 写提及通知」的合并契约：
+// 两次账号查询被合并为一次 FindActiveUsersByUsernames，解析结果同时用于重建与通知。
+func TestPublishMentions(t *testing.T) {
+	explicitAt := testNow.Add(10 * time.Minute)
+	f := newFixture()
+	f.users.findBriefs = []model.UserBrief{{ID: 21}, {ID: 22}}
+	f.users.users[21] = activeHuman(21)
+	f.users.users[22] = activeHuman(22)
+	f.ids.ids = []int64{9001, 9002, 9003, 9004}
+	in := contracts.PublishMentionsInput{
+		SourceType:   model.NoticeSourceComment,
+		SourceID:     300,
+		PostID:       101,
+		AuthorID:     7,
+		PlainText:    "@alice @bob 你好",
+		MentionNames: []string{"alice", "bob"},
+		At:           explicitAt,
+	}
+	if err := f.svc.PublishMentions(context.Background(), in); err != nil {
+		t.Fatalf("PublishMentions 返回错误: %v", err)
+	}
+	if len(f.users.findCalls) != 1 || !slices.Equal(f.users.findCalls[0], []string{"alice", "bob"}) {
+		t.Fatalf("用户名解析调用 = %v，期望只解析一次 [alice bob]", f.users.findCalls)
+	}
+	if len(f.mentions.deactivateExceptCalls) != 1 {
+		t.Fatalf("DeactivateExcept 调用次数 = %d，期望 1", len(f.mentions.deactivateExceptCalls))
+	}
+	deactivate := f.mentions.deactivateExceptCalls[0]
+	if deactivate.sourceType != model.NoticeSourceComment || deactivate.sourceID != 300 ||
+		!slices.Equal(deactivate.keepUserIDs, []int64{21, 22}) {
+		t.Fatalf("DeactivateExcept 入参不符: %+v", deactivate)
+	}
+	if len(f.mentions.upserts) != 2 {
+		t.Fatalf("Upsert 次数 = %d，期望 2", len(f.mentions.upserts))
+	}
+	for i, wantUserID := range []int64{21, 22} {
+		got := f.mentions.upserts[i]
+		if got.id != int64(9001+i) || got.userID != wantUserID || got.sourceID != 300 ||
+			got.sourceType != model.NoticeSourceComment || !got.now.Equal(explicitAt) {
+			t.Fatalf("第 %d 次 Upsert = %+v", i+1, got)
+		}
+	}
+	if len(f.notices.inserted) != 2 {
+		t.Fatalf("通知写入条数 = %d，期望 2", len(f.notices.inserted))
+	}
+	for i, wantUserID := range []int64{21, 22} {
+		row := f.notices.inserted[i]
+		if row.ID != int64(9003+i) || row.RecipientID != wantUserID || row.ActorID != 7 {
+			t.Fatalf("第 %d 条通知 = %+v，期望接收者 %d", i+1, row, wantUserID)
+		}
+		if row.Type != model.NoticeTypeMention || row.TargetType != model.NoticeTargetComment {
+			t.Fatalf("第 %d 条通知类型/目标类型不符: %+v", i+1, row)
+		}
+		if row.TargetID != 101 || row.PostID == nil || *row.PostID != 101 ||
+			row.CommentID == nil || *row.CommentID != 300 {
+			t.Fatalf("第 %d 条通知关联不符: %+v", i+1, row)
+		}
+		if want := mentionKey(model.NoticeSourceComment, 300, wantUserID); row.IdempotencyKey != want {
+			t.Fatalf("第 %d 条通知幂等键 = %q，期望 %q", i+1, row.IdempotencyKey, want)
+		}
+		if !row.CreatedAt.Equal(explicitAt) {
+			t.Fatalf("第 %d 条通知时间 = %v，期望 %v", i+1, row.CreatedAt, explicitAt)
+		}
+	}
+	if f.ids.next != 4 {
+		t.Fatalf("消耗 ID = %d 个，期望 4（2 个提及 + 2 条通知）", f.ids.next)
+	}
+}
+
+// TestPublishMentionsEmptyNames 覆盖无提及时只停用旧提及、不解析也不写通知。
+func TestPublishMentionsEmptyNames(t *testing.T) {
+	f := newFixture()
+	in := contracts.PublishMentionsInput{
+		SourceType:   model.NoticeSourceComment,
+		SourceID:     300,
+		PostID:       101,
+		AuthorID:     7,
+		PlainText:    "没有提及",
+		MentionNames: nil,
+		At:           testNow,
+	}
+	if err := f.svc.PublishMentions(context.Background(), in); err != nil {
+		t.Fatalf("PublishMentions 返回错误: %v", err)
+	}
+	if len(f.users.findCalls) != 0 {
+		t.Fatalf("空提及名不应解析账号，实际 %d 次", len(f.users.findCalls))
+	}
+	if len(f.mentions.deactivateExceptCalls) != 1 || f.mentions.deactivateExceptCalls[0].keepUserIDs != nil {
+		t.Fatalf("DeactivateExcept 入参不符: %+v", f.mentions.deactivateExceptCalls)
+	}
+	if len(f.notices.inserted) != 0 || f.ids.next != 0 {
+		t.Fatalf("空提及名不应写通知或消耗 ID，实际 inserted=%d ids=%d", len(f.notices.inserted), f.ids.next)
+	}
+}
+
+// TestPublishMentionsErrors 覆盖解析、停用、建链与通知写入的错误路径。
+func TestPublishMentionsErrors(t *testing.T) {
+	findErr := errors.New("账号解析失败")
+	deactivateErr := errors.New("停用旧提及失败")
+	upsertErr := errors.New("提及建链失败")
+	writeErr := errors.New("接收者读取失败")
+	cases := []struct {
+		name        string
+		setup       func(*fixture)
+		wantErr     error
+		wantDeact   bool
+		wantUpserts int
+	}{
+		{
+			name:    "用户名解析失败",
+			setup:   func(f *fixture) { f.users.findErr = findErr },
+			wantErr: findErr,
+		},
+		{
+			name: "停用旧提及失败",
+			setup: func(f *fixture) {
+				f.users.findBriefs = []model.UserBrief{{ID: 21}}
+				f.mentions.deactivateExceptErr = deactivateErr
+			},
+			wantErr:   deactivateErr,
+			wantDeact: true,
+		},
+		{
+			name: "建链失败",
+			setup: func(f *fixture) {
+				f.users.findBriefs = []model.UserBrief{{ID: 21}}
+				f.ids.ids = []int64{9001}
+				f.mentions.upsertErr = upsertErr
+			},
+			wantErr:     upsertErr,
+			wantDeact:   true,
+			wantUpserts: 1,
+		},
+		{
+			name: "通知写入失败",
+			setup: func(f *fixture) {
+				f.users.findBriefs = []model.UserBrief{{ID: 21}}
+				f.ids.ids = []int64{9001}
+				f.users.getUserErr = writeErr
+			},
+			wantErr:     writeErr,
+			wantDeact:   true,
+			wantUpserts: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture()
+			tc.setup(f)
+			in := contracts.PublishMentionsInput{
+				SourceType:   model.NoticeSourceComment,
+				SourceID:     300,
+				PostID:       101,
+				AuthorID:     7,
+				MentionNames: []string{"alice"},
+				At:           testNow,
+			}
+			err := f.svc.PublishMentions(context.Background(), in)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("错误 = %v，期望可用 errors.Is 匹配 %v", err, tc.wantErr)
+			}
+			if got := len(f.mentions.deactivateExceptCalls) > 0; got != tc.wantDeact {
+				t.Fatalf("DeactivateExcept 是否调用 = %v，期望 %v", got, tc.wantDeact)
+			}
+			if len(f.mentions.upserts) != tc.wantUpserts {
+				t.Fatalf("Upsert 调用次数 = %d，期望 %d", len(f.mentions.upserts), tc.wantUpserts)
+			}
+			if len(f.notices.inserted) != 0 {
+				t.Fatalf("失败路径不应写入通知，实际 %d 条", len(f.notices.inserted))
+			}
+		})
+	}
+}
+
 // ===== PublishPostNotifications =====
 
 // TestPublishPostNotifications 覆盖发布帖子时重建提及并写提及通知。
@@ -1710,6 +1953,9 @@ func TestPublishPostNotifications(t *testing.T) {
 		}
 		if len(f.mentions.upserts) != 1 || f.mentions.upserts[0].id != 7001 {
 			t.Fatalf("Upsert 记录不符: %+v", f.mentions.upserts)
+		}
+		if len(f.users.findCalls) != 1 {
+			t.Fatalf("用户名解析次数 = %d，期望 1（重建与通知复用同一解析结果）", len(f.users.findCalls))
 		}
 		if len(f.notices.inserted) != 1 {
 			t.Fatalf("通知写入条数 = %d，期望 1", len(f.notices.inserted))

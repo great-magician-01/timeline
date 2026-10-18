@@ -53,3 +53,15 @@ func TestNormalizeKeyword(t *testing.T) {
 		}
 	}
 }
+
+// TestNormalizeKeywordEscapesLikePattern 守护关键词按字面量搜索：SQL LIKE 的通配符
+// %/_ 与转义符 \ 必须先转义，再由 repo 以 ESCAPE '\' 解释。
+func TestNormalizeKeywordEscapesLikePattern(t *testing.T) {
+	keyword, err := normalizeKeyword(`100%_done\`)
+	if err != nil {
+		t.Fatalf("关键字转义不应报错: %v", err)
+	}
+	if want := `100\%\_done\\`; keyword != want {
+		t.Fatalf("LIKE 通配符应被转义: 得到 %q，期望 %q", keyword, want)
+	}
+}

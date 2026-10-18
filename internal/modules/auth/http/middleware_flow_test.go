@@ -211,9 +211,12 @@ func TestResolveSessionSetsViewerAndSession(t *testing.T) {
 	engine.Use(h.handler.ResolveSession)
 	var gotViewer model.Viewer
 	var gotSession model.Session
+	var gotUser model.User
+	var hasUser bool
 	engine.GET("/api/v1/probe", func(c *gin.Context) {
 		gotViewer, _ = httpx.Viewer(c)
 		gotSession, _ = httpx.Session(c)
+		gotUser, hasUser = sessionUser(c)
 		c.Status(http.StatusNoContent)
 	})
 
@@ -228,11 +231,15 @@ func TestResolveSessionSetsViewerAndSession(t *testing.T) {
 	if gotSession.CSRFToken != "ctx-csrf" || gotSession.UserID != user.ID {
 		t.Fatalf("Session 注入不符: %+v", gotSession)
 	}
+	if !hasUser || gotUser.ID != user.ID || gotUser.Username != "alice" {
+		t.Fatalf("会话用户行未注入上下文: has=%v user=%+v", hasUser, gotUser)
+	}
 
 	gotViewer = model.Viewer{}
+	hasUser = false
 	recorder = h.perform(t, engine, http.MethodGet, "/api/v1/probe", "")
-	if recorder.Code != http.StatusNoContent || gotViewer.Authenticated {
-		t.Fatalf("游客请求不应注入身份: %+v", gotViewer)
+	if recorder.Code != http.StatusNoContent || gotViewer.Authenticated || hasUser {
+		t.Fatalf("游客请求不应注入身份: viewer=%+v hasUser=%v", gotViewer, hasUser)
 	}
 }
 
@@ -247,5 +254,27 @@ func TestSessionCookieAttributesOnClearing(t *testing.T) {
 		if !strings.Contains(raw, attr) {
 			t.Fatalf("清除 Cookie 缺少属性 %q: %s", attr, raw)
 		}
+	}
+}
+
+// TestMeReusesResolvedSessionUser 验证 /auth/me 复用 ResolveSession 已读到的用户行：
+// 人为让按 ID 读取失败，请求仍必须成功（若仍二次 ByID 会退化为 500）。
+func TestMeReusesResolvedSessionUser(t *testing.T) {
+	h := newHarness(t, true)
+	user := h.seedUser(t, model.User{ID: 1, Username: "alice", Nickname: "爱丽丝"})
+	h.seedSession(user, "reuse-token", "reuse-csrf")
+	engine := h.engine()
+
+	h.users.byIDErr = fakePortErr
+	t.Cleanup(func() { h.users.byIDErr = nil })
+
+	recorder := h.performAs(t, engine, http.MethodGet, "/api/v1/auth/me", "", "reuse-token", "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d，期望 200（不应再按 ID 读取账号），body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := bodyMap(t, recorder)
+	meUser, _ := body["user"].(map[string]any)
+	if meUser["username"] != "alice" || meUser["nickname"] != "爱丽丝" {
+		t.Fatalf("/auth/me 用户字段不符: %v", meUser)
 	}
 }

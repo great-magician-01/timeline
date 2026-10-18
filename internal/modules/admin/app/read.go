@@ -6,6 +6,7 @@ import (
 
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
 	"github.com/great-magician-01/timeline/internal/shared/model"
+	"github.com/great-magician-01/timeline/internal/shared/search"
 )
 
 // ===== 分页与错误辅助 =====
@@ -29,7 +30,8 @@ func wrapInternal(err error) error {
 	return apperr.Wrap(err, apperr.KindInternal, "")
 }
 
-// keyword 归一化搜索关键词（去空白 + 小写），并校验长度上限。
+// keyword 归一化搜索关键词（去空白 + 小写 + LIKE 通配符转义），并校验长度上限。
+// repo 侧以 LOWER(x) LIKE '%' || $n || '%' ESCAPE '\' 做字面量子串匹配（可命中 trigram 索引）。
 func normalizeKeyword(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -38,7 +40,7 @@ func normalizeKeyword(raw string) (string, error) {
 	if len([]rune(trimmed)) > 100 {
 		return "", apperr.Invalid("搜索关键词过长")
 	}
-	return strings.ToLower(trimmed), nil
+	return search.EscapeLikePattern(strings.ToLower(trimmed)), nil
 }
 
 // ===== 概览 =====
@@ -136,17 +138,18 @@ func (s *Service) GetPost(ctx context.Context, postID int64) (PostDetail, error)
 	if err != nil {
 		return PostDetail{}, wrapInternal(err)
 	}
-	comments, commentCount, err := s.read.PostCommentContext(ctx, postID, postContextCommentLimit)
+	comments, err := s.read.PostCommentContext(ctx, postID, postContextCommentLimit)
 	if err != nil {
 		return PostDetail{}, wrapInternal(err)
 	}
 	return PostDetail{
-		Post:         post,
-		ContentHTML:  content,
-		Versions:     versions,
-		Attachments:  attachments,
-		Comments:     comments,
-		CommentCount: commentCount,
+		Post:        post,
+		ContentHTML: content,
+		Versions:    versions,
+		Attachments: attachments,
+		Comments:    comments,
+		// 评论总数复用已读到的 posts.comment_count 冗余计数列，避免重复 COUNT（口径一致）。
+		CommentCount: int64(post.Post.CommentCount),
 	}, nil
 }
 

@@ -13,7 +13,13 @@ import (
 	"github.com/great-magician-01/timeline/internal/shared/contracts"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 	"github.com/great-magician-01/timeline/internal/shared/page"
+	"github.com/great-magician-01/timeline/internal/shared/search"
 )
+
+// tagPrefixCandidateLimit 是标签补全的候选上限：先按名称前缀取最多 50 个标签，
+// 再只对这批 tag_id 统计可见帖子数。截断策略已确认可接受（极端短前缀可能漏掉
+// 未进入候选的高频标签，换取聚合宽度可控）。
+const tagPrefixCandidateLimit = 50
 
 // timelineParams 描述一次时间线用例的过滤条件。
 type timelineParams struct {
@@ -23,7 +29,7 @@ type timelineParams struct {
 	followingOnly  bool
 	authorID       int64
 	filter         string
-	tagName        string
+	tagID          int64
 	searchText     string
 }
 
@@ -133,21 +139,23 @@ func (s *Service) TagTimeline(
 	if tagName == "" {
 		return TimelinePage{}, nil
 	}
-	exists, err := s.repo.TagExists(ctx, tagName)
+	tagID, found, err := s.repo.LookupTag(ctx, tagName)
 	if err != nil {
 		return TimelinePage{}, s.wrap(err, "读取标签失败")
 	}
-	if !exists {
+	if !found {
 		return TimelinePage{}, nil
 	}
 	return s.listTimeline(ctx, viewer, timelineParams{
 		includePosts: true,
-		tagName:      tagName,
+		tagID:        tagID,
 		filter:       domain.FilterAll,
 	}, cursor, limit)
 }
 
 // SearchPosts 按纯文本投影搜索已发布帖子；结果仍按访问者权限过滤。
+// 关键词在进入 SQL 前转义 LIKE 通配符（配合 trigram 索引的 LIKE 形态）；
+// 注：pg_trgm 对不足 3 个字符的模式没有有效 trigram，短关键词仍会退化为扫描。
 func (s *Service) SearchPosts(
 	ctx context.Context,
 	viewer model.Viewer,
@@ -161,12 +169,15 @@ func (s *Service) SearchPosts(
 	}
 	return s.listTimeline(ctx, viewer, timelineParams{
 		includePosts: true,
-		searchText:   strings.ToLower(normalized),
+		searchText:   search.EscapeLikePattern(strings.ToLower(normalized)),
 		filter:       domain.FilterAll,
 	}, cursor, limit)
 }
 
 // SuggestTags 按前缀匹配标签，且只统计当前访问者可见的已发布帖子。
+// 拆成两条简单查询：先按前缀取标签候选（命中 tags_name_prefix 索引），
+// 再只对这批 tag_id 批量统计可见帖子数（COUNT(*) 不需要 DISTINCT），
+// 排序与截断在应用层完成，避免实时 3 表聚合与不可索引的 STRPOS。
 func (s *Service) SuggestTags(
 	ctx context.Context,
 	viewer model.Viewer,
@@ -176,20 +187,47 @@ func (s *Service) SuggestTags(
 	if normalized == "" || len([]rune(normalized)) > domain.MaxTagRunes {
 		return []TagSuggestion{}, nil
 	}
+	// 前缀匹配按字面量处理：先转义 LIKE 通配符再拼接通配符，配合 ESCAPE '\'。
+	tags, err := s.repo.ListTagPrefixes(ctx, search.EscapeLikePattern(normalized), tagPrefixCandidateLimit)
+	if err != nil {
+		return nil, s.wrap(err, "读取标签补全失败")
+	}
+	if len(tags) == 0 {
+		return []TagSuggestion{}, nil
+	}
+	tagIDs := make([]int64, 0, len(tags))
+	for _, tag := range tags {
+		tagIDs = append(tagIDs, tag.ID)
+	}
 	following, err := s.followingSet(ctx, viewer)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.repo.SuggestTags(ctx, viewer.ID, domain.SortedIDs(following),
-		viewer.IsAI, normalized, domain.MaxSuggestCount)
+	counts, err := s.repo.PostCountsByTagIDs(ctx, tagIDs, viewer.ID,
+		domain.SortedIDs(following), viewer.IsAI)
 	if err != nil {
-		return nil, s.wrap(err, "读取标签补全失败")
+		return nil, s.wrap(err, "统计标签帖子数失败")
 	}
-	items := make([]TagSuggestion, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, TagSuggestion{Name: row.Name, DisplayName: row.DisplayName, PostCount: row.PostCount})
+	items := make([]TagSuggestion, 0, len(tags))
+	for _, tag := range tags {
+		items = append(items, TagSuggestion{Name: tag.Name, DisplayName: tag.DisplayName, PostCount: counts[tag.ID]})
 	}
-	return items, nil
+	return rankTagSuggestions(items), nil
+}
+
+// rankTagSuggestions 按可见帖子数倒序、名称升序排序，并截断到补全上限。
+// 拆成纯函数便于无数据库测试（标签补全的聚合查询已在 repo 拆分，排序策略在 app 层）。
+func rankTagSuggestions(items []TagSuggestion) []TagSuggestion {
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].PostCount != items[j].PostCount {
+			return items[i].PostCount > items[j].PostCount
+		}
+		return items[i].Name < items[j].Name
+	})
+	if len(items) > domain.MaxSuggestCount {
+		items = items[:domain.MaxSuggestCount]
+	}
+	return items
 }
 
 // listTimeline 是时间线类接口的公共流程：取候选、组装、按时间游标返回。
@@ -204,14 +242,11 @@ func (s *Service) listTimeline(
 	if err != nil {
 		return TimelinePage{}, err
 	}
-	authorIDs, err := s.filteredAuthorIDs(ctx, params.filter)
-	if err != nil {
-		return TimelinePage{}, err
-	}
 	followingIDs := domain.SortedIDs(following)
+	authorIsAI := authorTypeFilter(params.filter)
 
 	fetch := func(fctx context.Context, after page.TimeCursor, batchLimit int) ([]timelineCandidate, error) {
-		return s.fetchTimelineCandidates(fctx, viewer, params, followingIDs, authorIDs, after, batchLimit)
+		return s.fetchTimelineCandidates(fctx, viewer, params, followingIDs, authorIsAI, after, batchLimit)
 	}
 	keep := func(item timelineCandidate) bool {
 		if item.post.ID == 0 {
@@ -242,19 +277,18 @@ func (s *Service) listTimeline(
 	return TimelinePage{Kind: domain.TabPosts, Posts: briefs, Next: next, HasMore: hasMore}, nil
 }
 
-// filteredAuthorIDs 把 human/ai 过滤解析为作者 ID 集合（跨模块经 auth 端口）。
-func (s *Service) filteredAuthorIDs(ctx context.Context, filter string) ([]int64, error) {
-	if filter != domain.FilterHuman && filter != domain.FilterAI {
-		return nil, nil
+// authorTypeFilter 把 human/ai 过滤映射为 posts.author_is_ai 标志；其余过滤不过滤作者类型。
+func authorTypeFilter(filter string) *bool {
+	switch filter {
+	case domain.FilterHuman:
+		human := false
+		return &human
+	case domain.FilterAI:
+		ai := true
+		return &ai
+	default:
+		return nil
 	}
-	if s.deps.Users == nil {
-		return nil, apperr.Internal("账号服务未就绪")
-	}
-	ids, err := s.deps.Users.ListUserIDsByAIFlag(ctx, filter == domain.FilterAI)
-	if err != nil {
-		return nil, s.wrap(err, "读取作者类型过滤集合失败")
-	}
-	return ids, nil
 }
 
 // fetchTimelineCandidates 拉取一批候选：帖子分支（content 自有表）+ 纯转发分支（social 端口），
@@ -263,7 +297,8 @@ func (s *Service) fetchTimelineCandidates(
 	ctx context.Context,
 	viewer model.Viewer,
 	params timelineParams,
-	followingIDs, authorIDs []int64,
+	followingIDs []int64,
+	authorIsAI *bool,
 	after page.TimeCursor,
 	batchLimit int,
 ) ([]timelineCandidate, error) {
@@ -271,13 +306,12 @@ func (s *Service) fetchTimelineCandidates(
 		ViewerID:      viewer.ID,
 		ViewerIsAI:    viewer.IsAI,
 		FollowingIDs:  followingIDs,
-		AuthorIDs:     authorIDs,
+		AuthorIsAI:    authorIsAI,
 		IncludePosts:  params.includePosts,
 		QuotedOnly:    params.quotedOnly,
 		FollowingOnly: params.followingOnly,
 		AuthorID:      params.authorID,
-		Filter:        params.filter,
-		TagName:       params.tagName,
+		TagID:         params.tagID,
 		SearchText:    params.searchText,
 		AfterTime:     after.Time,
 		AfterID:       after.ID,
@@ -354,8 +388,11 @@ func (s *Service) assembleTimeline(
 ) ([]PostBrief, error) {
 	postIDs := make([]int64, 0, len(items))
 	userIDs := make([]int64, 0, len(items))
+	// 候选已带帖子行，组装时直接复用，避免对同一批 ID 重复执行 GetPosts。
+	preloaded := make(map[int64]model.Post, len(items))
 	for _, item := range items {
 		postIDs = append(postIDs, item.row.PostID)
+		preloaded[item.row.PostID] = item.post
 		if item.row.Kind == domain.KindRepost && item.row.ReposterID > 0 {
 			userIDs = append(userIDs, item.row.ReposterID)
 		}
@@ -363,7 +400,7 @@ func (s *Service) assembleTimeline(
 	if len(items) == 0 {
 		return []PostBrief{}, nil
 	}
-	data, err := s.loadBriefData(ctx, viewer, following, postIDs, userIDs)
+	data, err := s.loadBriefData(ctx, viewer, following, postIDs, preloaded, userIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -475,11 +512,13 @@ func (s *Service) assembleReplies(
 	}
 	postIDs := make([]int64, 0, len(items))
 	userIDs := make([]int64, 0, len(items))
+	preloaded := make(map[int64]model.Post, len(items))
 	for _, item := range items {
 		postIDs = append(postIDs, item.comment.PostID)
+		preloaded[item.comment.PostID] = item.post
 		userIDs = append(userIDs, item.comment.AuthorID)
 	}
-	data, err := s.loadBriefData(ctx, viewer, following, postIDs, userIDs)
+	data, err := s.loadBriefData(ctx, viewer, following, postIDs, preloaded, userIDs)
 	if err != nil {
 		return nil, err
 	}

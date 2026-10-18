@@ -234,9 +234,11 @@ type AIService interface {
 	// ListMemorySources 读取一批记忆已记录的内容来源（post/comment 去重）。消费者：agent（沉淀）。
 	ListMemorySources(ctx context.Context, memoryIDs []int64) ([]MemorySourceRef, error)
 
-	// ListActiveMemorySourceRefs 读取某 AI 全部生效记忆引用的内容来源（去重、有限条数）。
-	// 消费者：agent（来源失效复核：来源删除或转非公开时停用相关记忆）。
-	ListActiveMemorySourceRefs(ctx context.Context, aiID int64, limit int) ([]MemorySourceRef, error)
+	// ListActiveMemorySourceRefs 按 keyset 游标读取某 AI 生效记忆引用的内容来源（去重、有限条数）。
+	// after 为零值表示从头开始；实现返回按 (source_type, source_id) 升序、严格大于 after 的来源。
+	// 消费者：agent（来源失效复核：来源删除或转非公开时停用相关记忆）。调用方用返回的最后一条
+	// 推进游标，取尽后归零重新轮转，避免每轮重复扫描同一批来源。
+	ListActiveMemorySourceRefs(ctx context.Context, aiID int64, after MemorySourceRef, limit int) ([]MemorySourceRef, error)
 
 	// SupersedeMemories 把一批记忆标记为被新记忆取代。消费者：agent。
 	SupersedeMemories(ctx context.Context, in SupersedeMemoryInput) error

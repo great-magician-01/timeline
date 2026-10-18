@@ -87,17 +87,22 @@ func TestRunTaskClaimError(t *testing.T) {
 	}
 }
 
-func TestRunTaskMarksFailedWhenTaskReadFails(t *testing.T) {
+// TestRunTaskUsesClaimedRow 确认 RunTask 直接使用 ClaimTask 的 UPDATE ... RETURNING 结果：
+// 领取后不再调用 GetTask 二次读取（旧实现的「已领取却读不到任务」分支已不存在）。
+func TestRunTaskUsesClaimedRow(t *testing.T) {
 	f := newRunTaskFixture()
-	f.tasks.getTaskErr = errBoom
-	if err := f.svc.RunTask(context.Background(), 101); !errors.Is(err, errBoom) {
-		t.Fatalf("读取任务失败应返回原因: %v", err)
+	f.settings.fakeSettings.values = contracts.SystemSettings{AIGlobalEnabled: false}
+	if err := f.svc.RunTask(context.Background(), 101); err != nil {
+		t.Fatalf("全局关闭应正常结束任务: %v", err)
 	}
-	if len(f.tasks.statuses) != 1 || f.tasks.statuses[0].status != domain.TaskStatusFailed {
-		t.Fatalf("应把任务标记 failed 避免停在 running: %+v", f.tasks.statuses)
+	if len(f.tasks.claims) != 1 || f.tasks.claims[0] != 101 {
+		t.Fatalf("应领取一次任务: %+v", f.tasks.claims)
 	}
-	if !strings.Contains(f.tasks.statuses[0].errMsg, domain.ErrorTypeDatabase) {
-		t.Fatalf("失败原因应带 database_error 前缀: %q", f.tasks.statuses[0].errMsg)
+	if len(f.tasks.results) != 1 || f.tasks.results[0].update.Status != domain.TaskStatusCanceled {
+		t.Fatalf("应使用领取返回的任务行写回结果: %+v", f.tasks.results)
+	}
+	if f.tasks.getTaskCalls != 0 {
+		t.Fatalf("领取后不应再调用 GetTask，实际 %d 次", f.tasks.getTaskCalls)
 	}
 }
 
@@ -413,6 +418,9 @@ func TestRunTaskSuccessOriginalPost(t *testing.T) {
 	if post.AuthorID != 1 || post.ContentFormat != "markdown" || post.ContentSource != "今天聊聊 Go" ||
 		post.Visibility != model.VisibilityPublic || post.AsDraft || post.ScheduledAt != nil {
 		t.Fatalf("发帖参数错误: %+v", post)
+	}
+	if !post.AuthorIsAI {
+		t.Fatalf("AI 发帖必须写入 author_is_ai=true 快照: %+v", post)
 	}
 	if !post.At.Equal(f.clk.Now()) {
 		t.Fatalf("发帖时间应来自注入时钟: %v", post.At)

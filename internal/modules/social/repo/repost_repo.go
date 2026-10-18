@@ -23,10 +23,12 @@ func NewRepostRepo(pool *pgxpool.Pool) *RepostRepo { return &RepostRepo{pool: po
 
 const (
 	// 唯一索引兜底幂等：只有从失效翻转为生效时才返回行。
-	sqlRepostActivate = `INSERT INTO reposts (id, user_id, post_id, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, TRUE, $4, $4)
+	// author_is_ai 是转发者账号类型的快照（账号 is_ai 创建后不可变），
+	// 供时间线按 human/ai 过滤时直接命中 reposts_author_type_timeline 索引。
+	sqlRepostActivate = `INSERT INTO reposts (id, user_id, post_id, author_is_ai, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, TRUE, $5, $5)
 		ON CONFLICT (user_id, post_id)
-		DO UPDATE SET is_active = TRUE, updated_at = $4
+		DO UPDATE SET is_active = TRUE, author_is_ai = $4, updated_at = $5
 		WHERE reposts.is_active = FALSE
 		RETURNING id`
 
@@ -51,9 +53,9 @@ const (
 
 // Activate 转发；只有从失效翻转为生效时 changed 为 true。
 func (r *RepostRepo) Activate(
-	ctx context.Context, id, userID, postID int64, now time.Time,
+	ctx context.Context, id, userID, postID int64, authorIsAI bool, now time.Time,
 ) (repostID int64, changed bool, err error) {
-	err = db.ExecutorFrom(ctx, r.pool).QueryRow(ctx, sqlRepostActivate, id, userID, postID, now).Scan(&repostID)
+	err = db.ExecutorFrom(ctx, r.pool).QueryRow(ctx, sqlRepostActivate, id, userID, postID, authorIsAI, now).Scan(&repostID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, false, nil
 	}
@@ -117,12 +119,9 @@ func (r *RepostRepo) ListEvents(ctx context.Context, query domain.RepostEventQue
 		args = append(args, query.FollowingIDs)
 		conditions += fmt.Sprintf(" AND user_id = ANY($%d)", len(args))
 	}
-	if query.AllowedIDs != nil {
-		if len(query.AllowedIDs) == 0 {
-			return nil, nil
-		}
-		args = append(args, query.AllowedIDs)
-		conditions += fmt.Sprintf(" AND user_id = ANY($%d)", len(args))
+	if query.AuthorIsAI != nil {
+		args = append(args, *query.AuthorIsAI)
+		conditions += fmt.Sprintf(" AND author_is_ai = $%d", len(args))
 	}
 	exec := db.ExecutorFrom(ctx, r.pool)
 	var (

@@ -126,13 +126,41 @@ func (s *Service) followingSet(ctx context.Context, viewer model.Viewer) (map[in
 	return set, nil
 }
 
+// needsFollowingSet 判断可见性判定是否真的依赖关注集合。
+// 只有「已发布 + 仅关注者可见 + 访问者是登录人类且非作者/管理员」时结果才取决于关注关系；
+// 其余组合（公开/仅自己/草稿/管理员/游客/AI/作者本人）都不需要读取关注集合。
+func needsFollowingSet(viewer model.Viewer, post model.Post) bool {
+	if post.Status != model.PostStatusPublished || post.Visibility != model.VisibilityFollowers {
+		return false
+	}
+	if viewer.IsAdmin || !viewer.Authenticated || viewer.IsAI {
+		return false
+	}
+	return !post.SelfPosted(viewer)
+}
+
+// visibilityFollowing 返回可见性校验所需的关注集合。
+// 不需要时返回 nil（表示「未加载」，不是空集合）：需要关注数据的下游（如引用原帖
+// 可见性判定）会自行懒加载，避免把 nil 误当空集合导致结果错误。
+func (s *Service) visibilityFollowing(
+	ctx context.Context,
+	viewer model.Viewer,
+	post model.Post,
+) (map[int64]bool, error) {
+	if !needsFollowingSet(viewer, post) {
+		return nil, nil
+	}
+	return s.followingSet(ctx, viewer)
+}
+
 // requireVisible 按访问者可见性校验；不可见返回 not_found。
+// 返回的关注集合在无需关注关系时为 nil（见 visibilityFollowing）。
 func (s *Service) requireVisible(
 	ctx context.Context,
 	viewer model.Viewer,
 	post model.Post,
 ) (map[int64]bool, error) {
-	following, err := s.followingSet(ctx, viewer)
+	following, err := s.visibilityFollowing(ctx, viewer, post)
 	if err != nil {
 		return nil, err
 	}
@@ -143,17 +171,18 @@ func (s *Service) requireVisible(
 }
 
 // requireAuthor 校验访问者为作者：不可见返回 not_found，可见但非作者返回 forbidden。
+// 作者本人直接放行，不读取关注集合。
 func (s *Service) requireAuthor(
 	ctx context.Context,
 	viewer model.Viewer,
 	post model.Post,
 ) (map[int64]bool, error) {
-	following, err := s.followingSet(ctx, viewer)
+	if post.SelfPosted(viewer) {
+		return nil, nil
+	}
+	following, err := s.visibilityFollowing(ctx, viewer, post)
 	if err != nil {
 		return nil, err
-	}
-	if post.SelfPosted(viewer) {
-		return following, nil
 	}
 	if err := access.RequireVisiblePost(viewer, post, following); err != nil {
 		return nil, err

@@ -351,7 +351,7 @@ var derivativeRowColumns = []pgColumn{
 
 var idColumn = []pgColumn{{"id", oidInt8}}
 
-var sumSizeColumn = []pgColumn{{"coalesce", oidInt8}}
+var usageColumn = []pgColumn{{"used_bytes", oidInt8}}
 
 var derivativeStatusColumns = []pgColumn{
 	{"attachment_id", oidInt8}, {"derivative_type", oidText}, {"status", oidText},
@@ -400,9 +400,9 @@ func idsResult(ids ...int64) pgResult {
 	return pgResult{columns: idColumn, rows: rows}
 }
 
-// sumSizeResult 返回上传者已用存储空间（模拟 repo.SumSizeByUploader）。
-func sumSizeResult(total int64) pgResult {
-	return pgResult{columns: sumSizeColumn, rows: [][]any{{total}}}
+// usageResult 返回上传者已用存储空间（模拟 repo.Usage 的 attachment_usage 点查）。
+func usageResult(total int64) pgResult {
+	return pgResult{columns: usageColumn, rows: [][]any{{total}}}
 }
 
 // derivativeStatusesResult 返回衍生文件状态行（模拟 repo.StatusesByAttachmentIDs）。

@@ -192,6 +192,18 @@ func (r *fakeUserRepo) CountHumanUsers(_ context.Context) (int64, error) {
 	return count, nil
 }
 
+func (r *fakeUserRepo) HasHumanUser(_ context.Context) (bool, error) {
+	if r.countErr != nil {
+		return false, r.countErr
+	}
+	for _, u := range r.users {
+		if !u.IsAI {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (r *fakeUserRepo) CountSuperAdmins(_ context.Context) (int64, error) {
 	var count int64
 	for _, u := range r.users {

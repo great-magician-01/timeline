@@ -83,7 +83,7 @@ func (s *Service) CreatePost(ctx context.Context, viewer model.Viewer, in PostIn
 	if err != nil {
 		return PostDetail{}, err
 	}
-	var detail PostDetail
+	var created model.Post
 	err = s.withTx(ctx, func(txCtx context.Context) error {
 		// 作者账号、附件归属与引用目标校验必须与写入处于同一事务：
 		// 数据库无外键，完整性由应用层在事务内保证，避免校验后写入前引用被失效/删除。
@@ -110,7 +110,7 @@ func (s *Service) CreatePost(ctx context.Context, viewer model.Viewer, in PostIn
 			CreatedAt:    now,
 			UpdatedAt:    now,
 		}
-		if err := s.repo.InsertPost(txCtx, post); err != nil {
+		if err := s.repo.InsertPost(txCtx, post, viewer.IsAI); err != nil {
 			return s.wrap(err, "写入帖子失败")
 		}
 		if err := s.repo.InsertDraft(txCtx, repo.Draft{
@@ -130,17 +130,14 @@ func (s *Service) CreatePost(ctx context.Context, viewer model.Viewer, in PostIn
 		if err := s.applyCreateAction(txCtx, postID, viewer.ID, action, scheduledAt, now); err != nil {
 			return err
 		}
-		created, err := s.repo.GetPost(txCtx, postID)
-		if err != nil {
-			return err
-		}
-		detail, err = s.loadDetail(txCtx, viewer, following, created)
+		// 事务内只读回写入后的帖子行；详情组装（含跨模块端口）移到提交之后。
+		created, err = s.repo.GetPost(txCtx, postID)
 		return err
 	})
 	if err != nil {
 		return PostDetail{}, err
 	}
-	return detail, nil
+	return s.loadDetail(ctx, viewer, following, created)
 }
 
 // applyCreateAction 按创建动作推进帖子状态；调用方必须已处于事务中。
@@ -196,7 +193,8 @@ func (s *Service) UpdatePost(
 		return PostDetail{}, err
 	}
 
-	var detail PostDetail
+	var following map[int64]bool
+	var updated model.Post
 	err := s.withTx(ctx, func(txCtx context.Context) error {
 		// 附件归属与引用目标校验必须与写入处于同一事务（数据库无外键，完整性由应用层保证）。
 		author, err := s.loadUser(txCtx, viewer.ID, "作者账号不存在")
@@ -221,25 +219,22 @@ func (s *Service) UpdatePost(
 		if domain.IsDeleted(post.Status) {
 			return apperr.NotFound("内容不存在或无权访问")
 		}
-		following, err := s.requireAuthor(txCtx, viewer, post)
+		following, err = s.requireAuthor(txCtx, viewer, post)
 		if err != nil {
 			return err
 		}
 		if domain.Editable(post.Status) {
-			post, err = s.updateDraftWorkspace(txCtx, post, content, in, now)
+			updated, err = s.updateDraftWorkspace(txCtx, post, content, in, now)
 		} else {
-			post, err = s.appendVersion(txCtx, post, content, now)
+			updated, err = s.appendVersion(txCtx, post, content, now)
 		}
-		if err != nil {
-			return err
-		}
-		detail, err = s.loadDetail(txCtx, viewer, following, post)
 		return err
 	})
 	if err != nil {
 		return PostDetail{}, err
 	}
-	return detail, nil
+	// 详情组装（含跨模块端口与批量查询）在事务提交后执行，不占用 posts 行锁。
+	return s.loadDetail(ctx, viewer, following, updated)
 }
 
 // updateDraftWorkspace 保存草稿/定时帖的编辑内容，并处理草稿版本冲突与定时时间调整。
@@ -368,7 +363,8 @@ func (s *Service) PublishPost(
 	if err := s.consumePostQuota(ctx, viewer.ID); err != nil {
 		return PostDetail{}, err
 	}
-	var detail PostDetail
+	var following map[int64]bool
+	var updated model.Post
 	err := s.withTx(ctx, func(txCtx context.Context) error {
 		now := s.Now()
 		post, err := s.repo.GetPostForUpdate(txCtx, postID)
@@ -378,7 +374,7 @@ func (s *Service) PublishPost(
 		if domain.IsDeleted(post.Status) {
 			return apperr.NotFound("内容不存在或无权访问")
 		}
-		following, err := s.requireAuthor(txCtx, viewer, post)
+		following, err = s.requireAuthor(txCtx, viewer, post)
 		if err != nil {
 			return err
 		}
@@ -388,17 +384,13 @@ func (s *Service) PublishPost(
 		if err := s.cancelPublishJobs(txCtx, postID, now); err != nil {
 			return err
 		}
-		updated, err := s.repo.GetPost(txCtx, postID)
-		if err != nil {
-			return err
-		}
-		detail, err = s.loadDetail(txCtx, viewer, following, updated)
+		updated, err = s.repo.GetPost(txCtx, postID)
 		return err
 	})
 	if err != nil {
 		return PostDetail{}, err
 	}
-	return detail, nil
+	return s.loadDetail(ctx, viewer, following, updated)
 }
 
 // publishLocked 把草稿或定时帖发布为已发布内容：写入首个版本、更新当前版本与发布时间，
@@ -435,11 +427,11 @@ func (s *Service) publishLocked(ctx context.Context, postID int64, actorID int64
 	if post.PublishedAt != nil {
 		publishedAt = *post.PublishedAt
 	}
-	versionCount, err := s.repo.CountVersions(ctx, postID)
+	hasVersions, err := s.repo.HasVersions(ctx, postID)
 	if err != nil {
-		return s.wrap(err, "统计历史版本失败")
+		return s.wrap(err, "读取历史版本失败")
 	}
-	if versionCount == 0 {
+	if !hasVersions {
 		attachments, err := s.repo.DraftAttachmentIDs(ctx, postID)
 		if err != nil {
 			return s.wrap(err, "读取草稿附件失败")
@@ -507,7 +499,8 @@ func (s *Service) SchedulePost(
 	if err := s.consumePostQuota(ctx, viewer.ID); err != nil {
 		return PostDetail{}, err
 	}
-	var detail PostDetail
+	var following map[int64]bool
+	var updated model.Post
 	err = s.withTx(ctx, func(txCtx context.Context) error {
 		post, err := s.repo.GetPostForUpdate(txCtx, postID)
 		if err != nil {
@@ -516,7 +509,7 @@ func (s *Service) SchedulePost(
 		if domain.IsDeleted(post.Status) {
 			return apperr.NotFound("内容不存在或无权访问")
 		}
-		following, err := s.requireAuthor(txCtx, viewer, post)
+		following, err = s.requireAuthor(txCtx, viewer, post)
 		if err != nil {
 			return err
 		}
@@ -532,17 +525,13 @@ func (s *Service) SchedulePost(
 		if err := s.enqueuePublishJob(txCtx, postID, at, now); err != nil {
 			return err
 		}
-		updated, err := s.repo.GetPost(txCtx, postID)
-		if err != nil {
-			return err
-		}
-		detail, err = s.loadDetail(txCtx, viewer, following, updated)
+		updated, err = s.repo.GetPost(txCtx, postID)
 		return err
 	})
 	if err != nil {
 		return PostDetail{}, err
 	}
-	return detail, nil
+	return s.loadDetail(ctx, viewer, following, updated)
 }
 
 // CancelSchedule 取消定时，帖子回到草稿状态。
@@ -554,7 +543,8 @@ func (s *Service) CancelSchedule(
 	if err := s.requireWritableViewer(viewer); err != nil {
 		return PostDetail{}, err
 	}
-	var detail PostDetail
+	var following map[int64]bool
+	var updated model.Post
 	err := s.withTx(ctx, func(txCtx context.Context) error {
 		now := s.Now()
 		post, err := s.repo.GetPostForUpdate(txCtx, postID)
@@ -564,7 +554,7 @@ func (s *Service) CancelSchedule(
 		if domain.IsDeleted(post.Status) {
 			return apperr.NotFound("内容不存在或无权访问")
 		}
-		following, err := s.requireAuthor(txCtx, viewer, post)
+		following, err = s.requireAuthor(txCtx, viewer, post)
 		if err != nil {
 			return err
 		}
@@ -579,17 +569,13 @@ func (s *Service) CancelSchedule(
 				return err
 			}
 		}
-		updated, err := s.repo.GetPost(txCtx, postID)
-		if err != nil {
-			return err
-		}
-		detail, err = s.loadDetail(txCtx, viewer, following, updated)
+		updated, err = s.repo.GetPost(txCtx, postID)
 		return err
 	})
 	if err != nil {
 		return PostDetail{}, err
 	}
-	return detail, nil
+	return s.loadDetail(ctx, viewer, following, updated)
 }
 
 // DeletePost 逻辑删除帖子：作者或管理员。管理员删除时在同一事务内写审计。

@@ -443,13 +443,16 @@ func (s *Service) ListMemorySources(ctx context.Context, memoryIDs []int64) ([]c
 	return sources, nil
 }
 
-// ListActiveMemorySourceRefs 读取某 AI 生效记忆引用的内容来源（来源失效复核使用）。消费者：agent。
+// ListActiveMemorySourceRefs 按 keyset 游标读取某 AI 生效记忆引用的内容来源（来源失效复核使用）。
+// after 为零值表示从头开始；返回按 (source_type, source_id) 升序、严格大于游标的来源。
+// 消费者：agent。
 func (s *Service) ListActiveMemorySourceRefs(
 	ctx context.Context,
 	aiID int64,
+	after contracts.MemorySourceRef,
 	limit int,
 ) ([]contracts.MemorySourceRef, error) {
-	records, err := s.repo.ListActiveMemorySourceRefs(ctx, aiID, limit)
+	records, err := s.repo.ListActiveMemorySourceRefs(ctx, aiID, after.SourceType, after.SourceID, limit)
 	if err != nil {
 		return nil, internalError(err, "读取记忆来源引用失败")
 	}

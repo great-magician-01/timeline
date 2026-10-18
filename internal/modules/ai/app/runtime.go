@@ -49,29 +49,23 @@ func (s *Service) RuntimeByAI(ctx context.Context, aiID int64) (contracts.Runtim
 	runtime.Params = generationParamsToContracts(params)
 
 	model := modelSettings.Model
-	if modelSettings.ProviderID != nil {
-		provider, err := s.repo.GetProvider(ctx, *modelSettings.ProviderID)
-		switch {
-		case errors.Is(err, repo.ErrNotFound):
-			// 预设被逻辑删除：保留零值，调用方按 Provider.ID == 0 判定不可用。
-		case err != nil:
-			return contracts.Runtime{}, internalError(err, "读取 AI 模型接口预设失败")
-		default:
-			apiKey, decryptErr := decryptSecret(s.deps.SecretKey, provider.APIKeyCipher)
-			if decryptErr != nil {
-				return contracts.Runtime{}, internalError(decryptErr, "解密模型接口预设的 API Key 失败")
-			}
-			runtime.Provider = providerConfigToContracts(domain.ProviderConfig{
-				ID:           provider.ID,
-				Name:         provider.Name,
-				BaseURL:      provider.BaseURL,
-				APIKey:       apiKey,
-				DefaultModel: provider.DefaultModel,
-				IsEnabled:    provider.IsEnabled,
-			})
-			if model == "" {
-				model = provider.DefaultModel
-			}
+	if modelSettings.ProviderID != nil && modelSettings.ProviderAvailable {
+		// 预设的运行时字段由 GetModelSettings 一次联表读出；预设缺失/逻辑删除时
+		// ProviderAvailable=false，保留零值，调用方按 Provider.ID == 0 判定不可用。
+		apiKey, decryptErr := decryptSecret(s.deps.SecretKey, modelSettings.ProviderAPIKeyCipher)
+		if decryptErr != nil {
+			return contracts.Runtime{}, internalError(decryptErr, "解密模型接口预设的 API Key 失败")
+		}
+		runtime.Provider = providerConfigToContracts(domain.ProviderConfig{
+			ID:           *modelSettings.ProviderID,
+			Name:         modelSettings.ProviderName,
+			BaseURL:      modelSettings.ProviderBaseURL,
+			APIKey:       apiKey,
+			DefaultModel: modelSettings.ProviderDefaultModel,
+			IsEnabled:    modelSettings.ProviderIsEnabled,
+		})
+		if model == "" {
+			model = modelSettings.ProviderDefaultModel
 		}
 	}
 	runtime.Model = model
@@ -101,6 +95,19 @@ func (s *Service) EnabledAIIDs(ctx context.Context) ([]int64, error) {
 	enabled, err := s.repo.EnabledAIIDs(ctx, ids)
 	if err != nil {
 		return nil, internalError(err, "读取启用中的 AI 失败")
+	}
+	return enabled, nil
+}
+
+// ProfileEnabled 轻量读取某个 AI 的启用状态（不装配完整运行时快照）。
+// 消费者：agent（模型返回后复核配置，保留「等待模型期间配置可能变化」的安全语义）。
+func (s *Service) ProfileEnabled(ctx context.Context, aiID int64) (bool, error) {
+	if aiID <= 0 {
+		return false, nil
+	}
+	enabled, err := s.repo.GetProfileEnabled(ctx, aiID)
+	if err != nil {
+		return false, internalError(err, "读取 AI 启用状态失败")
 	}
 	return enabled, nil
 }

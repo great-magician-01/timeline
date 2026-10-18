@@ -15,6 +15,7 @@ func TestCleanupCandidateSQLGuards(t *testing.T) {
 		"purpose = 'post'",
 		"created_at < $1",
 		"a.id <> ALL($2)",
+		"ORDER BY a.created_at, a.id",
 		"LIMIT $3",
 	}
 	for _, guard := range guards {

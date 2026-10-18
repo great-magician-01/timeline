@@ -28,6 +28,9 @@ type ActorPostInput struct {
 	Visibility    string
 	AttachmentIDs []int64
 	QuotedPostID  *int64
+	// AuthorIsAI 是作者账号的 is_ai 快照，写入 posts.author_is_ai 供时间线按作者类型过滤。
+	// 由调用方按已知的 authorID 账号属性显式传入（账号 is_ai 创建后不可变）。
+	AuthorIsAI bool
 	// AsDraft 为 true 时创建草稿（AI 草稿仅管理员可见）；false 时直接发布。
 	AsDraft bool
 	// ScheduledAt 非空时创建定时帖（优先于 AsDraft），由调用方按 clock 校验后传入。
@@ -177,6 +180,11 @@ type ContentService interface {
 	// ListPostIDsByAuthor 读取某作者的全部帖子 ID（含草稿/定时/已发布）。
 	// 消费者：admin（停用账号时暂停其定时发布作业）。
 	ListPostIDsByAuthor(ctx context.Context, authorID int64) ([]int64, error)
+
+	// ListPublicPublishedPostIDsByAuthor 读取某作者「公开且已发布」的帖子 ID
+	// （按 published_at DESC, id DESC，最多 limit 条，命中 posts_author_published 索引）。
+	// 消费者：social（AI 被动回复触发扫描的候选帖子收窄，避免全量帖子 ID + 整行回读）。
+	ListPublicPublishedPostIDsByAuthor(ctx context.Context, authorID int64, limit int) ([]int64, error)
 
 	// ── 附件关联（post_draft_attachments / post_version_attachments 由 content 拥有） ──
 

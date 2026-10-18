@@ -648,6 +648,35 @@ func TestRecheckSourceMemoriesLimitAndErrors(t *testing.T) {
 			t.Fatalf("来源仍公开不应失效: %+v", f.ai.invalidated)
 		}
 	})
+	t.Run("keyset 游标轮转修复覆盖面", func(t *testing.T) {
+		f := newFlowFixture()
+		f.content.posts[100] = publicPost(100, 5)
+		f.content.posts[200] = publicPost(200, 5)
+		// 测试数据按 (source_type, source_id) 升序：post:100 → post:200。
+		f.ai.activeSourceRefs = []contracts.MemorySourceRef{
+			{SourceType: domain.RefPost, SourceID: 100},
+			{SourceType: domain.RefPost, SourceID: 200},
+		}
+		for round := 0; round < 4; round++ {
+			if err := f.svc.recheckSourceMemoriesLimit(context.Background(), 1, 1); err != nil {
+				t.Fatalf("第 %d 轮复核不应失败: %v", round+1, err)
+			}
+		}
+		if len(f.ai.activeRefsAfters) != 4 {
+			t.Fatalf("应有 4 次游标读取，实际 %+v", f.ai.activeRefsAfters)
+		}
+		want := []contracts.MemorySourceRef{
+			{}, // 第一轮从头开始
+			{SourceType: domain.RefPost, SourceID: 100}, // 推进到第一条
+			{SourceType: domain.RefPost, SourceID: 200}, // 推进到第二条
+			{}, // 取尽后归零，下一轮从头轮转
+		}
+		for index, expected := range want {
+			if f.ai.activeRefsAfters[index] != expected {
+				t.Fatalf("第 %d 轮游标错误：期望 %+v 实际 %+v", index+1, expected, f.ai.activeRefsAfters[index])
+			}
+		}
+	})
 	t.Run("读取来源失败", func(t *testing.T) {
 		f := newFlowFixture()
 		f.ai.activeRefsErr = errBoom
@@ -658,7 +687,7 @@ func TestRecheckSourceMemoriesLimitAndErrors(t *testing.T) {
 	t.Run("内容读取基础设施错误", func(t *testing.T) {
 		f := newFlowFixture()
 		f.ai.activeSourceRefs = []contracts.MemorySourceRef{{SourceType: domain.RefPost, SourceID: 100}}
-		f.content.visibleErr = errBoom
+		f.content.postsBatchErr = errBoom
 		if err := f.svc.recheckSourceMemories(context.Background(), 1); !errors.Is(err, errBoom) {
 			t.Fatalf("应透传内容读取错误: %v", err)
 		}
@@ -666,7 +695,7 @@ func TestRecheckSourceMemoriesLimitAndErrors(t *testing.T) {
 	t.Run("评论读取基础设施错误", func(t *testing.T) {
 		f := newFlowFixture()
 		f.ai.activeSourceRefs = []contracts.MemorySourceRef{{SourceType: domain.RefComment, SourceID: 500}}
-		f.social.commentGetErr = errBoom
+		f.social.commentsErr = errBoom
 		if err := f.svc.recheckSourceMemories(context.Background(), 1); !errors.Is(err, errBoom) {
 			t.Fatalf("应透传评论读取错误: %v", err)
 		}

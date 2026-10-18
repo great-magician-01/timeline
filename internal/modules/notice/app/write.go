@@ -53,19 +53,23 @@ func (s *Service) RebuildMentions(ctx context.Context, in contracts.RebuildMenti
 	if err != nil {
 		return err
 	}
-	if err := s.deps.Mentions.DeactivateExcept(ctx, in.SourceType, in.SourceID, userIDs); err != nil {
+	return s.rebuildMentions(ctx, in.SourceType, in.SourceID, userIDs, at)
+}
+
+// PublishMentions 解析提及用户名一次后，重建提及记录并写入提及通知（contracts.NoticeService）。
+//
+// 此前调用方需连续调用 RebuildMentions + MentionNotifications，两次都会重新解析用户名；
+// 这里只解析一次并把解析结果复用给重建与通知两条路径，减少一次账号查询与重复往返。
+func (s *Service) PublishMentions(ctx context.Context, in contracts.PublishMentionsInput) error {
+	at := s.eventTime(in.At)
+	userIDs, err := s.resolveMentionIDs(ctx, in.MentionNames)
+	if err != nil {
 		return err
 	}
-	for _, userID := range userIDs {
-		id, err := s.newID()
-		if err != nil {
-			return err
-		}
-		if err := s.deps.Mentions.Upsert(ctx, id, in.SourceType, in.SourceID, userID, at); err != nil {
-			return err
-		}
+	if err := s.rebuildMentions(ctx, in.SourceType, in.SourceID, userIDs, at); err != nil {
+		return err
 	}
-	return nil
+	return s.notifyMentions(ctx, in.SourceType, in.SourceID, in.PostID, in.AuthorID, userIDs, at)
 }
 
 // MentionNotifications 为已发布的公开内容生成提及通知（contracts.NoticeService）。
@@ -75,21 +79,65 @@ func (s *Service) MentionNotifications(ctx context.Context, in contracts.Mention
 	if err != nil {
 		return err
 	}
+	return s.notifyMentions(ctx, in.SourceType, in.SourceID, in.PostID, in.AuthorID, userIDs, at)
+}
+
+// PublishPostNotifications 在帖子发布时重建提及并写提及通知（contracts.NoticeService）。
+// 内部只解析一次提及用户名，重建与通知复用同一份解析结果。
+func (s *Service) PublishPostNotifications(ctx context.Context, in contracts.PostNotificationsInput) error {
+	at := s.eventTime(in.At)
+	userIDs, err := s.resolveMentionIDs(ctx, in.MentionNames)
+	if err != nil {
+		return err
+	}
+	if err := s.rebuildMentions(ctx, model.NoticeSourcePost, in.PostID, userIDs, at); err != nil {
+		return err
+	}
+	if len(userIDs) == 0 {
+		return nil
+	}
+	return s.notifyMentions(ctx, model.NoticeSourcePost, in.PostID, in.PostID, in.AuthorID, userIDs, at)
+}
+
+// rebuildMentions 用已解析的用户 ID 重建来源对象上的提及：先停用不在保留集合中的旧提及，
+// 再逐个建链/恢复。调用方负责在重建与通知之间复用同一份 userIDs，避免重复解析用户名。
+func (s *Service) rebuildMentions(
+	ctx context.Context, sourceType string, sourceID int64, userIDs []int64, at time.Time,
+) error {
+	if err := s.deps.Mentions.DeactivateExcept(ctx, sourceType, sourceID, userIDs); err != nil {
+		return err
+	}
+	for _, userID := range userIDs {
+		id, err := s.newID()
+		if err != nil {
+			return err
+		}
+		if err := s.deps.Mentions.Upsert(ctx, id, sourceType, sourceID, userID, at); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// notifyMentions 用已解析的用户 ID 写提及通知（接收者校验与幂等键由 CreateNotification 负责）。
+func (s *Service) notifyMentions(
+	ctx context.Context, sourceType string, sourceID, postID, authorID int64, userIDs []int64, at time.Time,
+) error {
 	for _, userID := range userIDs {
 		var commentID *int64
-		if in.SourceType == model.NoticeSourceComment {
-			id := in.SourceID
+		if sourceType == model.NoticeSourceComment {
+			id := sourceID
 			commentID = &id
 		}
-		postID := in.PostID
+		post := postID
 		if err := s.CreateNotification(ctx, contracts.NotificationInput{
-			IdempotencyKey: mentionKey(in.SourceType, in.SourceID, userID),
+			IdempotencyKey: mentionKey(sourceType, sourceID, userID),
 			RecipientID:    userID,
-			ActorID:        in.AuthorID,
+			ActorID:        authorID,
 			Type:           model.NoticeTypeMention,
-			TargetType:     targetTypeForSource(in.SourceType),
-			TargetID:       in.PostID,
-			PostID:         &postID,
+			TargetType:     targetTypeForSource(sourceType),
+			TargetID:       postID,
+			PostID:         &post,
 			CommentID:      commentID,
 			At:             at,
 		}); err != nil {
@@ -97,31 +145,6 @@ func (s *Service) MentionNotifications(ctx context.Context, in contracts.Mention
 		}
 	}
 	return nil
-}
-
-// PublishPostNotifications 在帖子发布时重建提及并写提及通知（contracts.NoticeService）。
-func (s *Service) PublishPostNotifications(ctx context.Context, in contracts.PostNotificationsInput) error {
-	at := s.eventTime(in.At)
-	if err := s.RebuildMentions(ctx, contracts.RebuildMentionsInput{
-		SourceType:   model.NoticeSourcePost,
-		SourceID:     in.PostID,
-		PostID:       in.PostID,
-		MentionNames: in.MentionNames,
-		At:           at,
-	}); err != nil {
-		return err
-	}
-	if len(in.MentionNames) == 0 {
-		return nil
-	}
-	return s.MentionNotifications(ctx, contracts.MentionNotificationsInput{
-		SourceType:   model.NoticeSourcePost,
-		SourceID:     in.PostID,
-		PostID:       in.PostID,
-		AuthorID:     in.AuthorID,
-		MentionNames: in.MentionNames,
-		At:           at,
-	})
 }
 
 // DeactivateMentions 在内容重新变为非公开或删除时停用提及（contracts.NoticeService）。

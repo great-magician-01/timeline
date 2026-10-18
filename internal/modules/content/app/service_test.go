@@ -276,6 +276,32 @@ func TestRequireVisible(t *testing.T) {
 			wantErr: apperr.KindNotFound,
 		},
 		{
+			name:   "公开内容不读取关注集合",
+			viewer: humanViewer(1),
+			post:   published(model.VisibilityPublic),
+			// 公开内容可见性不依赖关注关系：即使社交端口不可用也应放行，证明未发起查询。
+			social: fakeSocial{followErr: errors.New("社交服务不可用")},
+		},
+		{
+			name:   "作者本人不读取关注集合",
+			viewer: humanViewer(2),
+			post:   published(model.VisibilityFollowers),
+			social: fakeSocial{followErr: errors.New("社交服务不可用")},
+		},
+		{
+			name:   "管理员不读取关注集合",
+			viewer: adminViewer(9),
+			post:   published(model.VisibilityFollowers),
+			social: fakeSocial{followErr: errors.New("社交服务不可用")},
+		},
+		{
+			name:    "社交端口失败",
+			viewer:  humanViewer(1),
+			post:    published(model.VisibilityFollowers),
+			social:  fakeSocial{followErr: errors.New("社交服务不可用")},
+			wantErr: apperr.KindInternal,
+		},
+		{
 			name:   "作者本人可看草稿",
 			viewer: humanViewer(2),
 			post:   model.Post{ID: 1, AuthorID: 2, Status: model.PostStatusDraft},
@@ -290,13 +316,6 @@ func TestRequireVisible(t *testing.T) {
 			name:   "管理员可看已删除",
 			viewer: adminViewer(9),
 			post:   model.Post{ID: 1, AuthorID: 2, Status: model.PostStatusDeleted, Visibility: model.VisibilityPrivate},
-		},
-		{
-			name:    "社交端口失败",
-			viewer:  humanViewer(1),
-			post:    published(model.VisibilityPublic),
-			social:  fakeSocial{followErr: errors.New("社交服务不可用")},
-			wantErr: apperr.KindInternal,
 		},
 	}
 	for _, tc := range cases {
@@ -315,12 +334,18 @@ func TestRequireVisible(t *testing.T) {
 }
 
 // TestRequireAuthor 校验作者校验：不可见返回 not_found，可见但非作者返回 forbidden。
+// 作者本人不读取关注集合（社交端口不可用也应通过）。
 func TestRequireAuthor(t *testing.T) {
 	ctx := context.Background()
-	svc := newTestService(t, Deps{})
+	brokenSocial := fakeSocial{followErr: errors.New("社交服务不可用")}
+	svc := newTestService(t, Deps{Social: brokenSocial})
 	if _, err := svc.requireAuthor(ctx, humanViewer(2),
 		model.Post{ID: 1, AuthorID: 2, Status: model.PostStatusDraft}); err != nil {
-		t.Fatalf("作者本人应通过: %v", err)
+		t.Fatalf("作者本人应通过（且不读取关注集合）: %v", err)
+	}
+	if _, err := svc.requireAuthor(ctx, humanViewer(2),
+		model.Post{ID: 1, AuthorID: 2, Status: model.PostStatusPublished, Visibility: model.VisibilityFollowers}); err != nil {
+		t.Fatalf("作者本人应通过（且不读取关注集合）: %v", err)
 	}
 	_, err := svc.requireAuthor(ctx, humanViewer(1),
 		model.Post{ID: 1, AuthorID: 2, Status: model.PostStatusPublished, Visibility: model.VisibilityPublic})
@@ -331,6 +356,134 @@ func TestRequireAuthor(t *testing.T) {
 	_, err = svc.requireAuthor(ctx, humanViewer(1),
 		model.Post{ID: 1, AuthorID: 2, Status: model.PostStatusPublished, Visibility: model.VisibilityPrivate})
 	requireKind(t, err, apperr.KindNotFound)
+
+	// 非作者的仅关注者内容需要读取关注集合，端口失败映射内部错误。
+	_, err = svc.requireAuthor(ctx, humanViewer(1),
+		model.Post{ID: 1, AuthorID: 2, Status: model.PostStatusPublished, Visibility: model.VisibilityFollowers})
+	requireKind(t, err, apperr.KindInternal)
+}
+
+// TestNeedsFollowingSet 校验关注集合懒加载判定：只有「已发布 + 仅关注者可见 + 登录人类
+// 且非作者/管理员」时可见性才取决于关注关系，其余情况都不应读取关注集合。
+func TestNeedsFollowingSet(t *testing.T) {
+	cases := []struct {
+		name   string
+		viewer model.Viewer
+		post   model.Post
+		want   bool
+	}{
+		{
+			name:   "登录人类看他人仅关注者内容",
+			viewer: humanViewer(1),
+			post:   model.Post{AuthorID: 2, Status: model.PostStatusPublished, Visibility: model.VisibilityFollowers},
+			want:   true,
+		},
+		{
+			name:   "公开内容",
+			viewer: humanViewer(1),
+			post:   model.Post{AuthorID: 2, Status: model.PostStatusPublished, Visibility: model.VisibilityPublic},
+			want:   false,
+		},
+		{
+			name:   "仅自己可见",
+			viewer: humanViewer(1),
+			post:   model.Post{AuthorID: 2, Status: model.PostStatusPublished, Visibility: model.VisibilityPrivate},
+			want:   false,
+		},
+		{
+			name:   "草稿",
+			viewer: humanViewer(1),
+			post:   model.Post{AuthorID: 2, Status: model.PostStatusDraft, Visibility: model.VisibilityFollowers},
+			want:   false,
+		},
+		{
+			name:   "已删除",
+			viewer: humanViewer(1),
+			post:   model.Post{AuthorID: 2, Status: model.PostStatusDeleted, Visibility: model.VisibilityFollowers},
+			want:   false,
+		},
+		{
+			name:   "游客",
+			viewer: guestViewer(),
+			post:   model.Post{AuthorID: 2, Status: model.PostStatusPublished, Visibility: model.VisibilityFollowers},
+			want:   false,
+		},
+		{
+			name:   "AI 访问者",
+			viewer: model.Viewer{ID: 1, IsAI: true, Authenticated: true},
+			post:   model.Post{AuthorID: 2, Status: model.PostStatusPublished, Visibility: model.VisibilityFollowers},
+			want:   false,
+		},
+		{
+			name:   "管理员",
+			viewer: adminViewer(9),
+			post:   model.Post{AuthorID: 2, Status: model.PostStatusPublished, Visibility: model.VisibilityFollowers},
+			want:   false,
+		},
+		{
+			name:   "作者本人",
+			viewer: humanViewer(2),
+			post:   model.Post{AuthorID: 2, Status: model.PostStatusPublished, Visibility: model.VisibilityFollowers},
+			want:   false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := needsFollowingSet(tc.viewer, tc.post); got != tc.want {
+				t.Fatalf("needsFollowingSet = %v，期望 %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAuthorTypeFilter 校验时间线 human/ai 过滤映射为 author_is_ai 标志。
+func TestAuthorTypeFilter(t *testing.T) {
+	if got := authorTypeFilter(domain.FilterAll); got != nil {
+		t.Fatalf("all 过滤不应设置作者类型标志: %v", *got)
+	}
+	if got := authorTypeFilter("unknown"); got != nil {
+		t.Fatalf("未知过滤不应设置作者类型标志: %v", *got)
+	}
+	human := authorTypeFilter(domain.FilterHuman)
+	if human == nil || *human {
+		t.Fatalf("human 过滤应映射为 false: %v", human)
+	}
+	ai := authorTypeFilter(domain.FilterAI)
+	if ai == nil || !*ai {
+		t.Fatalf("ai 过滤应映射为 true: %v", ai)
+	}
+}
+
+// TestRankTagSuggestions 校验标签补全排序（帖子数倒序、同名次按名称升序）与上限截断。
+func TestRankTagSuggestions(t *testing.T) {
+	items := []TagSuggestion{
+		{Name: "go", PostCount: 3},
+		{Name: "golang", PostCount: 5},
+		{Name: "gopher", PostCount: 3},
+		{Name: "goroutine", PostCount: 0},
+	}
+	ranked := rankTagSuggestions(items)
+	want := []string{"golang", "go", "gopher", "goroutine"}
+	if len(ranked) != len(want) {
+		t.Fatalf("排序结果数量错误: %#v", ranked)
+	}
+	for i := range want {
+		if ranked[i].Name != want[i] {
+			t.Fatalf("排序结果错误: got=%v want=%v", ranked, want)
+		}
+	}
+
+	// 超过上限时截断到 MaxSuggestCount。
+	many := make([]TagSuggestion, 0, domain.MaxSuggestCount+5)
+	for i := 0; i < domain.MaxSuggestCount+5; i++ {
+		many = append(many, TagSuggestion{Name: "tag" + string(rune('a'+i)), PostCount: i})
+	}
+	if got := rankTagSuggestions(many); len(got) != domain.MaxSuggestCount {
+		t.Fatalf("应截断到 %d 条，实际 %d", domain.MaxSuggestCount, len(got))
+	}
+	if got := rankTagSuggestions(nil); len(got) != 0 {
+		t.Fatalf("空输入应返回空结果，实际 %#v", got)
+	}
 }
 
 // TestTimelineCandidateKey 校验时间线候选游标键。

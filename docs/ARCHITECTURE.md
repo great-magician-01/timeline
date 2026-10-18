@@ -1,7 +1,7 @@
 # Timeline 后端目标架构
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.2.0  
+> **文档版本**：0.3.0  
 > **最近更新**：2026-10-18  
 > **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
 > **关联文档**：[`DATA_MODEL.md`](DATA_MODEL.md)、[`WORKFLOWS.md`](WORKFLOWS.md)、[`API.md`](API.md)、[`DEPLOYMENT.md`](DEPLOYMENT.md)  
@@ -179,7 +179,7 @@ cmd/server ──▶ internal/app
 
 ## 9. 迁移状态
 
-- 迁移文件按文件名追加执行，记录于 `timeline.schema_migrations`；仓库当前包含 `0001`–`0016` 迁移文件（是否已应用以部署记录为准）。
+- 迁移文件按文件名追加执行，记录于 `timeline.schema_migrations`；仓库当前包含 `0001`–`0020` 迁移文件（是否已应用以部署记录为准）。
 - 迁移器 v2（`platform/migrate`）支持首行 `-- timeline:no-transaction`：该文件语句不包事务，用于 `CREATE INDEX CONCURRENTLY`；此类迁移必须幂等（`IF NOT EXISTS`），失败后按顺序人工核对重跑，迁移器不自动回滚。`CONCURRENTLY` 失败留下的 INVALID 索引处置见 `DEPLOYMENT.md` 第 6 章。
 - `0011_drop_time_defaults`：移除 43 个业务时间列的 `DEFAULT now()`，`schema_migrations.applied_at` 为唯一白名单；必须在应用侧“所有写路径显式传时间”上线后执行。
 - `0012_add_avatar_attachment_id`：只加 `users.avatar_attachment_id` 与索引，不回填；回填完成前清理 SQL 不得依赖该列非空。
@@ -187,12 +187,16 @@ cmd/server ──▶ internal/app
 - `0014_search_trgm`：`pg_trgm` 扩展 + `post_search_text_trgm` GIN(`LOWER(plain_text) gin_trgm_ops`)，no-transaction + `CONCURRENTLY`；查询需改写为 `LOWER(plain_text) LIKE '%' || $n || '%'` 才能命中索引，且扩展必须位于连接 `search_path` 内的 schema（生产为 `timeline`）。
 - `0015_drop_unused_indexes`：删除未使用索引 `post_search_updated`。
 - `0016_review_fixes`（普通事务）：当 `avatar_url` 恰为 `/api/v1/attachments/<id>/content` 时用正则提取 ID，回填 `"user".users.avatar_attachment_id`（仅当列为 `NULL`、可重复执行、不改 `updated_at`/业务时间列），并删除与运行期查询形态不匹配的 `timeline.ai_tasks_daily` 索引；保留 `ai_call_logs_retention_id`。这是“迁移默认不回填业务数据”的评审例外，详见 `DATA_MODEL.md` §4.5。
-- **执行顺序**：先切换迁移器 v2（支持 no-transaction），再应用 `0013`/`0014`；旧的事务式迁移器执行 `CREATE INDEX CONCURRENTLY` 会失败。单个升级窗口内按文件名顺序执行到 `0016`，失败时按 `DEPLOYMENT.md` 第 6、9 章人工核对。
+- `0017_sql_review_indexes`（no-transaction + `CONCURRENTLY`）：SQL 最简原则改造的查询索引批次——关注游标覆盖索引、评论作者/顶层/trigram、附件文件名 trigram/有效附件/清理候选、提及时间窗、`background_jobs` running、`ai_tasks` running/last_success、用户与标签搜索表达式索引、引用帖部分索引、`ai_action_counters` 新列序唯一索引。
+- `0018_drop_redundant_indexes`（no-transaction + `CONCURRENTLY`）：删除被 `0017` 覆盖或运行期无查询/与主键等价的索引（`auth_sessions_expiry`、`admin_audit_logs_created`、`users_admin_list`、`post_versions_post`、`posts_quoted`、`ai_tasks_action`、旧 `ai_action_counters_unique`、旧 follows/attachments 被替换索引）；保留 `comments_author`（管理端评论审核按作者过滤时不带 status，新部分索引不能替代）。
+- `0019_author_is_ai_and_attachment_usage`（普通事务）：新增 `posts/reposts.author_is_ai` 快照列并回填 `users.is_ai`；新增 `attachment_usage` 配额冗余计数表并从 `attachments` 明细回填。这是“迁移默认不回填业务数据”的评审例外，依据与幂等条件见文件头注释与 `DATA_MODEL.md` §4.5。
+- `0020_author_is_ai_indexes`（no-transaction + `CONCURRENTLY`）：作者类型时间线索引（`posts`、`reposts`）。
+- **执行顺序**：先切换迁移器 v2（支持 no-transaction），再应用 `0013`/`0014`；旧的事务式迁移器执行 `CREATE INDEX CONCURRENTLY` 会失败。单个升级窗口内按文件名顺序执行到 `0020`，失败时按 `DEPLOYMENT.md` 第 6、9 章人工核对。
 
 ## 10. 当前改造进度（refactor 分支）
 
 - 目标架构已全部落地并接管运行路径：`cmd/server`（进程生命周期）→ `internal/app`（组合根）→ `transport/router`（声明式路由）→ `modules/*` 八域四层；`platform/*`、`shared/*`（model/access/contracts/page/richtext/format/view）、`transport/{httpx,middleware}`、slim `internal/server`、`internal/testkit` 集成测试脚手架、迁移器 v2 与架构守卫均已完成。旧 `internal/*` 业务包已从仓库删除，集成测试迁移到 testkit + `internal/server`/模块 `http` harness。
-- 迁移：`0001`–`0016` 已追加（`0016` 为头像回填与不匹配索引清理）；新树 SQL 不再使用 `now()`/`CURRENT_DATE`/`::date`/`interval` 等数据库时间权威。
+- 迁移：`0001`–`0020` 已追加（`0016` 头像回填与不匹配索引清理；`0017`–`0020` 为 SQL 最简原则改造的查询索引、冗余计数表与作者类型快照列）；新树 SQL 不再使用 `now()`/`CURRENT_DATE`/`::date`/`interval` 等数据库时间权威。
 - 架构守卫：`go test ./internal/architecture` 全绿；扫描范围含新树、`cmd/`、`internal/server` 与 `internal/testkit` 显式例外，新增 `cmd/server` import 白名单、事务原语与遗留符号规则（详见第 8 章）。
 - 本次行为修复（审查问题）：AI 候选范围/目标作者二次授权、任务失败自动重试与 reconcile、记忆沉淀合法值与来源失效复核、`model_override`、联网搜索有限工具轮次、`global_public` 候选与评论/回复开关语义、停机二次校验与暂停范围、发帖限频兜底、搜索 trigram 查询形态、附件/引帖校验事务化、附件清理两步端口流程与头像兜底、作业 Reactivate/人工重试 500/GetJob 404、bootstrap `/api` 503、路由注册竞态、审计单写、资料统计口径、登录标识索引写法、架构守卫扩展与 `0016` 迁移。
 - 待完成：SQL/索引性能验证（`EXPLAIN`、对账任务）；完整 P0/SEC 人工验收与部署机复演（`docs/ACCEPTANCE.md`、`docs/DEPLOYMENT.md`）。
@@ -212,6 +216,7 @@ cmd/server ──▶ internal/app
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.3.0 | SQL 最简原则改造同步：§9 迁移状态更新到 `0001`–`0020` 并说明 `0017`–`0020`（查询索引批次、冗余/无效索引删除、`author_is_ai` 快照列 + 回填、`attachment_usage` 配额冗余表）；§10 进度更新迁移范围；数据所有权与依赖边界不变（新增 `shared/search` 纯函数辅助包；`attachment_usage` 归 media、`author_is_ai` 随所属内容表由 content/social 写）。 |
 | 2026-10-18 | 0.2.0 | 重构完成 + 本次行为修复同步：§2 目录按实际结构修正（`app` 无独立 `bootstrap.go`，Bootstrap 在 `app.go`；补 `readers.go`/`adapters.go`、`shared/format`、`shared/view`、`internal/architecture`、`internal/testkit`）；§3 修正 `cmd/server` 实际 import 白名单（`app`、`platform/{config,db,id,logging,migrate,storage}`、`server`）；§8 守卫改为覆盖新树/`cmd/`/`internal/server` 与 `internal/testkit` 例外，新增 import 白名单、事务原语与遗留符号规则，删除“旧包待删除”表述；§9 迁移补 `0016_review_fixes` 并明确 INVALID 索引处置与 `pg_trgm` schema 要求；§10 进度更新为“目标架构完成 + 本次行为修复清单 + 待完成项”。 |
 | 2026-10-18 | 0.1.1 | 版本/基线同步（不改变架构结构）：需求基线更新至 `REQUIREMENTS.md` 0.24.1；§10 改造进度更新为当前状态（`internal/app` 组合根与 `transport/router` 已接管运行路径、八域模块四层实现完成、旧包退出运行路径仅剩删除与测试迁移、G6–G8 收尾项）。 |
 | 2026-10-18 | 0.1.0 | 首次建立后端目标架构文档：模块化单体与九条原则、目录结构、模块四层职责、依赖方向与允许 import、数据所有权、端口与 contracts、事务/错误/时间规范、路由策略组、架构守卫（`internal/architecture`）、迁移状态（0001–0015，含 no-transaction 与时间默认值移除）与当前改造进度。 |

@@ -136,13 +136,3 @@ func TestInternalErrorMapping(t *testing.T) {
 		t.Fatalf("内部错误不应泄露底层原因，实际 %q", domainErr.Message)
 	}
 }
-
-// TestUploadLimitsDefaultsWithoutSettings 未装配设置时 UploadLimits 返回代码内默认值。
-func TestUploadLimitsDefaultsWithoutSettings(t *testing.T) {
-	svc := &Service{log: discardLogger()}
-	maxRequest, maxUpload := svc.UploadLimits(context.Background())
-	want := defaultSystemSettings()
-	if maxRequest != want.MaxRequestBytes || maxUpload != want.MaxUploadBytes {
-		t.Fatalf("上传上限 = %d/%d，期望 %d/%d", maxRequest, maxUpload, want.MaxRequestBytes, want.MaxUploadBytes)
-	}
-}

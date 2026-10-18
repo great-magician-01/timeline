@@ -199,7 +199,7 @@ func TestGetProfileMatrix(t *testing.T) {
 	})
 
 	t.Run("返回统计与关注状态", func(t *testing.T) {
-		svc.stats = fakeStats{value: ProfileStats{Posts: 3, Comments: 4, Followers: 5, Following: 6, LikesGiven: 7, LikesReceived: 8, Reposts: 9}}
+		svc.stats = fakeStats{value: ProfileStats{Posts: 3, Followers: 5, Following: 6}}
 		svc.relations = fakeRelations{state: model.FollowStateFollowing}
 		t.Cleanup(func() {
 			svc.stats = nil
@@ -213,7 +213,7 @@ func TestGetProfileMatrix(t *testing.T) {
 		if result.User.ID != author.ID || result.FollowState != model.FollowStateFollowing {
 			t.Fatalf("资料/关注状态不符: %+v", result)
 		}
-		if result.Stats.Posts != 3 || result.Stats.Followers != 5 || result.Stats.Reposts != 9 {
+		if result.Stats.Posts != 3 || result.Stats.Followers != 5 || result.Stats.Following != 6 {
 			t.Fatalf("统计不符: %+v", result.Stats)
 		}
 	})
@@ -309,4 +309,21 @@ func TestSearchUsersPagination(t *testing.T) {
 			t.Fatalf("仓储失败应返回 Internal，实际: %v", err)
 		}
 	})
+}
+
+// TestSearchUsersEscapesLikeWildcards 关键词中的 LIKE 通配符必须先转义再交给 repo，
+// 保证 `LIKE '%'||$1||'%' ESCAPE '\'` 按字面量匹配（与改造前的 STRPOS 语义一致）。
+func TestSearchUsersEscapesLikeWildcards(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _, _, _ := newTestService(t, true)
+	repo := &stubUserRepo{fakeUserRepo: users}
+	svc.users = repo
+
+	if _, err := svc.SearchUsers(ctx, "A_b%c\\", 0, 20); err != nil {
+		t.Fatalf("搜索失败: %v", err)
+	}
+	want := `a\_b\%c\\`
+	if repo.lastSearchKeyword != want {
+		t.Fatalf("repo 收到关键词 = %q，期望转义后的 %q", repo.lastSearchKeyword, want)
+	}
 }

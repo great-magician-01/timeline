@@ -214,11 +214,7 @@ func (f *fakeNotices) CreateNotification(_ context.Context, _ contracts.Notifica
 	return nil
 }
 
-func (f *fakeNotices) RebuildMentions(context.Context, contracts.RebuildMentionsInput) error {
-	return nil
-}
-
-func (f *fakeNotices) MentionNotifications(context.Context, contracts.MentionNotificationsInput) error {
+func (f *fakeNotices) PublishMentions(context.Context, contracts.PublishMentionsInput) error {
 	return nil
 }
 
@@ -291,8 +287,6 @@ func (f *fakeRequests) UpdateStatus(_ context.Context, _ int64, status string, _
 	f.updatedState = status
 	return nil
 }
-
-func (f *fakeRequests) HasPending(context.Context, int64, int64) (bool, error) { return false, nil }
 
 func (f *fakeRequests) ListPendingIncoming(context.Context, int64, int64, int) ([]app.RequestRow, error) {
 	if f.incomingErr != nil {
@@ -432,7 +426,7 @@ func newFakeReposts() *fakeReposts {
 }
 
 func (f *fakeReposts) Activate(
-	_ context.Context, id, _ int64, _ int64, _ time.Time,
+	_ context.Context, id, _, _ int64, _ bool, _ time.Time,
 ) (int64, bool, error) {
 	return id, f.activateChanged, nil
 }

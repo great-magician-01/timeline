@@ -241,6 +241,18 @@ func (f *fakeUsers) CountHumanUsers(_ context.Context) (int64, error) {
 	return count, nil
 }
 
+func (f *fakeUsers) HasHumanUser(_ context.Context) (bool, error) {
+	if f.countHumanErr != nil {
+		return false, f.countHumanErr
+	}
+	for _, user := range f.users {
+		if !user.IsAI {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // ===== 会话仓储 fake =====
 
 type fakeSessionEntry struct {

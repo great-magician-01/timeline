@@ -49,11 +49,6 @@ const (
 
 	sqlRequestCancelPending = `UPDATE follow_requests SET status = 'canceled', resolved_at = $3
 		WHERE requester_id = $1 AND target_id = $2 AND status = 'pending'`
-
-	sqlRequestHasPending = `SELECT EXISTS (
-		SELECT 1 FROM follow_requests
-		WHERE requester_id = $1 AND target_id = $2 AND status = 'pending'
-	)`
 )
 
 // InsertPending 创建待处理申请；已有 pending 申请时 changed 为 false。
@@ -83,13 +78,6 @@ func (r *RequestRepo) GetForUpdate(ctx context.Context, id int64) (domain.Reques
 func (r *RequestRepo) UpdateStatus(ctx context.Context, id int64, status string, resolvedAt time.Time) error {
 	_, err := db.ExecutorFrom(ctx, r.pool).Exec(ctx, sqlRequestUpdateStatus, id, status, resolvedAt)
 	return err
-}
-
-// HasPending 报告 requester 是否已向 target 发出待处理申请。
-func (r *RequestRepo) HasPending(ctx context.Context, requesterID, targetID int64) (bool, error) {
-	var pending bool
-	err := db.ExecutorFrom(ctx, r.pool).QueryRow(ctx, sqlRequestHasPending, requesterID, targetID).Scan(&pending)
-	return pending, err
 }
 
 // ListPendingIncoming 列出待我审批的申请。

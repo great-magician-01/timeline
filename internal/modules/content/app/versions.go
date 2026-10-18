@@ -92,7 +92,8 @@ func (s *Service) RestoreVersion(
 	if err := s.consumePostQuota(ctx, viewer.ID); err != nil {
 		return PostDetail{}, err
 	}
-	var detail PostDetail
+	var following map[int64]bool
+	var updated model.Post
 	err := s.withTx(ctx, func(txCtx context.Context) error {
 		post, err := s.repo.GetPostForUpdate(txCtx, postID)
 		if err != nil {
@@ -101,7 +102,7 @@ func (s *Service) RestoreVersion(
 		if domain.IsDeleted(post.Status) {
 			return apperr.NotFound("内容不存在或无权访问")
 		}
-		following, err := s.requireAuthor(txCtx, viewer, post)
+		following, err = s.requireAuthor(txCtx, viewer, post)
 		if err != nil {
 			return err
 		}
@@ -162,20 +163,17 @@ func (s *Service) RestoreVersion(
 			txCtx, postID, newVersionID, version.Visibility, now); err != nil {
 			return s.wrap(err, "更新当前版本失败")
 		}
-		updated, err := s.repo.GetPost(txCtx, postID)
+		updated, err = s.repo.GetPost(txCtx, postID)
 		if err != nil {
 			return err
 		}
-		if err := s.rebuildDerived(txCtx, updated, version.PlainText, now); err != nil {
-			return err
-		}
-		detail, err = s.loadDetail(txCtx, viewer, following, updated)
-		return err
+		return s.rebuildDerived(txCtx, updated, version.PlainText, now)
 	})
 	if err != nil {
 		return PostDetail{}, err
 	}
-	return detail, nil
+	// 详情组装在事务提交后执行，不占 posts 行锁。
+	return s.loadDetail(ctx, viewer, following, updated)
 }
 
 // versionAttachmentViews 读取版本快照引用附件的展示视图。

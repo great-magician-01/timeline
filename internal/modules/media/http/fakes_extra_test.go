@@ -703,7 +703,7 @@ var derivativeRowColumns = []pgColumn{
 	{"attempts", oidInt4}, {"created_at", oidTimestamptz}, {"updated_at", oidTimestamptz},
 }
 
-var sumSizeColumn = []pgColumn{{"coalesce", oidInt8}}
+var usageColumn = []pgColumn{{"used_bytes", oidInt8}}
 
 func attachmentResult(row repo.AttachmentRow) pgResult {
 	return pgResult{columns: attachmentRowColumns, rows: [][]any{attachmentRowValues(row)}}
@@ -721,8 +721,9 @@ func derivativeResult(row repo.Derivative) pgResult {
 	}
 }
 
-func sumSizeResult(total int64) pgResult {
-	return pgResult{columns: sumSizeColumn, rows: [][]any{{total}}}
+// usageResult 返回上传者已用存储空间（模拟 repo.Usage 的 attachment_usage 点查）。
+func usageResult(total int64) pgResult {
+	return pgResult{columns: usageColumn, rows: [][]any{{total}}}
 }
 
 func commandResult(tag string) pgResult { return pgResult{tag: tag} }

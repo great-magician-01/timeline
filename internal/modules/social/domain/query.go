@@ -31,8 +31,10 @@ type RepostEvent struct {
 type RepostEventQuery struct {
 	AuthorID     int64
 	FollowingIDs []int64
-	// AllowedIDs 非 nil 时只保留这些用户（human/ai 过滤）；空切片表示过滤后无结果。
-	AllowedIDs []int64
+	// AuthorIsAI 非 nil 时按转发者账号类型过滤（false=仅人类，true=仅 AI）；
+	// 直接命中 reposts.author_is_ai 快照列与 reposts_author_type_timeline 部分索引，
+	// 不再先查询全量账号 ID 再以无界数组下传。
+	AuthorIsAI *bool
 	AfterAt    time.Time
 	AfterID    int64
 	Limit      int

@@ -41,6 +41,18 @@ type RebuildMentionsInput struct {
 	At           time.Time
 }
 
+// PublishMentionsInput 是一次「重建提及 + 写提及通知」的派生投影更新输入。
+// 消费者：social（评论创建/编辑后的提及派生）。
+type PublishMentionsInput struct {
+	SourceType   string // model.NoticeSourcePost / model.NoticeSourceComment
+	SourceID     int64
+	PostID       int64
+	AuthorID     int64
+	PlainText    string
+	MentionNames []string
+	At           time.Time
+}
+
 // MentionNotificationsInput 为已发布的公开内容生成提及通知。
 // 消费者：content（帖子）、social（评论）。
 type MentionNotificationsInput struct {
@@ -84,6 +96,11 @@ type NoticeService interface {
 
 	// RebuildMentions 按当前正文重建提及记录。消费者：content、social。
 	RebuildMentions(ctx context.Context, in RebuildMentionsInput) error
+
+	// PublishMentions 解析提及用户名一次后，同时重建提及记录并写入提及通知，
+	// 避免调用方连续调用 RebuildMentions + MentionNotifications 造成重复解析与重复往返。
+	// 消费者：social（评论创建/编辑）。
+	PublishMentions(ctx context.Context, in PublishMentionsInput) error
 
 	// MentionNotifications 为已发布公开内容生成提及通知。消费者：content、social。
 	MentionNotifications(ctx context.Context, in MentionNotificationsInput) error

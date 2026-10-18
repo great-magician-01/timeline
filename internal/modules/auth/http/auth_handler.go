@@ -88,6 +88,8 @@ func (h *Handler) Login(c *gin.Context) {
 }
 
 // Me 处理 GET /api/v1/auth/me：返回当前账号私有资料与会话 CSRF 令牌。
+// 账号行优先复用 ResolveSession 解析会话时 JOIN 读到的结果，不再二次按 ID 查询；
+// 仅在上下文缺失该用户行（例如直接构造上下文的单元测试）时回退到 GetUser。
 func (h *Handler) Me(c *gin.Context) {
 	viewer, ok := httpx.RequireViewer(c)
 	if !ok {
@@ -98,10 +100,14 @@ func (h *Handler) Me(c *gin.Context) {
 		httpx.Error(c, stdhttp.StatusUnauthorized, "unauthenticated", "请先登录")
 		return
 	}
-	user, err := h.svc.GetUser(c.Request.Context(), viewer.ID)
-	if err != nil {
-		h.fail(c, "读取当前账号失败", err)
-		return
+	user, ok := sessionUser(c)
+	if !ok {
+		var err error
+		user, err = h.svc.GetUser(c.Request.Context(), viewer.ID)
+		if err != nil {
+			h.fail(c, "读取当前账号失败", err)
+			return
+		}
 	}
 	c.JSON(stdhttp.StatusOK, meResponse{
 		User:      privateUser(user),

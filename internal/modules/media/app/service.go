@@ -153,13 +153,6 @@ func (s *Service) wrap(message string, err error) error {
 	return s.internal(message, err)
 }
 
-// UploadLimits 返回 http 层读取 multipart 请求体前需要的上限：
-// 请求体上限与单文件上限。设置读取失败时回退默认值。
-func (s *Service) UploadLimits(ctx context.Context) (maxRequestBytes, maxUploadBytes int64) {
-	values := s.settingsOrDefaults(ctx)
-	return values.MaxRequestBytes, values.MaxUploadBytes
-}
-
 // 编译期断言：Service 实现 contracts.MediaService（content/admin 的消费端口）。
 //
 // 说明：ContentPort 含 ActiveDraftAttachmentIDs（由 content 模块新增并通过组合根注入），

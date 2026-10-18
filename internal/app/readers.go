@@ -57,13 +57,9 @@ func (a profileStatsAdapter) ProfileStats(ctx context.Context, userID int64) (au
 		return authapp.ProfileStats{}, err
 	}
 	return authapp.ProfileStats{
-		Posts:         stats.Posts,
-		Comments:      stats.Comments,
-		Followers:     stats.Followers,
-		Following:     stats.Following,
-		LikesGiven:    stats.LikesGiven,
-		LikesReceived: stats.LikesReceived,
-		Reposts:       stats.Reposts,
+		Posts:     stats.Posts,
+		Followers: stats.Followers,
+		Following: stats.Following,
 	}, nil
 }
 

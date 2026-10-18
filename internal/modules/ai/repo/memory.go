@@ -302,9 +302,17 @@ func (s *Store) ListMemorySources(ctx context.Context, memoryIDs []int64) ([]dom
 	return sources, rows.Err()
 }
 
-// ListActiveMemorySourceRefs 读取某 AI 生效记忆引用的内容来源（去重、有限条数）：
+// ListActiveMemorySourceRefs 按 keyset 游标读取某 AI 生效记忆引用的内容来源（去重、有限条数）：
 // 同时覆盖直接引用（ai_memories.source_ref_*）与沉淀时写入的来源关联（ai_memory_sources）。
-func (s *Store) ListActiveMemorySourceRefs(ctx context.Context, aiID int64, limit int) ([]domain.MemorySource, error) {
+// afterType/afterID 为空/0 表示从头开始；返回按 (source_type, source_id) 升序、严格大于游标的来源。
+// 游标条件同时下推到两个 UNION 分支，避免每轮把全部来源物化后再过滤。
+func (s *Store) ListActiveMemorySourceRefs(
+	ctx context.Context,
+	aiID int64,
+	afterType string,
+	afterID int64,
+	limit int,
+) ([]domain.MemorySource, error) {
 	if aiID <= 0 {
 		return nil, nil
 	}
@@ -317,14 +325,16 @@ func (s *Store) ListActiveMemorySourceRefs(ctx context.Context, aiID int64, limi
 			FROM ai_memories
 			WHERE ai_id = $1 AND status = 'active'
 			  AND source_ref_type IN ('post', 'comment') AND source_ref_id IS NOT NULL
+			  AND (source_ref_type, source_ref_id) > ($2, $3)
 			UNION
 			SELECT DISTINCT s.source_type, s.source_id
 			FROM ai_memory_sources AS s
 			JOIN ai_memories AS m ON m.id = s.memory_id
 			WHERE m.ai_id = $1 AND m.status = 'active'
+			  AND (s.source_type, s.source_id) > ($2, $3)
 		) AS sources
 		ORDER BY source_type, source_id
-		LIMIT $2`, aiID, limit)
+		LIMIT $4`, aiID, afterType, afterID, limit)
 	if err != nil {
 		return nil, err
 	}

@@ -6,12 +6,17 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/great-magician-01/timeline/internal/modules/auth/domain"
+	"github.com/great-magician-01/timeline/internal/shared/model"
 	"github.com/great-magician-01/timeline/internal/transport/httpx"
 )
 
 // sessionStateContextKey 保存 ResolveSession 的解析结果，供 RequireLogin 区分
 // 「未登录」与「停用/失效会话」并映射为不同状态码。
 const sessionStateContextKey = "timeline.auth.session_state"
+
+// sessionUserContextKey 保存 ResolveSession 已读取的完整账号行，供 /auth/me 复用，
+// 避免同一请求内再按 ID 读取一次 users。
+const sessionUserContextKey = "timeline.auth.session_user"
 
 func setSessionState(c *gin.Context, state domain.SessionState) {
 	c.Set(sessionStateContextKey, state)
@@ -24,6 +29,21 @@ func sessionStateOf(c *gin.Context) (domain.SessionState, bool) {
 	}
 	state, ok := value.(domain.SessionState)
 	return state, ok
+}
+
+// setSessionUser 保存会话解析已读到的账号行（仅有效会话写入）。
+func setSessionUser(c *gin.Context, user model.User) {
+	c.Set(sessionUserContextKey, user)
+}
+
+// sessionUser 读取会话解析已读到的账号行；不存在时返回零值与 false。
+func sessionUser(c *gin.Context) (model.User, bool) {
+	value, ok := c.Get(sessionUserContextKey)
+	if !ok {
+		return model.User{}, false
+	}
+	user, ok := value.(model.User)
+	return user, ok
 }
 
 // ResolveSession 在每个请求最多解析一次服务端会话，并把身份写入 httpx 上下文：
@@ -51,6 +71,8 @@ func (h *Handler) ResolveSession(c *gin.Context) {
 	if result.State.IsAuthenticated() {
 		httpx.SetViewer(c, result.Viewer)
 		httpx.SetSession(c, result.Session)
+		// 复用 JOIN 已取回的完整账号行，供 /auth/me 等处理器使用。
+		setSessionUser(c, result.User)
 		c.Next()
 		return
 	}

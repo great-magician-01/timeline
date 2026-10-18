@@ -71,7 +71,8 @@ func (s *Service) CreatePostForActor(
 			CreatedAt:    now,
 			UpdatedAt:    now,
 		}
-		if err := s.repo.InsertPost(txCtx, post); err != nil {
+		// author_is_ai 由调用方按作者账号属性显式传入（账号 is_ai 创建后不可变）。
+		if err := s.repo.InsertPost(txCtx, post, in.AuthorIsAI); err != nil {
 			return s.wrap(err, "写入帖子失败")
 		}
 		if err := s.repo.InsertDraft(txCtx, repo.Draft{
@@ -383,6 +384,20 @@ func (s *Service) ListPostIDsByAuthor(ctx context.Context, authorID int64) ([]in
 	ids, err := s.repo.ListPostIDsByAuthor(ctx, authorID)
 	if err != nil {
 		return nil, s.wrap(err, "读取作者帖子失败")
+	}
+	return ids, nil
+}
+
+// ListPublicPublishedPostIDsByAuthor 读取某作者「公开且已发布」的帖子 ID
+// （按 published_at DESC, id DESC，最多 limit 条）。消费者：social（AI 被动回复触发候选收窄）。
+func (s *Service) ListPublicPublishedPostIDsByAuthor(
+	ctx context.Context,
+	authorID int64,
+	limit int,
+) ([]int64, error) {
+	ids, err := s.repo.ListPublicPublishedPostIDsByAuthor(ctx, authorID, limit)
+	if err != nil {
+		return nil, s.wrap(err, "读取作者公开帖子失败")
 	}
 	return ids, nil
 }

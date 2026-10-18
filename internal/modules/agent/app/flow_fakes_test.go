@@ -25,7 +25,7 @@ type flowContent struct {
 	createdPosts     []contracts.ActorPostInput
 	createdPost      model.Post
 	createPostErr    error
-	visibleErr       error
+	postsBatchErr    error
 	getPost          map[int64]model.Post
 	getPostErr       error
 	excerpts         map[int64]string
@@ -53,11 +53,11 @@ func (f *flowContent) CreatePostForActor(_ context.Context, in contracts.ActorPo
 	return publicPost(7001, in.AuthorID), nil
 }
 
-func (f *flowContent) GetVisiblePost(ctx context.Context, viewer model.Viewer, postID int64) (model.Post, error) {
-	if f.visibleErr != nil {
-		return model.Post{}, f.visibleErr
+func (f *flowContent) GetPosts(ctx context.Context, postIDs []int64) (map[int64]model.Post, error) {
+	if f.postsBatchErr != nil {
+		return nil, f.postsBatchErr
 	}
-	return f.fakeContent.GetVisiblePost(ctx, viewer, postID)
+	return f.fakeContent.GetPosts(ctx, postIDs)
 }
 
 func (f *flowContent) GetPost(_ context.Context, postID int64) (model.Post, error) {
@@ -115,6 +115,7 @@ type flowSocial struct {
 	createdComment model.Comment
 	commentErr     error
 	commentGetErr  error
+	commentsErr    error
 
 	likeInputs   []contracts.LikeInput
 	likeActive   bool
@@ -146,6 +147,13 @@ func (f *flowSocial) GetComment(ctx context.Context, commentID int64) (model.Com
 		return model.Comment{}, f.commentGetErr
 	}
 	return f.fakeSocial.GetComment(ctx, commentID)
+}
+
+func (f *flowSocial) GetComments(ctx context.Context, commentIDs []int64) (map[int64]model.Comment, error) {
+	if f.commentsErr != nil {
+		return nil, f.commentsErr
+	}
+	return f.fakeSocial.GetComments(ctx, commentIDs)
 }
 
 func (f *flowSocial) CreateCommentForActor(_ context.Context, in contracts.ActorCommentInput) (model.Comment, error) {
@@ -248,6 +256,7 @@ type flowAI struct {
 	memorySourcesErr       error
 	activeRefsErr          error
 	activeRefsLimits       []int
+	activeRefsAfters       []contracts.MemorySourceRef
 	invalidateErr          error
 	invalidateBySourcesErr error
 	createMemoryErr        error
@@ -307,12 +316,18 @@ func (f *flowAI) ListMemorySources(ctx context.Context, memoryIDs []int64) ([]co
 	return f.fakeAI.ListMemorySources(ctx, memoryIDs)
 }
 
-func (f *flowAI) ListActiveMemorySourceRefs(ctx context.Context, aiID int64, limit int) ([]contracts.MemorySourceRef, error) {
+func (f *flowAI) ListActiveMemorySourceRefs(
+	_ context.Context,
+	_ int64,
+	after contracts.MemorySourceRef,
+	limit int,
+) ([]contracts.MemorySourceRef, error) {
 	f.activeRefsLimits = append(f.activeRefsLimits, limit)
+	f.activeRefsAfters = append(f.activeRefsAfters, after)
 	if f.activeRefsErr != nil {
 		return nil, f.activeRefsErr
 	}
-	return f.fakeAI.ListActiveMemorySourceRefs(ctx, aiID, limit)
+	return pageMemorySourceRefs(f.fakeAI.activeSourceRefs, after, limit), nil
 }
 
 func (f *flowAI) CreateMemory(ctx context.Context, in contracts.CreateMemoryInput) (contracts.Memory, error) {
@@ -412,12 +427,20 @@ func (f *flowTasks) InsertTask(_ context.Context, in repo.TaskInsert) (bool, err
 	return true, nil
 }
 
-func (f *flowTasks) ClaimTask(_ context.Context, taskID int64, _ time.Time, _ time.Duration) (int, bool, error) {
+func (f *flowTasks) ClaimTask(_ context.Context, taskID int64, _ time.Time, _ time.Duration) (repo.Task, bool, error) {
 	f.claims = append(f.claims, taskID)
 	if f.claimErr != nil {
-		return 0, false, f.claimErr
+		return repo.Task{}, false, f.claimErr
 	}
-	return f.claimAttempts, f.claimed, nil
+	if !f.claimed {
+		return repo.Task{}, false, nil
+	}
+	task, ok := f.tasks[taskID]
+	if !ok {
+		task = repo.Task{ID: taskID}
+	}
+	task.Attempts = f.claimAttempts
+	return task, true, nil
 }
 
 func (f *flowTasks) UpdateTaskResult(ctx context.Context, in repo.TaskResultUpdate) error {
@@ -452,6 +475,19 @@ func (f *flowTasks) ListMemoryRefs(_ context.Context, taskID int64) ([]repo.Memo
 		return nil, f.memoryRefsErr
 	}
 	return f.memoryRefs[taskID], nil
+}
+
+func (f *flowTasks) ListMemoryRefsByTaskIDs(_ context.Context, taskIDs []int64) (map[int64][]repo.MemoryRef, error) {
+	if f.memoryRefsErr != nil {
+		return nil, f.memoryRefsErr
+	}
+	refs := make(map[int64][]repo.MemoryRef, len(taskIDs))
+	for _, taskID := range taskIDs {
+		if taskRefs, ok := f.memoryRefs[taskID]; ok {
+			refs[taskID] = taskRefs
+		}
+	}
+	return refs, nil
 }
 
 func (f *flowTasks) GetTask(ctx context.Context, taskID int64) (repo.Task, error) {
@@ -532,6 +568,19 @@ func (f *flowCounters) TotalActions(_ context.Context, aiID int64, _ time.Time) 
 		return 0, f.totalErr
 	}
 	return f.totals[aiID], nil
+}
+
+func (f *flowCounters) TotalActionsByAIIDs(_ context.Context, aiIDs []int64, _ time.Time) (map[int64]int64, error) {
+	if f.totalErr != nil {
+		return nil, f.totalErr
+	}
+	counts := make(map[int64]int64, len(aiIDs))
+	for _, aiID := range aiIDs {
+		if total, ok := f.totals[aiID]; ok {
+			counts[aiID] = int64(total)
+		}
+	}
+	return counts, nil
 }
 
 func (f *flowCounters) LastSucceededAt(_ context.Context, _ int64, triggerType string) (*time.Time, error) {

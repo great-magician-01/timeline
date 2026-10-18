@@ -43,18 +43,26 @@ func (s *Service) RecentTaskBriefs(ctx context.Context, aiID int64, limit int) (
 }
 
 // TodayActionCounts 统计一批 AI 在指定日界的动作计数（ai_action_counters 当日累计）。
+// 一次批量 GROUP BY 查询完成，不再逐 AI 往返（管理端 AI 列表每页 20~50 条）。
 // 消费者：组合根 internal/app 的 ai.TaskReader adapter。
 func (s *Service) TodayActionCounts(ctx context.Context, aiIDs []int64, dayStart time.Time) (map[int64]int, error) {
 	result := make(map[int64]int, len(aiIDs))
+	ids := make([]int64, 0, len(aiIDs))
 	for _, aiID := range aiIDs {
 		if aiID <= 0 {
 			continue
 		}
-		count, err := s.deps.Counters.TotalActions(ctx, aiID, dayStart)
-		if err != nil {
-			return nil, err
-		}
-		result[aiID] = count
+		ids = append(ids, aiID)
+	}
+	if len(ids) == 0 {
+		return result, nil
+	}
+	counts, err := s.deps.Counters.TotalActionsByAIIDs(ctx, ids, dayStart)
+	if err != nil {
+		return nil, err
+	}
+	for aiID, count := range counts {
+		result[aiID] = int(count)
 	}
 	return result, nil
 }

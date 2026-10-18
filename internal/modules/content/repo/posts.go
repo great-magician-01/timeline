@@ -48,15 +48,21 @@ func (r *Repo) GetPosts(ctx context.Context, postIDs []int64) (map[int64]model.P
 	return result, rows.Err()
 }
 
+// sqlInsertPost 写入帖子行（单独定义便于纯函数测试断言列清单）。
+// author_is_ai 是作者账号 is_ai 快照列（0019 迁移新增），供时间线按作者类型直接过滤。
+const sqlInsertPost = `
+	INSERT INTO posts (
+		id, author_id, status, visibility, quoted_post_id, scheduled_at,
+		published_at, created_at, updated_at, author_is_ai
+	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+
 // InsertPost 写入帖子行；创建与更新时间由调用方显式传入。
-func (r *Repo) InsertPost(ctx context.Context, post model.Post) error {
-	_, err := r.ex(ctx).Exec(ctx, `
-		INSERT INTO posts (
-			id, author_id, status, visibility, quoted_post_id, scheduled_at,
-			published_at, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+// authorIsAI 是作者账号 is_ai 的快照（账号创建后不可变），供时间线按作者类型直接过滤列，
+// 不再在应用层全量解析账号 ID 集合。
+func (r *Repo) InsertPost(ctx context.Context, post model.Post, authorIsAI bool) error {
+	_, err := r.ex(ctx).Exec(ctx, sqlInsertPost,
 		post.ID, post.AuthorID, post.Status, post.Visibility, post.QuotedPostID,
-		post.ScheduledAt, post.PublishedAt, post.CreatedAt, post.UpdatedAt)
+		post.ScheduledAt, post.PublishedAt, post.CreatedAt, post.UpdatedAt, authorIsAI)
 	return err
 }
 
@@ -170,12 +176,13 @@ func (r *Repo) BumpCounter(ctx context.Context, postID int64, counter string, de
 	return value, nil
 }
 
-// CountVersions 统计帖子的历史版本数量。
-func (r *Repo) CountVersions(ctx context.Context, postID int64) (int, error) {
-	var count int
+// HasVersions 判断帖子是否已有历史版本（发布路径只需判空）。
+// 用 EXISTS 命中 post_versions_post_number_unique 前缀即可短路，不扫描全部版本行。
+func (r *Repo) HasVersions(ctx context.Context, postID int64) (bool, error) {
+	var exists bool
 	err := r.ex(ctx).QueryRow(ctx,
-		`SELECT COUNT(*) FROM post_versions WHERE post_id = $1`, postID).Scan(&count)
-	return count, err
+		`SELECT EXISTS (SELECT 1 FROM post_versions WHERE post_id = $1)`, postID).Scan(&exists)
+	return exists, err
 }
 
 // ListPostIDsByAuthor 读取某作者的全部帖子 ID（含草稿/定时/已发布）。
@@ -187,6 +194,37 @@ func (r *Repo) ListPostIDsByAuthor(ctx context.Context, authorID int64) ([]int64
 	}
 	defer rows.Close()
 	ids := make([]int64, 0, 16)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// ListPublicPublishedPostIDsByAuthor 读取某作者「公开且已发布」的帖子 ID
+// （按 published_at DESC, id DESC，最多 limit 条）：命中 posts_author_published 局部索引，
+// 供 social 收窄 AI 被动回复候选，不再全量读回帖子行后过滤。
+func (r *Repo) ListPublicPublishedPostIDsByAuthor(
+	ctx context.Context,
+	authorID int64,
+	limit int,
+) ([]int64, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := r.ex(ctx).Query(ctx, `
+		SELECT id FROM posts
+		WHERE author_id = $1 AND status = 'published' AND visibility = 'public'
+		ORDER BY published_at DESC, id DESC
+		LIMIT $2`, authorID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]int64, 0, limit)
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {

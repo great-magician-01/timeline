@@ -1,6 +1,6 @@
 # Timeline 项目指南
 
-> **文档版本**：0.2.0  
+> **文档版本**：0.2.1  
 > **最近更新**：2026-10-18  
 > **关联文档**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（后端目标架构权威）、[`docs/README.md`](docs/README.md)（文档索引）
 
@@ -13,7 +13,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 当前仓库处于 **V1 已实现、待人工验证** 阶段，功能范围已全部落地：
 
 - Go/Gin HTTP 服务、`/healthz` 存活检查、`/readyz` 就绪检查，以及前端构建产物的 Go 内嵌托管和 SPA 回退。
-- PostgreSQL 连接、失败退避重试、最小迁移器 v2（支持 `no-transaction` 指令）；`migrations/` 内按文件名顺序追加的迁移（`0001`–`0016`，含账号、超级管理员标记、内容、社交、AI、后台作业、AI 记忆来源、时间默认值移除、并发索引与 `pg_trgm` 搜索索引等表结构变更）。
+- PostgreSQL 连接、失败退避重试、最小迁移器 v2（支持 `no-transaction` 指令）；`migrations/` 内按文件名顺序追加的迁移（`0001`–`0020`，含账号、超级管理员标记、内容、社交、AI、后台作业、AI 记忆来源、时间默认值移除、并发索引与 `pg_trgm` 搜索索引，以及 SQL 最简原则改造的查询索引批次、冗余索引删除、`posts/reposts.author_is_ai` 作者类型快照列、`attachment_usage` 配额冗余计数表等表结构变更）。
 - 账号：用户名/邮箱注册与登录、bcrypt 哈希、HttpOnly 服务端会话、游客与会话 CSRF、三维登录限频、资料与密码修改、关注审批设置、头像上传；公开 `GET /auth/config` 提供注册开关状态与 `bootstrap_required` 初始化状态。空库首个注册用户自动成为唯一超级管理员；超级管理员可授权/撤销管理员，普通管理员不能操作超管账号。
 - 内容：富文本/Markdown 统一安全渲染、帖子、草稿与自动保存冲突、定时发布、编辑历史与版本恢复、附件上传与图片缩略图/视频封面（ffmpeg 可选）、可见性（公开/仅关注者/仅自己）、时间线（全站/关注/个人主页）。
 - 社交：关注与关注审批、移除粉丝、点赞、评论与楼中楼、纯转发与引用、提及、通知中心（轮询未读数、按类型筛选）。
@@ -292,6 +292,7 @@ cd web && npm run build
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.2.1 | SQL 最简原则全仓审查与改造落地：迁移范围补到 `0001`–`0020`（`0017`/`0018` 查询索引增删、`0019` `author_is_ai` 快照列与 `attachment_usage` 配额冗余表及回填、`0020` 作者类型索引）；`shared/` 新增 `search` 纯函数辅助包；`docs/DATA_MODEL.md` 0.9.0、`docs/ARCHITECTURE.md` 0.3.0、`docs/DEPLOYMENT.md` 0.4.2、`migrations/README.md` 与 `docs/README.md` 已同步。改造范围：个人主页统计收敛为 3 项单表计数、管理端统计拆单表查询、关键词过滤统一 `LIKE + ESCAPE`、同请求重复读取与 N+1 批量化、`author_is_ai` 替代全量账号 ID 数组过滤、上传配额 O(1) 计数、AI 调度/记忆复核降低全表扫描。未执行：真实数据库 `EXPLAIN` 基线、完整 P0 人工验收与部署机复演。 |
 | 2026-10-18 | 0.2.0 | 重构完成 + 本次行为修复同步：§1 状态改为“旧包已删除、架构守卫全绿、默认与集成测试通过”，迁移范围补到 `0001`–`0016`，并注明本次修复补充的默认测试；§2 删除“旧 `internal/config` 为 legacy”；§3 旧包列表改为“已从仓库删除的旧→新位置映射表”，补充 `internal/architecture`/`internal/testkit` 与真实目录结构（`app` 无独立 `bootstrap.go`、`shared/format`、`shared/view`）；§4 集成测试说明改为 `internal/testkit` 载体、命令 `go test ./internal/ai` 改为 `go test ./internal/modules/ai/http`，补 `TestGlobalAISwitchIntegration`、`-p 1` 串行建议与 `pg_trgm` 前置，运行期行为补 `/api` 就绪前 503；§5 守卫说明同步 9 条规则与覆盖范围；§6 集成测试清单补全局 AI 开关用例。 |
 | 2026-10-18 | 0.1.1 | 收尾同步：§1 改为“目标架构已接管运行路径（`cmd/server`→`internal/app`→`transport/router`→`modules/*`），旧包已退出运行路径待删除”；§2 本地配置指向 `internal/platform/config`；§3 目标架构新增 `internal/server`（slim 引擎/健康检查/前端托管）并把 `cmd/server/main.go` 移出 legacy 列表、legacy 列表标注“已退出运行路径、仅旧测试/迁移参考”，删除已改造的 `internal/server` 旧描述；§4 注明 `internal/server` 集成测试为 legacy（迁移到 `internal/testkit` 前保留）。 |
 | 2026-10-18 | 0.1.0 | 按目标架构改造（G8）同步：新增文档版本/日期/关联文档头与本节变更记录；§1 说明 `refactor/target-architecture` 分支新旧包并存策略；§3 新增 `internal/{app,platform,shared,transport,modules}` 目标目录与 legacy 旧包标注；§5 新增「目标架构分层与依赖约定」（handler 只在 `modules/*/http`、SQL 只在 `modules/*/repo`、app/domain 不 import gin/pgx、模块间只走 `shared/contracts`、路由 Policy 在 `transport/router`、组合根在 `internal/app`、时间由应用 Clock 显式传入且 DB 无业务时间默认值、`schema_migrations.applied_at` 唯一白名单）；迁移段落补充迁移器 v2 的 `no-transaction` 指令、`0011` 时间默认值移除与扩展权限；§8 部署边界补充 NTP/时钟同步要求。 |

@@ -8,6 +8,7 @@ import (
 	"github.com/great-magician-01/timeline/internal/modules/auth/domain"
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
 	"github.com/great-magician-01/timeline/internal/shared/model"
+	"github.com/great-magician-01/timeline/internal/shared/search"
 )
 
 // UpdateProfileInput 是资料更新用例输入；nil 指针表示不修改对应字段。
@@ -82,6 +83,9 @@ type SearchUsersResult struct {
 }
 
 // SearchUsers 按用户名或昵称搜索账号；只返回公开资料由 http 层负责裁剪。
+// 关键词先小写，再用 shared/search.EscapeLikePattern 转义 LIKE 通配符，
+// 使 repo 的 `LOWER(...) LIKE '%' || $1 || '%' ESCAPE '\'` 按字面量子串匹配，
+// 同时能命中 0017 的 trigram 表达式索引（≥3 字符短词除外，见 repo.Search 注释）。
 func (s *Service) SearchUsers(ctx context.Context, keyword string, cursor int64, limit int) (SearchUsersResult, error) {
 	if s.users == nil {
 		return SearchUsersResult{}, apperr.Internal("auth 账号仓储未初始化")
@@ -93,7 +97,7 @@ func (s *Service) SearchUsers(ctx context.Context, keyword string, cursor int64,
 	if utf8.RuneCountInString(keyword) > 100 {
 		return SearchUsersResult{}, apperr.Invalid("搜索关键词过长")
 	}
-	users, err := s.users.Search(ctx, keyword, cursor, limit)
+	users, err := s.users.Search(ctx, search.EscapeLikePattern(keyword), cursor, limit)
 	if err != nil {
 		return SearchUsersResult{}, internal(err, "搜索用户失败")
 	}

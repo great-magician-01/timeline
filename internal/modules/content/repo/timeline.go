@@ -5,8 +5,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/great-magician-01/timeline/internal/modules/content/domain"
 )
 
 // TimelineQuery 描述一次时间线帖子候选查询（纯转发分支由 social 端口提供）。
@@ -14,14 +12,16 @@ type TimelineQuery struct {
 	ViewerID     int64
 	ViewerIsAI   bool
 	FollowingIDs []int64
-	AuthorIDs    []int64 // 作者类型过滤（human/ai）：由 app 通过 auth 端口解析后传入
+	// AuthorIsAI 非 nil 时按作者类型过滤（false=人类 / true=AI）；nil 表示不过滤。
+	// 由 app 依据 filter 直接传入，SQL 按 posts.author_is_ai 冗余列过滤，
+	// 不再在应用层解析全部账号 ID 集合。
+	AuthorIsAI *bool
 
 	IncludePosts  bool
 	QuotedOnly    bool
 	FollowingOnly bool
 	AuthorID      int64
-	Filter        string
-	TagName       string
+	TagID         int64
 	SearchText    string
 
 	AfterTime time.Time
@@ -94,18 +94,23 @@ func buildPostCandidatesSQL(query TimelineQuery) (string, []any) {
 	if query.QuotedOnly {
 		conds = append(conds, "p.quoted_post_id IS NOT NULL")
 	}
-	if query.Filter == domain.FilterHuman || query.Filter == domain.FilterAI {
-		conds = append(conds, "p.author_id = ANY("+placeholder(query.AuthorIDs)+"::bigint[])")
+	if query.AuthorIsAI != nil {
+		// 作者类型过滤按 posts.author_is_ai 快照列直接比较（0020 起有配套部分索引）。
+		conds = append(conds, "p.author_is_ai = "+placeholder(*query.AuthorIsAI))
 	}
-	if query.TagName != "" {
-		conds = append(conds, "EXISTS (SELECT 1 FROM post_tags pt JOIN tags tg ON tg.id = pt.tag_id "+
-			"WHERE pt.post_id = p.id AND pt.is_active AND tg.name = "+placeholder(query.TagName)+")")
+	if query.TagID > 0 {
+		// 标签已在 app 层用 tags.name 解析为 tag_id，这里只需 post_tags 主键 (post_id, tag_id)
+		// 一次探测，不再逐候选行 JOIN tags 解析名称。
+		conds = append(conds, "EXISTS (SELECT 1 FROM post_tags pt "+
+			"WHERE pt.post_id = p.id AND pt.tag_id = "+placeholder(query.TagID)+" AND pt.is_active)")
 	}
 	if query.SearchText != "" {
 		// 必须写成 LOWER(plain_text) LIKE '%' || ... || '%' 才能命中 0014 的
 		// GIN(LOWER(plain_text) gin_trgm_ops) 表达式索引；STRPOS 不走 trigram 索引。
+		// 关键词已由 app 用 shared/search.EscapeLikePattern 转义，这里显式 ESCAPE '\'，
+		// 保证 %/_/\ 按字面量匹配。
 		conds = append(conds, "EXISTS (SELECT 1 FROM post_search ps WHERE ps.post_id = p.id AND "+
-			"LOWER(ps.plain_text) LIKE '%' || LOWER("+placeholder(query.SearchText)+") || '%')")
+			"LOWER(ps.plain_text) LIKE '%' || LOWER("+placeholder(query.SearchText)+") || '%' ESCAPE '\\')")
 	}
 	if !query.AfterTime.IsZero() && query.AfterID > 0 {
 		conds = append(conds, "(p.published_at, p.id) < ("+placeholder(query.AfterTime)+"::timestamptz, "+

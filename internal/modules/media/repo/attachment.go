@@ -83,13 +83,33 @@ func Insert(ctx context.Context, exec db.Executor, in InsertInput) error {
 	return err
 }
 
-// SumSizeByUploader 统计上传者现有附件总大小（含已逻辑删除记录，物理文件仍占磁盘）。
-func SumSizeByUploader(ctx context.Context, exec db.Executor, uploaderID int64) (int64, error) {
+// Usage 读取上传者累计占用的存储字节数（attachment_usage 冗余计数）。
+// 无计数行表示该用户尚未上传过附件，返回 0 而不是 ErrNoRows。
+// 口径：含已逻辑删除的附件（物理文件仍占磁盘、从不释放），与旧实时
+// SUM(attachments.size_bytes) 一致，因此计数只增不减。
+func Usage(ctx context.Context, exec db.Executor, uploaderID int64) (int64, error) {
 	var used int64
 	err := exec.QueryRow(ctx,
-		`SELECT COALESCE(SUM(size_bytes), 0) FROM attachments WHERE uploader_id = $1`,
-		uploaderID).Scan(&used)
-	return used, err
+		`SELECT used_bytes FROM attachment_usage WHERE uploader_id = $1`, uploaderID).Scan(&used)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return used, nil
+}
+
+// AddUsage 在上传事务内把本次附件大小累加到上传者用量（首次 upsert、之后 O(1) 递增）。
+// delta 与 used_bytes 均非负；updated_at 使用调用方传入的应用时间。
+func AddUsage(ctx context.Context, exec db.Executor, uploaderID, delta int64, at time.Time) error {
+	_, err := exec.Exec(ctx, `
+		INSERT INTO attachment_usage (uploader_id, used_bytes, updated_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (uploader_id) DO UPDATE
+		SET used_bytes = attachment_usage.used_bytes + EXCLUDED.used_bytes,
+		    updated_at = EXCLUDED.updated_at`, uploaderID, delta, at)
+	return err
 }
 
 // MarkDeleted 把附件置为逻辑失效，返回是否发生变更（已失效时返回 false）。
@@ -124,6 +144,10 @@ func LinkToPost(ctx context.Context, exec db.Executor, postID int64, attachmentI
 //     也不查询 users 表）；
 //   - 草稿引用不在 SQL 内检查：由 app 通过 content 端口 ActiveDraftAttachmentIDs 二次过滤，
 //     避免 media 跨模块查询 content 拥有的 post_draft_attachments 表。
+//
+// 排序使用 created_at, id：与 0017 的部分索引
+// `(created_at) WHERE post_id IS NULL AND status='available' AND purpose='post'` 顺序一致，
+// 避免先取全部候选再按 id 排序；清理语义只要求“过期”，返回顺序不影响正确性。
 const listExpiredTempAttachmentCandidatesSQL = `
 	SELECT a.id FROM attachments AS a
 	WHERE a.post_id IS NULL
@@ -131,10 +155,10 @@ const listExpiredTempAttachmentCandidatesSQL = `
 	  AND a.purpose = 'post'
 	  AND a.created_at < $1
 	  AND a.id <> ALL($2)
-	ORDER BY a.id
+	ORDER BY a.created_at, a.id
 	LIMIT $3`
 
-// ListExpiredTempAttachmentCandidates 返回过期临时附件候选 ID（按 ID 升序，最多 limit 条）。
+// ListExpiredTempAttachmentCandidates 返回过期临时附件候选 ID（按创建时间、ID 升序，最多 limit 条）。
 func ListExpiredTempAttachmentCandidates(
 	ctx context.Context, exec db.Executor, cutoff time.Time, limit int, avatarAttachmentIDs []int64,
 ) ([]int64, error) {

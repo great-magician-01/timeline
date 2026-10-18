@@ -103,7 +103,8 @@ func (r *Repo) SyncDraftAfterPublish(
 	return err
 }
 
-// ReplaceDraftAttachments 重建草稿工作区附件集合：旧关联置为失效后逐个 upsert（不物理删除）。
+// ReplaceDraftAttachments 重建草稿工作区附件集合：旧关联置为失效后批量 upsert（不物理删除）。
+// 单条 unnest 语句完成全部附件写入，sort_order 保持原先逐条追加一致的 0 起始顺序。
 func (r *Repo) ReplaceDraftAttachments(ctx context.Context, postID int64, attachmentIDs []int64) error {
 	exec := r.ex(ctx)
 	if _, err := exec.Exec(ctx, `
@@ -111,17 +112,17 @@ func (r *Repo) ReplaceDraftAttachments(ctx context.Context, postID int64, attach
 		WHERE post_id = $1 AND is_active`, postID); err != nil {
 		return err
 	}
-	for order, attachmentID := range attachmentIDs {
-		if _, err := exec.Exec(ctx, `
-			INSERT INTO post_draft_attachments (post_id, attachment_id, sort_order, is_active)
-			VALUES ($1, $2, $3, TRUE)
-			ON CONFLICT (post_id, attachment_id)
-			DO UPDATE SET sort_order = EXCLUDED.sort_order, is_active = TRUE`,
-			postID, attachmentID, order); err != nil {
-			return err
-		}
+	ids := domain.UniqueIDs(attachmentIDs)
+	if len(ids) == 0 {
+		return nil
 	}
-	return nil
+	_, err := exec.Exec(ctx, `
+		INSERT INTO post_draft_attachments (post_id, attachment_id, sort_order, is_active)
+		SELECT $1, t.attachment_id, (t.ord - 1)::int, TRUE
+		FROM unnest($2::bigint[]) WITH ORDINALITY AS t(attachment_id, ord)
+		ON CONFLICT (post_id, attachment_id)
+		DO UPDATE SET sort_order = EXCLUDED.sort_order, is_active = TRUE`, postID, ids)
+	return err
 }
 
 // DraftAttachmentIDs 读取草稿工作区中生效的附件 ID（按排序）。

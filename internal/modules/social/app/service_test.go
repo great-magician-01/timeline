@@ -104,7 +104,7 @@ func TestFollowingSet(t *testing.T) {
 	}
 }
 
-// TestFollowState 覆盖四态分类、非法 ID 与依赖错误。
+// TestFollowState 覆盖四态分类、非法 ID 与单条查询错误透传。
 func TestFollowState(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
@@ -123,9 +123,11 @@ func TestFollowState(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			stubs := newStubSet()
 			svc := stubs.service()
-			stubs.follows.following[[2]int64{stubViewerID, stubAuthorID}] = tc.follow
-			stubs.requests.hasPendingMap[[2]int64{stubViewerID, stubAuthorID}] = tc.pending
-			stubs.requests.hasPendingMap[[2]int64{stubAuthorID, stubViewerID}] = tc.incoming
+			stubs.follows.states[[2]int64{stubViewerID, stubAuthorID}] = stubFollowState{
+				following: tc.follow,
+				pending:   tc.pending,
+				incoming:  tc.incoming,
+			}
 
 			got, err := svc.FollowState(ctx, stubViewerID, stubAuthorID)
 			requireOK(t, err)
@@ -141,15 +143,9 @@ func TestFollowState(t *testing.T) {
 		t.Fatalf("游客 FollowState = (%q, %v)，期望 (none, nil)", got, err)
 	}
 
-	stubs.follows.followingErr = apperr.Internal("查询失败")
+	stubs.follows.followStateErr = apperr.Internal("查询失败")
 	if _, err := svc.FollowState(ctx, stubViewerID, stubAuthorID); requireKind(t, err, apperr.KindInternal) == nil {
-		t.Fatal("关注查询错误应透传")
-	}
-
-	stubs = newStubSet()
-	stubs.requests.hasErr = apperr.Internal("申请查询失败")
-	if _, err := stubs.service().FollowState(ctx, stubViewerID, stubAuthorID); requireKind(t, err, apperr.KindInternal) == nil {
-		t.Fatal("申请查询错误应透传")
+		t.Fatal("关系状态查询错误应透传")
 	}
 }
 

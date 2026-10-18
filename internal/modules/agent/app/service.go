@@ -14,6 +14,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/great-magician-01/callable"
@@ -62,13 +63,14 @@ type TxRunner interface {
 type TaskStore interface {
 	InsertTask(ctx context.Context, in repo.TaskInsert) (bool, error)
 	GetTask(ctx context.Context, taskID int64) (repo.Task, error)
-	ClaimTask(ctx context.Context, taskID int64, now time.Time, lease time.Duration) (int, bool, error)
+	ClaimTask(ctx context.Context, taskID int64, now time.Time, lease time.Duration) (repo.Task, bool, error)
 	UpdateTaskResult(ctx context.Context, in repo.TaskResultUpdate) error
 	SetTaskStatus(ctx context.Context, taskID int64, status, errorMessage string, finishedAt *time.Time) error
 	ListTasks(ctx context.Context, filter repo.TaskFilter) ([]repo.Task, bool, error)
 	ListPendingTasks(ctx context.Context, limit int) ([]repo.Task, error)
 	AddMemoryRefs(ctx context.Context, taskID int64, refs []repo.MemoryRef, idSeed int64) error
 	ListMemoryRefs(ctx context.Context, taskID int64) ([]repo.MemoryRef, error)
+	ListMemoryRefsByTaskIDs(ctx context.Context, taskIDs []int64) (map[int64][]repo.MemoryRef, error)
 }
 
 // CallLogStore 是调用记录仓储。
@@ -84,7 +86,16 @@ type CounterStore interface {
 	BumpActionCounter(ctx context.Context, id, aiID int64, actionType string, day, at time.Time) error
 	CountActions(ctx context.Context, aiID int64, actionType string, day time.Time) (int, error)
 	TotalActions(ctx context.Context, aiID int64, day time.Time) (int, error)
+	TotalActionsByAIIDs(ctx context.Context, aiIDs []int64, day time.Time) (map[int64]int64, error)
 	LastSucceededAt(ctx context.Context, aiID int64, triggerType string) (*time.Time, error)
+}
+
+// AIService 是 agent 依赖的 ai 模块能力：在共享契约之外追加单 AI 启用状态轻量查询，
+// 供 actionGate 在模型返回后复核配置（只复读 ai_profiles.is_enabled，不再装配完整运行时快照）。
+// 实现方：modules/ai/app 的 Service（组合根注入）。
+type AIService interface {
+	contracts.AIService
+	ProfileEnabled(ctx context.Context, aiID int64) (bool, error)
 }
 
 // Deps 是 agent 模块的全部依赖。
@@ -100,7 +111,7 @@ type Deps struct {
 
 	Content contracts.ContentService
 	Social  contracts.SocialService
-	AI      contracts.AIService
+	AI      AIService
 	Notices contracts.NoticeService
 	Users   contracts.UserReader
 
@@ -114,6 +125,11 @@ type Deps struct {
 // Service 实现 agent 域用例。
 type Service struct {
 	deps Deps
+
+	// memoryRecheckMu 保护 memoryRecheckCursor。来源复核由调度器（每个启用 AI 每分钟）
+	// 与动作成功后两条链路触发，可能并发推进同一 AI 的游标，必须加锁。
+	memoryRecheckMu     sync.Mutex
+	memoryRecheckCursor map[int64]contracts.MemorySourceRef
 }
 
 // New 组装 agent 服务；nil Clock 回退系统时钟，nil Log 回退默认 logger。
@@ -124,7 +140,7 @@ func New(deps Deps) *Service {
 	if deps.Log == nil {
 		deps.Log = slog.Default()
 	}
-	return &Service{deps: deps}
+	return &Service{deps: deps, memoryRecheckCursor: map[int64]contracts.MemorySourceRef{}}
 }
 
 func (s *Service) now() time.Time { return s.deps.Clock.Now() }

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -652,6 +651,9 @@ func TestRepostForActor(t *testing.T) {
 		if !active || count != 8 {
 			t.Fatalf("结果 = (%v, %d)，期望 (true, 8)", active, count)
 		}
+		if len(stubs.reposts.activates) != 1 || stubs.reposts.activates[0].authorIsAI {
+			t.Fatalf("人类转发写入 = %+v，期望 author_is_ai=false", stubs.reposts.activates)
+		}
 	})
 
 	t.Run("AI 可转发", func(t *testing.T) {
@@ -662,6 +664,9 @@ func TestRepostForActor(t *testing.T) {
 		requireOK(t, err)
 		if !active {
 			t.Fatal("AI 转发应生效")
+		}
+		if len(stubs.reposts.activates) != 1 || !stubs.reposts.activates[0].authorIsAI {
+			t.Fatalf("AI 转发写入 = %+v，期望 author_is_ai=true", stubs.reposts.activates)
 		}
 	})
 
@@ -897,6 +902,7 @@ func TestListUserReplies(t *testing.T) {
 }
 
 // TestListNewCommentsOnAuthorPosts 覆盖评论触发扫描的边界与错误。
+// content 新端口直接返回作者「公开 + 已发布」帖子 ID（上限 200），app 不再回读整行过滤。
 func TestListNewCommentsOnAuthorPosts(t *testing.T) {
 	ctx := context.Background()
 	query := contracts.CommentTriggerQuery{AuthorID: stubAuthorID, Since: stubNow.Add(-time.Hour), Limit: 10}
@@ -909,40 +915,39 @@ func TestListNewCommentsOnAuthorPosts(t *testing.T) {
 		}
 	})
 
-	t.Run("作者没有帖子", func(t *testing.T) {
+	t.Run("作者没有公开已发布帖子", func(t *testing.T) {
 		stubs := newStubSet()
 		got, err := stubs.service().ListNewCommentsOnAuthorPosts(ctx, query)
 		requireOK(t, err)
 		if got != nil {
 			t.Fatalf("期望 nil，实际 %v", got)
 		}
-	})
-
-	t.Run("没有公开已发布帖子", func(t *testing.T) {
-		stubs := newStubSet()
-		stubs.posts.postIDs = []int64{stubPostID}
-		stubs.posts.posts[stubPostID] = model.Post{ID: stubPostID, Status: model.PostStatusDraft, Visibility: model.VisibilityPublic}
-		got, err := stubs.service().ListNewCommentsOnAuthorPosts(ctx, query)
-		requireOK(t, err)
-		if got != nil {
-			t.Fatalf("期望 nil，实际 %v", got)
+		if len(stubs.comments.byPostIDsCalls) != 0 {
+			t.Fatal("没有候选帖子时不应查询评论")
 		}
 	})
 
 	t.Run("成功返回新评论", func(t *testing.T) {
 		stubs := newStubSet()
-		stubs.posts.postIDs = []int64{stubPostID, 21}
-		stubs.posts.posts[stubPostID] = stubPublicPost()
-		stubs.posts.posts[21] = model.Post{ID: 21, Status: model.PostStatusPublished, Visibility: model.VisibilityFollowers}
+		stubs.posts.publicPostIDs = []int64{stubPostID, 21}
 		stubs.comments.byPostIDsRows = []model.Comment{stubCommentRow(50, stubPostID, stubOtherID)}
 		got, err := stubs.service().ListNewCommentsOnAuthorPosts(ctx, query)
 		requireOK(t, err)
 		if len(got) != 1 {
 			t.Fatalf("评论条数 = %d，期望 1", len(got))
 		}
-		if len(stubs.comments.byPostIDsCalls) != 1 || len(stubs.comments.byPostIDsCalls[0].postIDs) != 1 ||
-			stubs.comments.byPostIDsCalls[0].postIDs[0] != stubPostID {
-			t.Fatalf("repo 查询参数 = %+v，期望只含公开已发布帖子", stubs.comments.byPostIDsCalls)
+		if len(stubs.comments.byPostIDsCalls) != 1 {
+			t.Fatalf("评论查询次数 = %d，期望 1", len(stubs.comments.byPostIDsCalls))
+		}
+		call := stubs.comments.byPostIDsCalls[0]
+		if len(call.postIDs) != 2 || call.postIDs[0] != stubPostID || call.postIDs[1] != 21 {
+			t.Fatalf("repo 查询帖子 = %v，期望 content 端口返回的候选帖子 [%d 21]", call.postIDs, stubPostID)
+		}
+		if call.excludeAuthorID != query.ExcludeAuthorID || !call.since.Equal(query.Since) || call.limit != query.Limit {
+			t.Fatalf("repo 查询参数 = %+v，期望 exclude/since/limit 与请求一致", call)
+		}
+		if stubs.posts.publicPostLimit != commentTriggerPostLimit {
+			t.Fatalf("候选帖子数上限 = %d，期望 %d", stubs.posts.publicPostLimit, commentTriggerPostLimit)
 		}
 	})
 
@@ -951,13 +956,11 @@ func TestListNewCommentsOnAuthorPosts(t *testing.T) {
 			name  string
 			setup func(*stubSet)
 		}{
-			{"帖子 ID 读取失败", func(s *stubSet) { s.posts.postIDsErr = apperr.Internal("读取帖子失败") }},
-			{"帖子批量读取失败", func(s *stubSet) {
-				s.posts.postIDs = []int64{stubPostID}
-				s.posts.postsErr = apperr.Internal("批量读取失败")
+			{"候选帖子读取失败", func(s *stubSet) {
+				s.posts.publicPostIDsErr = apperr.Internal("读取候选帖子失败")
 			}},
 			{"评论查询失败", func(s *stubSet) {
-				s.posts.postIDs = []int64{stubPostID}
+				s.posts.publicPostIDs = []int64{stubPostID}
 				s.comments.byPostIDsErr = apperr.Internal("评论查询失败")
 			}},
 		}
@@ -1077,6 +1080,7 @@ func TestListRecentFollowees(t *testing.T) {
 }
 
 // TestListTimelineReposts 验证纯转发事件查询映射与作者类型过滤。
+// human/ai 过滤直接映射为 RepostEventQuery.AuthorIsAI 指针，不再查询全量账号 ID。
 func TestListTimelineReposts(t *testing.T) {
 	ctx := context.Background()
 	afterAt := stubNow.Add(-time.Hour)
@@ -1098,33 +1102,43 @@ func TestListTimelineReposts(t *testing.T) {
 		}
 		repoQuery := stubs.reposts.lastQuery
 		if repoQuery.AuthorID != stubAuthorID || repoQuery.AfterID != 9 || repoQuery.Limit != 10 ||
-			!repoQuery.AfterAt.Equal(afterAt) || len(repoQuery.FollowingIDs) != 1 || repoQuery.AllowedIDs != nil {
+			!repoQuery.AfterAt.Equal(afterAt) || len(repoQuery.FollowingIDs) != 1 || repoQuery.AuthorIsAI != nil {
 			t.Fatalf("repo 查询参数 = %+v", repoQuery)
 		}
 	})
 
 	t.Run("AI 过滤", func(t *testing.T) {
 		stubs := newStubSet()
-		stubs.users.aiIDs = []int64{stubAIID}
+		// 旧实现会调用 ListUserIDsByAIFlag；这里注入其错误证明新路径不再依赖它。
+		stubs.users.aiErr = apperr.Internal("不应查询账号类型")
 		got, err := stubs.service().ListTimelineReposts(ctx, contracts.RepostTimelineQuery{Filter: "ai", Limit: 5})
 		requireOK(t, err)
 		if len(got) != 0 {
 			t.Fatalf("期望空事件，实际 %+v", got)
 		}
-		if len(stubs.reposts.lastQuery.AllowedIDs) != 1 || stubs.reposts.lastQuery.AllowedIDs[0] != stubAIID {
-			t.Fatalf("作者过滤 = %v，期望 [%d]", stubs.reposts.lastQuery.AllowedIDs, stubAIID)
+		flag := stubs.reposts.lastQuery.AuthorIsAI
+		if flag == nil || !*flag {
+			t.Fatalf("作者类型过滤 = %v，期望指针指向 true（仅 AI）", flag)
 		}
 	})
 
 	t.Run("人类过滤", func(t *testing.T) {
 		stubs := newStubSet()
-		stubs.users.aiIDs = []int64{stubViewerID, stubAuthorID}
+		stubs.users.aiErr = apperr.Internal("不应查询账号类型")
 		_, err := stubs.service().ListTimelineReposts(ctx, contracts.RepostTimelineQuery{Filter: "human", Limit: 5})
 		requireOK(t, err)
-		allowed := append([]int64{}, stubs.reposts.lastQuery.AllowedIDs...)
-		sort.Slice(allowed, func(i, j int) bool { return allowed[i] < allowed[j] })
-		if len(allowed) != 2 || allowed[0] != stubViewerID || allowed[1] != stubAuthorID {
-			t.Fatalf("作者过滤 = %v", allowed)
+		flag := stubs.reposts.lastQuery.AuthorIsAI
+		if flag == nil || *flag {
+			t.Fatalf("作者类型过滤 = %v，期望指针指向 false（仅人类）", flag)
+		}
+	})
+
+	t.Run("未知 filter 不过滤", func(t *testing.T) {
+		stubs := newStubSet()
+		_, err := stubs.service().ListTimelineReposts(ctx, contracts.RepostTimelineQuery{Filter: "all", Limit: 5})
+		requireOK(t, err)
+		if stubs.reposts.lastQuery.AuthorIsAI != nil {
+			t.Fatalf("未知 filter 不应设置作者类型过滤，实际 %+v", stubs.reposts.lastQuery.AuthorIsAI)
 		}
 	})
 
@@ -1139,12 +1153,6 @@ func TestListTimelineReposts(t *testing.T) {
 
 	t.Run("错误", func(t *testing.T) {
 		stubs := newStubSet()
-		stubs.users.aiErr = apperr.Internal("作者类型查询失败")
-		if _, err := stubs.service().ListTimelineReposts(ctx, contracts.RepostTimelineQuery{Filter: "ai", Limit: 5}); requireKind(t, err, apperr.KindInternal) == nil {
-			t.Fatal("作者类型查询错误应透传")
-		}
-
-		stubs = newStubSet()
 		stubs.reposts.listErr = apperr.Internal("事件读取失败")
 		if _, err := stubs.service().ListTimelineReposts(ctx, contracts.RepostTimelineQuery{Limit: 5}); requireKind(t, err, apperr.KindInternal) == nil {
 			t.Fatal("事件读取错误应透传")

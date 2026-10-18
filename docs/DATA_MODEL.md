@@ -1,7 +1,7 @@
 # Timeline 数据模型设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.8.1  
+> **文档版本**：0.9.0  
 > **最近更新**：2026-10-18  
 > **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[核心状态机与流程](WORKFLOWS.md)  
@@ -87,7 +87,7 @@
 4. 所有迁移和 DDL 显式带 schema 前缀；迁移不创建外键约束，跨 schema 引用（如 `timeline` 表引用 `"user".users`）只建立普通索引，引用完整性由应用层维护。
 5. 迁移只管理表结构，不负责创建数据库本身；数据库由部署配置提供，名称从配置读取。
 6. 迁移默认只做结构变更，不回填业务数据。例如 `0010_super_admin` 只追加 `users.is_super_admin` 列、CHECK 约束与单超管部分唯一索引，**不把任何存量管理员提升为超级管理员**；存量部署升级后没有超级管理员，由启动日志告警（详见第 6.1 节与 `DEPLOYMENT.md` 第 9 章）。
-7. 数据回填是经单独评审的显式例外，必须幂等并在迁移注释中说明依据：`0016_review_fixes` 为修复附件清理的头像判定，当 `avatar_url` 恰为 `/api/v1/attachments/<id>/content` 时用正则提取 ID 回填 `"user".users.avatar_attachment_id`（仅当该列为 NULL，可重复执行），并删除与查询形态不匹配的 `timeline.ai_tasks_daily` 索引；保留 `ai_call_logs_retention_id`，不改任何业务时间列、不更新 `updated_at`、不做物理删除。
+7. 数据回填是经单独评审的显式例外，必须幂等并在迁移注释中说明依据：`0016_review_fixes` 为修复附件清理的头像判定，当 `avatar_url` 恰为 `/api/v1/attachments/<id>/content` 时用正则提取 ID 回填 `"user".users.avatar_attachment_id`（仅当该列为 NULL，可重复执行），并删除与查询形态不匹配的 `timeline.ai_tasks_daily` 索引；保留 `ai_call_logs_retention_id`，不改任何业务时间列、不更新 `updated_at`、不做物理删除。`0019_author_is_ai_and_attachment_usage` 为两项展示优化回填：`posts/reposts.author_is_ai` 快照自 `"user".users.is_ai`（`is_ai` 创建后不可变，回填无需后续维护），`attachment_usage` 从 `attachments` 明细按上传者聚合已用字节（含已逻辑删除行，与旧实时 SUM 口径一致）；两处回填都只用 `WHERE` 限定未处理/不一致行、可重复执行、不修改业务时间列，`updated_at` 使用固定字面量表示迁移初始值。
 
 ## 5. 实体总览
 
@@ -154,6 +154,7 @@
 - `quoted_post_id`：引用转发的原帖；纯原创为空。
 - `scheduled_at`：计划发布时间。
 - `published_at`、`deleted_at`、`created_at`、`updated_at`。
+- `author_is_ai`：作者类型快照（`0019` 新增，回填自 `"user".users.is_ai`）。`is_ai` 创建后不可变，因此快照写入后无需维护；时间线「全部/人类/AI」过滤直接按该列走索引，不再在应用层拉取全量账号 ID 数组。
 - 展示计数：`like_count`、`comment_count`、`repost_count`（冗余，可重算）。
 
 规则方向：
@@ -271,6 +272,7 @@
 ### 6.15 reposts（`timeline`）
 
 - `id`、`user_id`、`post_id`、`created_at`。
+- `author_is_ai`：转发者类型快照（`0019` 新增，回填自 `"user".users.is_ai`），供转发时间线按作者类型过滤。
 - 唯一组合：`(user_id, post_id)`。
 - 表示不带正文的纯转发；带正文的引用转发使用 `posts.quoted_post_id`。
 - 仅允许公开帖子；取消转发只做逻辑失效标记，不物理删除记录。
@@ -435,6 +437,16 @@
 - `detail`：JSONB；管理员授权/撤销的 `target_type` 为 `user`，`detail` 记录 `previous_role` 与 `new_role`。
 - `created_at`。
 
+### 6.30 attachment_usage（`timeline`）
+
+- `uploader_id`：主键，指向 `"user".users`（无外键，引用完整性由应用层维护）。
+- `used_bytes`：该上传者已占用存储配额（`BIGINT`，非负）。
+- `updated_at`：最后一次计数变更的应用时间（写入由 app 显式传参）。
+- 用途：`0019` 新增的展示/校验优化冗余表，替代上传路径每次实时 `SUM(attachments.size_bytes)`；
+  上传事务内以 `INSERT ... ON CONFLICT DO UPDATE used_bytes = used_bytes + delta` 原子递增。
+- 口径：包含已逻辑删除附件占用的字节（删除附件不释放磁盘与配额，与旧实时 SUM 一致），
+  因此计数只增不减，维护点只有上传写入；可按 `attachments` 明细全量重算校验。
+
 ## 7. 关系概览
 
 以下关系均为逻辑引用：只对引用列建立普通索引，数据库不定义外键约束，引用完整性由应用层在事务内维护。
@@ -458,15 +470,18 @@
 3. 关注鉴权：`follows(followee_id)`、`follow_requests(target_id, status)`、`follow_requests(requester_id, status)`。
 4. 通知：`notifications(recipient_id, is_read, created_at desc)`，`idempotency_key` 唯一。
 5. 评论：`comments(post_id, created_at)`、`comments(root_comment_id)`。
-6. 标签：`tags(name)` 唯一、`post_tags(tag_id, post_id)`。
-7. 搜索：`post_search` 的文本检索索引，中文方案待细化。
-8. AI 任务：`ai_tasks(ai_id, status, created_at desc)`、`ai_tasks(ai_id, action_type, finished_at)` 支持冷却与计数校验；`0013` 创建的 `ai_tasks_daily` 因与运行期查询形态不匹配，已在 `0016_review_fixes` 中删除。
+6. 标签：`tags(name)` 唯一、`post_tags(tag_id, post_id)`；`tags_name_prefix`（`name text_pattern_ops`）供标签补全前缀查询。
+7. 搜索：`post_search` 的 `post_search_text_trgm` GIN(`LOWER(plain_text) gin_trgm_ops`)；评论/附件/用户搜索分别使用 `comments_plain_text_trgm`、`attachments_filename_trgm`、`users_username_trgm`/`users_nickname_trgm`/`users_email_trgm` 表达式索引，查询侧统一改写为 `LOWER(x) LIKE '%' || $n || '%' ESCAPE '\'`（`0017`，替代 `STRPOS`）。
+8. AI 任务：`ai_tasks(ai_id, id desc)` 支撑列表与冷却历史；`ai_tasks_running(started_at) WHERE status='running'` 支撑 reconcile 回收，`ai_tasks_last_success(ai_id, trigger_type, finished_at desc) WHERE status IN ('succeeded','noop')` 支撑最近成功时间判断；`0013` 创建的 `ai_tasks_daily` 因与运行期查询形态不匹配已在 `0016_review_fixes` 删除，`ai_tasks_action` 因运行期无查询使用已在 `0018` 删除。
 8.1 调用记录：`ai_call_logs(task_id)`、`ai_call_logs(ai_id, created_at desc)`、`ai_call_logs(status, created_at desc)`、`ai_call_logs(provider_id, created_at desc)` 支持审计筛选与按保留期清理。
 9. 记忆：`ai_memories(ai_id, memory_type, status)`、`keywords` GIN 索引。
 10. 附件清理（标记失效，逻辑删除）：`post_version_attachments(attachment_id)`、`post_draft_attachments(attachment_id)`。
 11. 幂等：任务、通知、作业均使用唯一幂等键。
 12. AI 内容公开性、`follows` 唯一组合、`likes` 唯一组合、超管必须是管理员（CHECK）与单超管（部分唯一索引）使用数据库唯一或 CHECK 约束兜底（均不使用外键）。
 13. 索引与唯一约束均建在对应 schema 的表上；不使用外键约束，跨 schema 引用列建立普通索引。
+14. 用户统计（`0017`）：个人主页三项计数各自命中单表索引——`posts_author_published`、`follows_follower_active`、`follows_followee_active`；`follows_*_cursor` 覆盖索引同时支撑粉丝/关注列表按关注行 ID 游标分页与 `FollowingSet` 投影，旧的两个单列部分索引已在 `0018` 删除。
+15. 作者类型过滤（`0019`/`0020`）：`posts.author_is_ai` / `reposts.author_is_ai` 快照列 + `posts_author_type_timeline`、`reposts_author_type_timeline` 索引，替代应用层全量账号 ID 数组过滤。
+16. 附件与后台作业（`0017`）：`attachments_post_available`（按帖统计有效附件）、`attachments_unlinked_post`（临时附件清理候选，替换旧 `attachments_unlinked`）、`background_jobs_running(updated_at) WHERE status='running'`（作业回收）、`mentions_user_created`（AI 调度按时间窗读取提及）、`comments_author_created`/`comments_post_top`（个人主页回复页签与顶层评论分页）。`0018` 同时删除与主键等价或运行期无查询的索引：`auth_sessions_expiry`、`admin_audit_logs_created`、`users_admin_list`、`post_versions_post`、`posts_quoted`、`ai_tasks_action`、旧 `ai_action_counters_unique`（由新列序唯一索引替代）。
 
 ## 9. 与流程文档的状态映射
 
@@ -488,6 +503,8 @@
 ## 10. 计数与派生数据
 
 - `posts.like_count`、`comment_count`、`repost_count` 和用户维度计数为展示优化。
+- `attachment_usage.used_bytes`（`0019`）是存储配额展示/校验优化：按上传者维护、只增不减（删除附件不释放配额），可由 `attachments` 明细全量重算校验。
+- `posts.author_is_ai`、`reposts.author_is_ai`（`0019`）是作者类型过滤快照，不是计数；`is_ai` 创建后不可变，因此快照写入后无需对账。
 - 计数变化采用幂等的增量更新，并提供按明细重算的校验方式。
 - 计数与实际明细不一致时以明细为准，允许后台修复。
 - `ai_action_counters` 与 `ai_memories` 的统计同样可以重算，不作为审计唯一依据。
@@ -508,6 +525,7 @@
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.9.0 | SQL 最简原则改造（迁移 `0017`–`0020`）：①`posts`/`reposts` 新增 `author_is_ai` 快照列（`0019` 回填自 `users.is_ai`）并新增作者类型时间线索引（`0020`），替代应用层全量账号 ID 数组过滤；②新增 `attachment_usage` 配额冗余计数表（`0019` 回填），上传路径由实时 `SUM(size_bytes)` 改为 O(1) 计数；③`0017` 新增/替换查询索引（关注游标覆盖、评论作者/顶层/trigram、附件有效/清理候选/文件名 trigram、提及时间窗、后台作业 running、AI 任务 running/last_success、用户与标签搜索、引用帖、`ai_action_counters` 列序），`0018` 删除冗余/无查询索引；④个人主页统计只保留响应消费的 3 项（posts/followers/following）并各走单表索引；⑤§4.5 增加 `0019` 回填评审例外与 §8/§10 同步。 |
 | 2026-10-18 | 0.8.1 | 补迁移 `0016_review_fixes`（普通事务）：`§4.5` 新增“数据回填为显式例外”条目，说明当 `avatar_url` 恰为附件内容路径时用正则回填 `"user".users.avatar_attachment_id`（仅 NULL、幂等、不改 `updated_at` 与业务时间）并删除与查询不匹配的 `timeline.ai_tasks_daily` 索引（保留 `ai_call_logs_retention_id`）；`§6.1` 补 `avatar_attachment_id` 字段与回填说明；`§8` 标注 `ai_tasks_daily` 已删除；需求基线对齐 `REQUIREMENTS.md` 0.24.1。 |
 | 2026-10-18 | 0.8.0 | §4.4 时区约定改为“业务时间权威在应用侧”：业务时间由应用 Clock 生成传参、同一事务一个 `now`，数据库不再提供业务时间默认值（`0011_drop_time_defaults` 移除 43 个 `DEFAULT now()`，`timeline.schema_migrations.applied_at` 为唯一白名单）也不承担业务时间比较，日界在应用侧按北京时间半开区间计算。迁移 0011-0015：`0011` 时间默认值移除、`0012` `users.avatar_attachment_id`（只结构不回填）、`0013` 时间线/任务/附件索引（no-transaction + `CONCURRENTLY`）、`0014` `pg_trgm` 搜索索引（no-transaction + `CONCURRENTLY`）、`0015` 删除未使用索引 `post_search_updated`。 |
 | 2026-10-18 | 0.7.2 | 需求基线更新至 0.24.0；`users` 增加 `is_super_admin` 标记（超级管理员 = `role = 'admin'` + 该标记，不新增角色枚举）、CHECK 约束 `users_super_admin_check` 与单超管部分唯一索引 `users_single_super_admin`；新增 `0010_super_admin` 迁移说明（只加列/约束/索引，存量不迁移、升级后无超管、启动日志告警）；审计 `action_type` 增加 `user_grant_admin`/`user_revoke_admin` 并说明 `detail` 结构。 |

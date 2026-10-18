@@ -35,10 +35,13 @@ const (
 	sqlMentionDeactivateAll = `UPDATE mentions SET is_active = FALSE
 		WHERE source_type = $1 AND source_id = $2 AND is_active`
 
+	// 按 (created_at, id) 倒序：命中 mentions_user_created 部分索引
+	// (mentioned_user_id, created_at DESC, id DESC) WHERE is_active，
+	// 时间窗过滤可用索引范围扫描，不再按 id 倒序扫用户全部历史提及。
 	sqlMentionListActive = `SELECT id, mentioned_user_id, source_type, source_id, created_at
 		FROM mentions
 		WHERE mentioned_user_id = $1 AND is_active AND created_at > $2
-		ORDER BY id DESC LIMIT $3`
+		ORDER BY created_at DESC, id DESC LIMIT $3`
 
 	sqlMentionGetActive = `SELECT id, mentioned_user_id, source_type, source_id, created_at
 		FROM mentions WHERE id = $1 AND is_active`
@@ -69,7 +72,7 @@ func (r *MentionRepo) DeactivateAll(ctx context.Context, sourceType string, sour
 	return err
 }
 
-// ListActive 读取某用户 since 之后生效中的提及（ID 倒序）。
+// ListActive 读取某用户 since 之后生效中的提及（(created_at, id) 倒序，命中时间窗部分索引）。
 func (r *MentionRepo) ListActive(
 	ctx context.Context, userID int64, since time.Time, limit int,
 ) ([]domain.MentionRow, error) {

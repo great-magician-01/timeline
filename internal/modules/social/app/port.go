@@ -40,6 +40,9 @@ type RepostEventQuery = domain.RepostEventQuery
 type FollowRepo interface {
 	// Following 报告 follower 是否已生效关注 followee。
 	Following(ctx context.Context, followerID, followeeID int64) (bool, error)
+	// FollowState 用单条查询返回访问者对目标的三项关系状态：
+	// 是否已生效关注、是否已发出待处理申请、是否存在对方发来的待处理申请。
+	FollowState(ctx context.Context, viewerID, targetID int64) (following, pending, incomingPending bool, err error)
 	// FollowingSet 返回 follower 的生效关注集合；游客（ID<=0）返回空集。
 	FollowingSet(ctx context.Context, followerID int64) (map[int64]bool, error)
 	// InsertActive 建立或恢复关注关系；只有从失效翻转为生效时 ok 为 true，
@@ -62,8 +65,6 @@ type FollowRequestRepo interface {
 	GetForUpdate(ctx context.Context, id int64) (RequestRow, error)
 	// UpdateStatus 迁移申请状态并写入处理时间。
 	UpdateStatus(ctx context.Context, id int64, status string, resolvedAt time.Time) error
-	// HasPending 报告 requester 是否已向 target 发出待处理申请。
-	HasPending(ctx context.Context, requesterID, targetID int64) (bool, error)
 	// ListPendingIncoming / ListPendingOutgoing 按 ID 倒序分页待处理申请。
 	ListPendingIncoming(ctx context.Context, targetID, cursor int64, limit int) ([]RequestRow, error)
 	ListPendingOutgoing(ctx context.Context, requesterID, cursor int64, limit int) ([]RequestRow, error)
@@ -119,8 +120,9 @@ type CommentRepo interface {
 
 // RepostRepo 是纯转发 SQL 端口。
 type RepostRepo interface {
-	// Activate 转发；只有从失效翻转为生效时 changed 为 true。
-	Activate(ctx context.Context, id, userID, postID int64, now time.Time) (repostID int64, changed bool, err error)
+	// Activate 转发；authorIsAI 是转发者账号类型快照（写入 reposts.author_is_ai），
+	// 只有从失效翻转为生效时 changed 为 true。
+	Activate(ctx context.Context, id, userID, postID int64, authorIsAI bool, now time.Time) (repostID int64, changed bool, err error)
 	// Deactivate 取消转发；changed 表示本次是否真正翻转。
 	Deactivate(ctx context.Context, userID, postID int64, now time.Time) (repostID int64, changed bool, err error)
 	// IsActive 报告用户是否已转发帖子。

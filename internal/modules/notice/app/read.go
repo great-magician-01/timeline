@@ -107,6 +107,11 @@ func (s *Service) previews(
 			commentIDs = append(commentIDs, *row.CommentID)
 		}
 	}
+	// 纯关注类通知（无帖子/评论目标）没有正文可展示，直接短路，省掉后续全部批量查询
+	// （评论、帖子、纯文本与关注集合），这是通知列表最常见的「关注/申请」场景。
+	if len(postIDSet) == 0 && len(commentIDs) == 0 {
+		return result, nil
+	}
 
 	var comments map[int64]model.Comment
 	if len(commentIDs) > 0 {
@@ -135,9 +140,13 @@ func (s *Service) previews(
 			return nil, err
 		}
 	}
-	following, err := s.deps.Relations.FollowingSet(ctx, viewer.ID)
-	if err != nil {
-		return nil, err
+	following := map[int64]bool{}
+	if needsFollowingSet(viewer, posts) {
+		var err error
+		following, err = s.deps.Relations.FollowingSet(ctx, viewer.ID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	visible := make(map[int64]bool, len(posts))
 	for id, post := range posts {
@@ -163,4 +172,23 @@ func (s *Service) previews(
 		}
 	}
 	return result, nil
+}
+
+// needsFollowingSet 判断这批帖子中是否存在必须依赖关注关系才能判定的可见性。
+//
+// 只有「已发布 + 仅关注者可见 + 非本人」的帖子需要关注集合：公开帖直接可见；
+// 私密帖/草稿/已删除帖与关注关系无关；管理员与 AI 不会因关注关系获得 followers 可见性。
+// 绝大多数通知目标是公开帖子或自己的内容，因此多数页面不需要加载（可能无上限的）关注集合。
+func needsFollowingSet(viewer model.Viewer, posts map[int64]model.Post) bool {
+	if !viewer.Authenticated || viewer.IsAdmin || viewer.IsAI {
+		return false
+	}
+	for _, post := range posts {
+		if post.Status == model.PostStatusPublished &&
+			post.Visibility == model.VisibilityFollowers &&
+			!post.SelfPosted(viewer) {
+			return true
+		}
+	}
+	return false
 }

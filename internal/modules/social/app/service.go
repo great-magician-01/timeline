@@ -154,19 +154,12 @@ func (s *Service) FollowingSet(ctx context.Context, followerID int64) (map[int64
 }
 
 // FollowState 返回访问者对目标用户的关系状态（model.FollowState* 四态）。
+// 三项关系状态由仓储单条三 EXISTS 查询一次取回，避免每次 3 次数据库往返。
 func (s *Service) FollowState(ctx context.Context, viewerID, targetID int64) (string, error) {
 	if viewerID <= 0 || targetID <= 0 {
 		return model.FollowStateNone, nil
 	}
-	following, err := s.deps.Follows.Following(ctx, viewerID, targetID)
-	if err != nil {
-		return "", err
-	}
-	pending, err := s.deps.Requests.HasPending(ctx, viewerID, targetID)
-	if err != nil {
-		return "", err
-	}
-	incomingPending, err := s.deps.Requests.HasPending(ctx, targetID, viewerID)
+	following, pending, incomingPending, err := s.deps.Follows.FollowState(ctx, viewerID, targetID)
 	if err != nil {
 		return "", err
 	}

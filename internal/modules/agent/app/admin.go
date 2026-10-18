@@ -177,18 +177,26 @@ func (s *Service) PublishAIDraft(ctx context.Context, adminID, aiID, postID int6
 }
 
 // ListAITasks 分页读取 AI 任务及注入记忆。
+// 任务对应的记忆引用一次批量读取（task_id = ANY），避免逐任务往返。
 func (s *Service) ListAITasks(ctx context.Context, filter repo.TaskFilter) ([]TaskView, bool, error) {
 	tasks, hasMore, err := s.deps.Tasks.ListTasks(ctx, filter)
 	if err != nil {
 		return nil, false, err
 	}
+	refsByTask := map[int64][]repo.MemoryRef{}
+	if len(tasks) > 0 {
+		taskIDs := make([]int64, 0, len(tasks))
+		for _, task := range tasks {
+			taskIDs = append(taskIDs, task.ID)
+		}
+		refsByTask, err = s.deps.Tasks.ListMemoryRefsByTaskIDs(ctx, taskIDs)
+		if err != nil {
+			return nil, false, err
+		}
+	}
 	views := make([]TaskView, 0, len(tasks))
 	for _, task := range tasks {
-		view, viewErr := s.taskView(ctx, task)
-		if viewErr != nil {
-			return nil, false, viewErr
-		}
-		views = append(views, view)
+		views = append(views, TaskView{Task: task, MemoryRefs: refsByTask[task.ID]})
 	}
 	return views, hasMore, nil
 }

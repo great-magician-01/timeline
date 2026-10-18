@@ -49,6 +49,7 @@ type stubUserRepo struct {
 	updatePasswordErr      error
 	updateAvatarErr        error
 	searchErr              error
+	lastSearchKeyword      string
 	getUsersErr            error
 	getUserBriefsErr       error
 	findActiveErr          error
@@ -135,6 +136,7 @@ func (r *stubUserRepo) UpdateAvatar(ctx context.Context, id int64, attachmentID 
 }
 
 func (r *stubUserRepo) Search(ctx context.Context, keyword string, cursor int64, limit int) ([]model.User, error) {
+	r.lastSearchKeyword = keyword
 	if r.searchErr != nil {
 		return nil, r.searchErr
 	}
@@ -183,38 +185,38 @@ func (r *stubUserRepo) ListAvatarAttachmentIDs(ctx context.Context) ([]int64, er
 	return r.fakeUserRepo.ListAvatarAttachmentIDs(ctx)
 }
 
-// sequenceCountRepo 按次数返回预设的人类用户数，用于覆盖注册事务内二次复核分支
-// （预检查看到空库、事务内看到已有用户）。
-type sequenceCountRepo struct {
+// sequenceHasHumanRepo 按次数返回预设的“是否已有人类账号”，用于覆盖注册事务内
+// 二次复核分支（预检查看到空库、事务内看到已有用户）。
+type sequenceHasHumanRepo struct {
 	*fakeUserRepo
-	counts []int64
-	idx    int
+	has []bool
+	idx int
 }
 
-func (r *sequenceCountRepo) CountHumanUsers(ctx context.Context) (int64, error) {
-	if r.idx < len(r.counts) {
-		value := r.counts[r.idx]
+func (r *sequenceHasHumanRepo) HasHumanUser(ctx context.Context) (bool, error) {
+	if r.idx < len(r.has) {
+		value := r.has[r.idx]
 		r.idx++
 		return value, nil
 	}
-	return r.fakeUserRepo.CountHumanUsers(ctx)
+	return r.fakeUserRepo.HasHumanUser(ctx)
 }
 
-// errorAfterCountRepo 前 okCalls 次正常返回空库，之后返回错误，用于覆盖注册事务内
+// errorAfterHasHumanRepo 前 okCalls 次正常返回“空库”，之后返回错误，用于覆盖注册事务内
 // 初始化状态读取失败的分支。
-type errorAfterCountRepo struct {
+type errorAfterHasHumanRepo struct {
 	*fakeUserRepo
 	okCalls int
 	calls   int
 	err     error
 }
 
-func (r *errorAfterCountRepo) CountHumanUsers(ctx context.Context) (int64, error) {
+func (r *errorAfterHasHumanRepo) HasHumanUser(ctx context.Context) (bool, error) {
 	r.calls++
 	if r.calls > r.okCalls {
-		return 0, r.err
+		return false, r.err
 	}
-	return r.fakeUserRepo.CountHumanUsers(ctx)
+	return r.fakeUserRepo.HasHumanUser(ctx)
 }
 
 // stubSessionRepo 在 fakeSessionRepo 之上按方法注入错误。

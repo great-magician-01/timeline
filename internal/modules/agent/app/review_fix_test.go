@@ -42,6 +42,16 @@ func (f *fakeContent) GetVisiblePost(_ context.Context, _ model.Viewer, postID i
 	return post, nil
 }
 
+func (f *fakeContent) GetPosts(_ context.Context, postIDs []int64) (map[int64]model.Post, error) {
+	posts := make(map[int64]model.Post, len(postIDs))
+	for _, postID := range postIDs {
+		if post, ok := f.posts[postID]; ok {
+			posts[postID] = post
+		}
+	}
+	return posts, nil
+}
+
 type fakeSocial struct {
 	contracts.SocialService
 	comments      map[int64]model.Comment
@@ -57,6 +67,16 @@ func (f *fakeSocial) GetComment(_ context.Context, commentID int64) (model.Comme
 		return model.Comment{}, apperr.NotFound("评论不存在")
 	}
 	return comment, nil
+}
+
+func (f *fakeSocial) GetComments(_ context.Context, commentIDs []int64) (map[int64]model.Comment, error) {
+	comments := make(map[int64]model.Comment, len(commentIDs))
+	for _, commentID := range commentIDs {
+		if comment, ok := f.comments[commentID]; ok {
+			comments[commentID] = comment
+		}
+	}
+	return comments, nil
 }
 
 func (f *fakeSocial) CommentDepth(_ context.Context, commentID int64) (int, error) {
@@ -139,8 +159,38 @@ func (f *fakeAI) RuntimeByAI(_ context.Context, aiID int64) (contracts.Runtime, 
 	return runtime, nil
 }
 
-func (f *fakeAI) ListActiveMemorySourceRefs(_ context.Context, _ int64, _ int) ([]contracts.MemorySourceRef, error) {
-	return f.activeSourceRefs, nil
+func (f *fakeAI) ListActiveMemorySourceRefs(
+	_ context.Context,
+	_ int64,
+	after contracts.MemorySourceRef,
+	limit int,
+) ([]contracts.MemorySourceRef, error) {
+	return pageMemorySourceRefs(f.activeSourceRefs, after, limit), nil
+}
+
+// pageMemorySourceRefs 按 keyset 游标模拟 ai 模块的来源分页：
+// 测试数据按 (source_type, source_id) 升序提供，返回严格大于 after 的前 limit 条。
+func pageMemorySourceRefs(
+	all []contracts.MemorySourceRef,
+	after contracts.MemorySourceRef,
+	limit int,
+) []contracts.MemorySourceRef {
+	result := make([]contracts.MemorySourceRef, 0, len(all))
+	for _, ref := range all {
+		if ref.SourceType < after.SourceType ||
+			(ref.SourceType == after.SourceType && ref.SourceID <= after.SourceID) {
+			continue
+		}
+		result = append(result, ref)
+	}
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result
+}
+
+func (f *fakeAI) ProfileEnabled(_ context.Context, aiID int64) (bool, error) {
+	return f.runtime.Profile.IsEnabled, nil
 }
 
 func (f *fakeAI) InvalidateBySource(_ context.Context, in contracts.InvalidateBySourceInput) error {
@@ -160,10 +210,11 @@ func (f *fakeAI) InvalidateMemoriesBySources(
 
 type fakeTasks struct {
 	TaskStore
-	pending  []repo.Task
-	running  []repo.Task
-	tasks    map[int64]repo.Task
-	statuses map[int64]string
+	pending      []repo.Task
+	running      []repo.Task
+	tasks        map[int64]repo.Task
+	statuses     map[int64]string
+	getTaskCalls int
 }
 
 func (f *fakeTasks) ListPendingTasks(_ context.Context, _ int) ([]repo.Task, error) {
@@ -179,12 +230,31 @@ func (f *fakeTasks) ListPendingTasks(_ context.Context, _ int) ([]repo.Task, err
 
 func (f *fakeTasks) ListTasks(_ context.Context, filter repo.TaskFilter) ([]repo.Task, bool, error) {
 	if filter.Status == domain.TaskStatusRunning {
-		return f.running, false, nil
+		// 模拟 SQL 下推的 started_at < cutoff：started_at 为 NULL 或不早于 cutoff 的行不返回。
+		result := make([]repo.Task, 0, len(f.running))
+		for _, task := range f.running {
+			if filter.StartedBefore != nil {
+				if task.StartedAt == nil || !task.StartedAt.Before(*filter.StartedBefore) {
+					continue
+				}
+			}
+			result = append(result, task)
+		}
+		return result, false, nil
 	}
 	return nil, false, nil
 }
 
+func (f *fakeTasks) ClaimTask(_ context.Context, taskID int64, _ time.Time, _ time.Duration) (repo.Task, bool, error) {
+	task, ok := f.tasks[taskID]
+	if !ok {
+		return repo.Task{}, false, nil
+	}
+	return task, true, nil
+}
+
 func (f *fakeTasks) GetTask(_ context.Context, taskID int64) (repo.Task, error) {
+	f.getTaskCalls++
 	task, ok := f.tasks[taskID]
 	if !ok {
 		return repo.Task{}, apperr.NotFound("AI 任务不存在")

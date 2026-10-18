@@ -65,7 +65,7 @@ func (r *Repo) ListCandidatePosts(ctx context.Context, query CandidatePostsQuery
 		LEFT JOIN post_versions v ON v.id = p.current_version_id
 		LEFT JOIN post_search s ON s.post_id = p.id
 		WHERE `+strings.Join(where, " AND ")+`
-		ORDER BY p.published_at DESC NULLS LAST, p.id DESC
+		ORDER BY p.published_at DESC, p.id DESC
 		LIMIT $`+itoa(len(args)), args...)
 	if err != nil {
 		return nil, err

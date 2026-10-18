@@ -29,6 +29,9 @@ func TestRepostSuccess(t *testing.T) {
 	if call.userID != stubViewerID || call.postID != stubPostID || call.id != 101 || !call.at.Equal(stubNow) {
 		t.Fatalf("转发写入参数 = %+v", call)
 	}
+	if call.authorIsAI {
+		t.Fatal("人类访问者转发应写入 author_is_ai=false")
+	}
 	if want := (contracts.PostCounterInput{PostID: stubPostID, Counter: contracts.PostCounterRepost, Delta: 1, At: stubNow}); len(stubs.posts.counters) != 1 || stubs.posts.counters[0] != want {
 		t.Fatalf("帖子计数参数 = %+v，期望 %+v", stubs.posts.counters, want)
 	}

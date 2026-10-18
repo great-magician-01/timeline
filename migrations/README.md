@@ -1,6 +1,6 @@
 # 数据库迁移
 
-> **最近更新**：2026-10-18（随 `0016_review_fixes` 同步）
+> **最近更新**：2026-10-18（随 `0017`–`0020` SQL 最简原则改造同步）
 > 权威设计见 [`docs/DATA_MODEL.md`](../docs/DATA_MODEL.md) 与 [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §9；部署侧执行/回滚见 [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md) 第 6、9 章。
 
 ## 约定
@@ -25,6 +25,10 @@
 | `0014_search_trgm` | no-transaction：`pg_trgm` 扩展 + `post_search_text_trgm` GIN(`LOWER(plain_text) gin_trgm_ops`)；查询须写成 `LOWER(plain_text) LIKE '%' \|\| $n \|\| '%'` 才命中索引；扩展需安装到连接 `search_path` 内的 schema（生产为 `timeline`） |
 | `0015_drop_unused_indexes` | 删除未使用索引 `timeline.post_search_updated` |
 | `0016_review_fixes` | 普通事务：当 `avatar_url` 恰为 `/api/v1/attachments/<id>/content` 时回填 `"user".users.avatar_attachment_id`（仅当列为 `NULL`，幂等，不改 `updated_at`）+ 删除与查询形态不匹配的 `timeline.ai_tasks_daily` 索引；保留 `ai_call_logs_retention_id`，不动时间默认值与业务数据 |
+| `0017_sql_review_indexes` | no-transaction：SQL 最简原则改造的查询索引批次（关注游标覆盖、评论作者/顶层/trigram、附件有效/清理候选/文件名 trigram、提及时间窗、`background_jobs` running、`ai_tasks` running/last_success、用户与标签搜索表达式索引、引用帖部分索引、`ai_action_counters` 新列序唯一索引） |
+| `0018_drop_redundant_indexes` | no-transaction：删除被 `0017` 覆盖或运行期无查询/与主键等价的索引（`auth_sessions_expiry`、`admin_audit_logs_created`、`users_admin_list`、`post_versions_post`、`posts_quoted`、`ai_tasks_action`、旧 `ai_action_counters_unique`、旧 follows/attachments 被替换索引）；保留 `comments_author`（管理端按作者筛选评论不带 status 条件，新部分索引不能替代），只删索引不删数据 |
+| `0019_author_is_ai_and_attachment_usage` | 普通事务（含经评审回填）：新增 `posts/reposts.author_is_ai` 快照列并回填 `"user".users.is_ai`；新增 `timeline.attachment_usage` 配额冗余计数表并从 `attachments` 明细按上传者回填（含已逻辑删除行、可重复执行、不改业务时间列） |
+| `0020_author_is_ai_indexes` | no-transaction：`posts`/`reposts` 作者类型时间线并发索引（`author_is_ai + 发布时间倒序` 部分索引） |
 
 ## 新增迁移的评审规则
 

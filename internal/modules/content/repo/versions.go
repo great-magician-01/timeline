@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/great-magician-01/timeline/internal/modules/content/domain"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
 
@@ -30,19 +31,19 @@ func (r *Repo) InsertVersion(ctx context.Context, version model.PostVersion) err
 	return err
 }
 
-// InsertVersionAttachments 写入版本附件快照与排序。
+// InsertVersionAttachments 批量写入版本附件快照与排序（单条 unnest 语句，不物理删除）。
+// sort_order 保持与原先逐条追加一致的 0 起始顺序。
 func (r *Repo) InsertVersionAttachments(ctx context.Context, versionID int64, attachmentIDs []int64) error {
-	exec := r.ex(ctx)
-	for order, attachmentID := range attachmentIDs {
-		if _, err := exec.Exec(ctx, `
-			INSERT INTO post_version_attachments (version_id, attachment_id, sort_order)
-			VALUES ($1, $2, $3)
-			ON CONFLICT (version_id, attachment_id) DO NOTHING`,
-			versionID, attachmentID, order); err != nil {
-			return err
-		}
+	ids := domain.UniqueIDs(attachmentIDs)
+	if len(ids) == 0 {
+		return nil
 	}
-	return nil
+	_, err := r.ex(ctx).Exec(ctx, `
+		INSERT INTO post_version_attachments (version_id, attachment_id, sort_order)
+		SELECT $1, t.attachment_id, (t.ord - 1)::int
+		FROM unnest($2::bigint[]) WITH ORDINALITY AS t(attachment_id, ord)
+		ON CONFLICT (version_id, attachment_id) DO NOTHING`, versionID, ids)
+	return err
 }
 
 // MaxVersionNumber 读取帖子当前最大版本号（没有版本时返回 0）。
@@ -98,18 +99,17 @@ func (r *Repo) ListVersions(ctx context.Context, postID, cursorID int64, limit i
 	return items, hasMore, nil
 }
 
-// CurrentVersions 批量读取每个帖子的当前发布版本。
-func (r *Repo) CurrentVersions(ctx context.Context, postIDs []int64) (map[int64]model.PostVersion, error) {
-	result := make(map[int64]model.PostVersion, len(postIDs))
-	if len(postIDs) == 0 {
+// CurrentVersions 按版本 ID 批量读取版本快照，返回 post_id → 当前版本。
+// 版本 ID 由调用方从已读到的 posts.current_version_id 收集；不再 JOIN posts 反查，
+// 避免每行多一次 posts 主键探测，也不受帖子行缺失影响。
+func (r *Repo) CurrentVersions(ctx context.Context, versionIDs []int64) (map[int64]model.PostVersion, error) {
+	result := make(map[int64]model.PostVersion, len(versionIDs))
+	ids := domain.UniqueIDs(versionIDs)
+	if len(ids) == 0 {
 		return result, nil
 	}
-	rows, err := r.ex(ctx).Query(ctx, `
-		SELECT v.id, v.post_id, v.version_number, v.content_format, v.content_source,
-		       v.content_html, v.plain_text, v.visibility, v.restored_from_version_id,
-		       v.created_by, v.created_at
-		FROM post_versions v JOIN posts p ON p.current_version_id = v.id
-		WHERE p.id = ANY($1)`, postIDs)
+	rows, err := r.ex(ctx).Query(ctx,
+		`SELECT `+versionColumns+` FROM post_versions WHERE id = ANY($1)`, ids)
 	if err != nil {
 		return nil, err
 	}

@@ -27,10 +27,21 @@ type UploadInput struct {
 	// SizeHint 是客户端 multipart 头部声明的大小，仅用于提前拒绝明显超配额的请求；
 	// 真实大小以 storage.Save 实际写入字节为准。
 	SizeHint int64
-	// Prechecked 表示 http 层已成功执行 PrecheckUpload（写权限 + 限频 + 配额已满预检），
-	// 此时不再重复消费上传限频额度。
-	Prechecked bool
-	Content    io.Reader
+	// Precheck 是 http 层 PrecheckUpload 返回的只读快照（设置上限 + 已用字节）。
+	// 非 nil 表示写权限、上传限频与「配额已满」预检已完成：Upload 不再重复读取设置、
+	// 不再重复消费限频、也不再二次统计已用空间；nil 时 Upload 在落盘前自行补做一次
+	// （保留给直接调用 Upload 的调用方）。
+	Precheck *UploadPrecheck
+	Content  io.Reader
+}
+
+// UploadPrecheck 是一次上传预检得到的只读快照，用于在 http 层与 Upload 之间传递设置
+// 上限与已用配额，避免同一请求内重复读设置（每次 12 行主键点查）与重复聚合。
+type UploadPrecheck struct {
+	MaxRequestBytes   int64 // multipart 请求体上限（http 层用于 MaxBytesReader）
+	MaxUploadBytes    int64 // 单文件上限（storage.Save 使用）
+	StorageQuotaBytes int64 // 用户存储配额
+	UsedBytes         int64 // 预检时的已用字节（含已逻辑删除附件，只增不减）
 }
 
 // UploadResult 是上传结果：附件行 + 衍生文件初始状态。
@@ -40,30 +51,42 @@ type UploadResult struct {
 }
 
 // PrecheckUpload 在 http 层解析 multipart 之前完成鉴权、上传限频与「存储配额已满」预检，
-// 使未登录/停用/AI 会话、超频与配额耗尽的请求不必先被读取请求体（旧实现顺序）。
-// 解析完成后 Upload 仍会按真实文件大小做最终配额校验。
-func (s *Service) PrecheckUpload(ctx context.Context, viewer model.Viewer) error {
+// 并返回设置/已用字节快照供 Upload 复用；未登录/停用/AI 会话、超频与配额耗尽的请求因此
+// 不必先被读取请求体（旧实现顺序）。解析完成后 Upload 仍会按 SizeHint 做配额校验。
+func (s *Service) PrecheckUpload(ctx context.Context, viewer model.Viewer) (UploadPrecheck, error) {
 	if err := access.RequireWritable(viewer); err != nil {
-		return err
+		return UploadPrecheck{}, err
 	}
+	return s.precheckUpload(ctx, viewer)
+}
+
+// precheckUpload 读取设置快照、消耗一次上传限频并读取已用配额（attachment_usage 点查）。
+// 快照在所有后继校验与落盘中共用，http 层与 Upload 各调用至多一次。
+func (s *Service) precheckUpload(ctx context.Context, viewer model.Viewer) (UploadPrecheck, error) {
 	values := s.settingsOrDefaults(ctx)
 	if allowed, retryAfter := s.uploadLimiter.ConsumeLimit(
 		"user:"+format.FormatID(viewer.ID), values.UploadRateLimit, values.UploadRateWindow,
 	); !allowed {
-		return apperr.RateLimited(retryAfter)
+		return UploadPrecheck{}, apperr.RateLimited(retryAfter)
 	}
-	used, err := repo.SumSizeByUploader(ctx, s.exec(ctx), viewer.ID)
+	used, err := repo.Usage(ctx, s.exec(ctx), viewer.ID)
 	if err != nil {
-		return s.internal("统计已用存储空间失败", err)
+		return UploadPrecheck{}, s.internal("统计已用存储空间失败", err)
 	}
 	if domain.ExceedsStorageQuota(used, 0, values.StorageQuotaBytes) {
-		return domain.ErrStorageQuotaExhausted
+		return UploadPrecheck{}, domain.ErrStorageQuotaExhausted
 	}
-	return nil
+	return UploadPrecheck{
+		MaxRequestBytes:   values.MaxRequestBytes,
+		MaxUploadBytes:    values.MaxUploadBytes,
+		StorageQuotaBytes: values.StorageQuotaBytes,
+		UsedBytes:         used,
+	}, nil
 }
 
-// Upload 处理附件上传：鉴权 → 配额与限频校验 → 内容嗅探与落盘 → 事务内写附件行、
-// 衍生文件记录、入队衍生作业、头像回写。只信任实际内容，文件名仅用于展示。
+// Upload 处理附件上传：鉴权 → 复用预检快照（或补做一次预检）→ 内容嗅探与落盘 →
+// 事务内写附件行、累加已用配额、衍生文件记录、入队衍生作业、头像回写。
+// 只信任实际内容，文件名仅用于展示。
 func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, error) {
 	if err := access.RequireWritable(in.Viewer); err != nil {
 		return UploadResult{}, err
@@ -73,29 +96,21 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, err
 		return UploadResult{}, s.internal("后台作业队列未初始化", errors.New("jobs queue is nil"))
 	}
 
-	// 上传大小、请求大小、存储配额与限频均为系统设置，每次请求即时读取。
-	values := s.settingsOrDefaults(ctx)
-	if !in.Prechecked {
-		if allowed, retryAfter := s.uploadLimiter.ConsumeLimit(
-			"user:"+format.FormatID(in.Viewer.ID), values.UploadRateLimit, values.UploadRateWindow,
-		); !allowed {
-			return UploadResult{}, apperr.RateLimited(retryAfter)
+	// http 层已预检时直接复用其快照（设置与已用空间各只读一次）；否则补做一次预检。
+	precheck := in.Precheck
+	if precheck == nil {
+		snapshot, err := s.precheckUpload(ctx, in.Viewer)
+		if err != nil {
+			return UploadResult{}, err
 		}
+		precheck = &snapshot
 	}
 
-	exec := s.exec(ctx)
-	used, err := repo.SumSizeByUploader(ctx, exec, in.Viewer.ID)
-	if err != nil {
-		return UploadResult{}, s.internal("统计已用存储空间失败", err)
-	}
-	if domain.ExceedsStorageQuota(used, 0, values.StorageQuotaBytes) {
-		return UploadResult{}, domain.ErrStorageQuotaExhausted
-	}
 	purpose, err := domain.NormalizePurpose(in.Purpose)
 	if err != nil {
 		return UploadResult{}, err
 	}
-	if in.SizeHint > 0 && domain.ExceedsStorageQuota(used, in.SizeHint, values.StorageQuotaBytes) {
+	if in.SizeHint > 0 && domain.ExceedsStorageQuota(precheck.UsedBytes, in.SizeHint, precheck.StorageQuotaBytes) {
 		return UploadResult{}, domain.ErrStorageQuotaExceeded
 	}
 
@@ -106,7 +121,7 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, err
 	kind, _, _ := storage.Detect(header)
 
 	at := s.clk.Now()
-	key, size, mediaType, err := s.store.Save(buffered, values.MaxUploadBytes, at)
+	key, size, mediaType, err := s.store.Save(buffered, precheck.MaxUploadBytes, at)
 	if err != nil {
 		switch {
 		case errors.Is(err, storage.ErrTooLarge):
@@ -142,6 +157,12 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, err
 			At:               at,
 		}); err != nil {
 			return s.internal("写入附件记录失败", err)
+		}
+
+		// 同一事务内累加 attachment_usage 冗余计数：配额校验只做一次 PK 点查，
+		// 不再随历史附件数实时 SUM（附件逻辑删除不释放磁盘，计数只增不减）。
+		if err := repo.AddUsage(txCtx, txExec, in.Viewer.ID, size, at); err != nil {
+			return s.internal("更新已用存储空间失败", err)
 		}
 
 		// 无法解码的图片类型直接记为 canceled（不回退为失败，也不投递作业）。

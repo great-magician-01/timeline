@@ -1,7 +1,12 @@
 package app
 
 // 上传用例：参数校验（登录/停用/AI、用途、大小、配额、限频）、真实存储写入与嗅探、
-// 事务内附件/衍生文件/头像回写、作业入队的参数断言。数据库分支由内存协议桩驱动。
+// 事务内附件/配额计数/衍生文件/头像回写、作业入队的参数断言。数据库分支由内存协议桩驱动。
+//
+// 查询顺序约定（协议桩按顺序消费，多出/缺少结果都会失败）：
+//   - PrecheckUpload 或 Upload 自补预检：attachment_usage 点查 1 条；
+//   - 事务内：INSERT 附件行 → INSERT/UPDATE attachment_usage → 衍生文件行（如有）；
+//   - 带 Precheck 快照的 Upload 不再读取设置与用量，只排队事务内写入。
 
 import (
 	"bytes"
@@ -24,6 +29,17 @@ func uploadInput(viewer model.Viewer, filename, purpose string, content []byte) 
 		Filename: filename,
 		Purpose:  purpose,
 		Content:  bytes.NewReader(content),
+	}
+}
+
+// testUploadPrecheck 返回一份不限制配额的上传预检快照（供直接调用 Upload 的用例复用）。
+func testUploadPrecheck(usedBytes int64) *UploadPrecheck {
+	values := testSystemSettings()
+	return &UploadPrecheck{
+		MaxRequestBytes:   values.MaxRequestBytes,
+		MaxUploadBytes:    values.MaxUploadBytes,
+		StorageQuotaBytes: values.StorageQuotaBytes,
+		UsedBytes:         usedBytes,
 	}
 }
 
@@ -63,8 +79,8 @@ func TestUploadRateLimited(t *testing.T) {
 	env := newMediaTestEnv(t)
 	env.settings.values.UploadRateLimit = 1
 	env.settings.values.UploadRateWindow = time.Hour
-	env.expect(sumSizeResult(0))
-	if err := env.svc.PrecheckUpload(context.Background(), humanViewer(7)); err != nil {
+	env.expect(usageResult(0))
+	if _, err := env.svc.PrecheckUpload(context.Background(), humanViewer(7)); err != nil {
 		t.Fatalf("首次预检应成功: %v", err)
 	}
 	_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "a.png", domain.PurposePost, testPNG(t, 4, 4)))
@@ -79,40 +95,59 @@ func TestPrecheckUploadQuotaAndSettings(t *testing.T) {
 	t.Run("存储配额已满", func(t *testing.T) {
 		env := newMediaTestEnv(t)
 		env.settings.values.StorageQuotaBytes = 1024
-		env.expect(sumSizeResult(2048))
-		err := env.svc.PrecheckUpload(context.Background(), humanViewer(7))
+		env.expect(usageResult(2048))
+		_, err := env.svc.PrecheckUpload(context.Background(), humanViewer(7))
 		if !errors.Is(err, domain.ErrStorageQuotaExhausted) {
 			t.Fatalf("期望 ErrStorageQuotaExhausted，实际 %v", err)
 		}
 	})
-	t.Run("统计已用空间失败", func(t *testing.T) {
+	t.Run("读取已用空间失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(dbErrorResult("统计失败"))
-		err := env.svc.PrecheckUpload(context.Background(), humanViewer(7))
+		env.expect(dbErrorResult("usage 查询失败"))
+		_, err := env.svc.PrecheckUpload(context.Background(), humanViewer(7))
 		requireKind(t, err, apperr.KindInternal)
 	})
 	t.Run("设置读取失败回退默认值", func(t *testing.T) {
 		env := newMediaTestEnv(t)
 		env.settings.err = errors.New("settings 不可用")
-		env.expect(sumSizeResult(0))
-		if err := env.svc.PrecheckUpload(context.Background(), humanViewer(7)); err != nil {
+		env.expect(usageResult(0))
+		if _, err := env.svc.PrecheckUpload(context.Background(), humanViewer(7)); err != nil {
 			t.Fatalf("设置读取失败应回退默认值并通过预检: %v", err)
 		}
 	})
+}
+
+// TestPrecheckUploadReturnsSnapshot 预检把设置上限与已用字节作为快照返回，
+// 供 http 层设置 MaxBytesReader 并原样传给 Upload，避免同一请求重复读取。
+func TestPrecheckUploadReturnsSnapshot(t *testing.T) {
+	env := newMediaTestEnv(t)
+	env.settings.values.MaxRequestBytes = 12345
+	env.settings.values.MaxUploadBytes = 6789
+	env.settings.values.StorageQuotaBytes = 1 << 20
+	env.expect(usageResult(321))
+
+	snapshot, err := env.svc.PrecheckUpload(context.Background(), humanViewer(7))
+	if err != nil {
+		t.Fatalf("PrecheckUpload: %v", err)
+	}
+	if snapshot.MaxRequestBytes != 12345 || snapshot.MaxUploadBytes != 6789 ||
+		snapshot.StorageQuotaBytes != 1<<20 || snapshot.UsedBytes != 321 {
+		t.Fatalf("预检快照不符: %+v", snapshot)
+	}
 }
 
 // TestUploadValidationBeforeStorage 覆盖用途、配额与大小校验在落盘前失败的分支。
 func TestUploadValidationBeforeStorage(t *testing.T) {
 	t.Run("非法用途", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(sumSizeResult(0))
+		env.expect(usageResult(0))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "a.png", "video", testPNG(t, 4, 4)))
 		requireKind(t, err, apperr.KindInvalid)
 	})
 	t.Run("已用空间超过配额", func(t *testing.T) {
 		env := newMediaTestEnv(t)
 		env.settings.values.StorageQuotaBytes = 100
-		env.expect(sumSizeResult(101))
+		env.expect(usageResult(101))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "a.png", domain.PurposePost, testPNG(t, 4, 4)))
 		if !errors.Is(err, domain.ErrStorageQuotaExhausted) {
 			t.Fatalf("期望 ErrStorageQuotaExhausted，实际 %v", err)
@@ -121,7 +156,7 @@ func TestUploadValidationBeforeStorage(t *testing.T) {
 	t.Run("本次上传将超过配额", func(t *testing.T) {
 		env := newMediaTestEnv(t)
 		env.settings.values.StorageQuotaBytes = 1000
-		env.expect(sumSizeResult(900))
+		env.expect(usageResult(900))
 		in := uploadInput(humanViewer(7), "a.png", domain.PurposePost, testPNG(t, 4, 4))
 		in.SizeHint = 200
 		_, err := env.svc.Upload(context.Background(), in)
@@ -132,7 +167,7 @@ func TestUploadValidationBeforeStorage(t *testing.T) {
 	t.Run("文件超过大小限制", func(t *testing.T) {
 		env := newMediaTestEnv(t)
 		env.settings.values.MaxUploadBytes = 8
-		env.expect(sumSizeResult(0))
+		env.expect(usageResult(0))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "a.png", domain.PurposePost, testPNG(t, 4, 4)))
 		if !errors.Is(err, domain.ErrContentTooLarge) {
 			t.Fatalf("期望 ErrContentTooLarge，实际 %v", err)
@@ -140,7 +175,7 @@ func TestUploadValidationBeforeStorage(t *testing.T) {
 	})
 	t.Run("不支持的文件类型", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(sumSizeResult(0))
+		env.expect(usageResult(0))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "evil.html", domain.PurposePost, testHTMLBytes()))
 		if !errors.Is(err, domain.ErrUnsupportedMediaType) {
 			t.Fatalf("期望 ErrUnsupportedMediaType，实际 %v", err)
@@ -148,7 +183,7 @@ func TestUploadValidationBeforeStorage(t *testing.T) {
 	})
 	t.Run("空文件", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(sumSizeResult(0))
+		env.expect(usageResult(0))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "empty.bin", domain.PurposePost, nil))
 		if !errors.Is(err, domain.ErrUnsupportedMediaType) {
 			t.Fatalf("期望 ErrUnsupportedMediaType，实际 %v", err)
@@ -157,10 +192,10 @@ func TestUploadValidationBeforeStorage(t *testing.T) {
 }
 
 // TestUploadImageSuccess 覆盖图片上传全链路：真实嗅探/落盘/尺寸解析、
-// 附件与衍生记录写入、衍生作业入队参数。
+// 附件与配额计数及衍生记录写入、衍生作业入队参数。
 func TestUploadImageSuccess(t *testing.T) {
 	env := newMediaTestEnv(t)
-	env.expect(sumSizeResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+	env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
 	payload := testPNG(t, 32, 16)
 
 	result, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "目录/../照片.png", domain.PurposePost, payload))
@@ -226,7 +261,7 @@ func TestUploadImageSuccess(t *testing.T) {
 // TestUploadAvatarSuccess 覆盖头像用途上传：附件落盘后经 auth 端口回写头像地址。
 func TestUploadAvatarSuccess(t *testing.T) {
 	env := newMediaTestEnv(t)
-	env.expect(sumSizeResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+	env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
 	result, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "avatar.png", domain.PurposeAvatar, testPNG(t, 8, 8)))
 	if err != nil {
 		t.Fatalf("Upload 返回错误: %v", err)
@@ -249,7 +284,7 @@ func TestUploadAvatarSuccess(t *testing.T) {
 // TestUploadNonDecodableImage 可存储但标准库无法解码的图片直接记为 canceled，不投递注定失败的作业。
 func TestUploadNonDecodableImage(t *testing.T) {
 	env := newMediaTestEnv(t)
-	env.expect(sumSizeResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+	env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
 	result, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "image.webp", domain.PurposePost, testWebPBytes()))
 	if err != nil {
 		t.Fatalf("Upload 返回错误: %v", err)
@@ -272,7 +307,7 @@ func TestUploadNonDecodableImage(t *testing.T) {
 func TestUploadVideoAndText(t *testing.T) {
 	t.Run("视频生成封面作业", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(sumSizeResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
 		result, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "clip.mp4", domain.PurposePost, testMP4Bytes()))
 		if err != nil {
 			t.Fatalf("Upload 返回错误: %v", err)
@@ -292,7 +327,7 @@ func TestUploadVideoAndText(t *testing.T) {
 	})
 	t.Run("普通文件无衍生文件", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(sumSizeResult(0), commandResult("INSERT 0 1"))
+		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
 		result, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "notes.txt", domain.PurposePost, testTextBytes()))
 		if err != nil {
 			t.Fatalf("Upload 返回错误: %v", err)
@@ -306,7 +341,8 @@ func TestUploadVideoAndText(t *testing.T) {
 	})
 }
 
-// TestUploadPrecheckedSkipsLimiter 已预检（http 层）时不再重复消耗上传限频额度。
+// TestUploadPrecheckedSkipsLimiter 已预检（http 层）时不再重复消耗上传限频额度，
+// 也不再重复读取设置与已用空间（快照透传）。
 func TestUploadPrecheckedSkipsLimiter(t *testing.T) {
 	env := newMediaTestEnv(t)
 	env.settings.values.UploadRateLimit = 1
@@ -316,11 +352,33 @@ func TestUploadPrecheckedSkipsLimiter(t *testing.T) {
 	if !allowed {
 		t.Fatal("首个额度应消耗成功")
 	}
-	env.expect(sumSizeResult(0), commandResult("INSERT 0 1"))
+	env.expect(commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
 	in := uploadInput(humanViewer(7), "notes.txt", domain.PurposePost, testTextBytes())
-	in.Prechecked = true
+	in.Precheck = testUploadPrecheck(0)
 	if _, err := env.svc.Upload(context.Background(), in); err != nil {
 		t.Fatalf("预检后上传不应再次限频，实际 %v", err)
+	}
+	if got := env.stub.pending(); got != 0 {
+		t.Fatalf("预检后上传不应再有预检查询，剩余 %d 条脚本结果", got)
+	}
+}
+
+// TestUploadUsesPrecheckSnapshot 确认 Upload 完全复用快照：不读设置、不读用量，
+// 配额校验直接使用快照里的 UsedBytes。
+func TestUploadUsesPrecheckSnapshot(t *testing.T) {
+	env := newMediaTestEnv(t)
+	in := uploadInput(humanViewer(7), "a.png", domain.PurposePost, testPNG(t, 4, 4))
+	in.SizeHint = 200
+	in.Precheck = &UploadPrecheck{
+		MaxRequestBytes: 12 << 20, MaxUploadBytes: 10 << 20,
+		StorageQuotaBytes: 1000, UsedBytes: 900,
+	}
+	_, err := env.svc.Upload(context.Background(), in)
+	if !errors.Is(err, domain.ErrStorageQuotaExceeded) {
+		t.Fatalf("期望 ErrStorageQuotaExceeded，实际 %v", err)
+	}
+	if got := len(env.stub.recorded()); got != 0 {
+		t.Fatalf("带快照的上传不应触库，实际查询 %d 次: %v", got, env.stub.recorded())
 	}
 }
 
@@ -328,40 +386,46 @@ func TestUploadPrecheckedSkipsLimiter(t *testing.T) {
 func TestUploadDatabaseAndPortFailures(t *testing.T) {
 	t.Run("统计已用空间失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(dbErrorResult("sum 失败"))
+		env.expect(dbErrorResult("usage 失败"))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "notes.txt", domain.PurposePost, testTextBytes()))
 		requireKind(t, err, apperr.KindInternal)
 	})
 	t.Run("附件记录写入失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(sumSizeResult(0), dbErrorResult("insert 失败"))
+		env.expect(usageResult(0), dbErrorResult("insert 失败"))
+		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "notes.txt", domain.PurposePost, testTextBytes()))
+		requireKind(t, err, apperr.KindInternal)
+	})
+	t.Run("配额计数写入失败", func(t *testing.T) {
+		env := newMediaTestEnv(t)
+		env.expect(usageResult(0), commandResult("INSERT 0 1"), dbErrorResult("usage 写入失败"))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "notes.txt", domain.PurposePost, testTextBytes()))
 		requireKind(t, err, apperr.KindInternal)
 	})
 	t.Run("衍生记录写入失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(sumSizeResult(0), commandResult("INSERT 0 1"), dbErrorResult("derivative 失败"))
+		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), dbErrorResult("derivative 失败"))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "a.png", domain.PurposePost, testPNG(t, 4, 4)))
 		requireKind(t, err, apperr.KindInternal)
 	})
 	t.Run("作业入队失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
 		env.jobs.enqueueErr = errors.New("jobs 不可用")
-		env.expect(sumSizeResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "a.png", domain.PurposePost, testPNG(t, 4, 4)))
 		requireKind(t, err, apperr.KindInternal)
 	})
 	t.Run("头像回写失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
 		env.auth.setAvatarErr = errors.New("auth 不可用")
-		env.expect(sumSizeResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "a.png", domain.PurposeAvatar, testPNG(t, 4, 4)))
 		requireKind(t, err, apperr.KindInternal)
 	})
 	t.Run("ID 生成失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
 		env.ids.err = errors.New("id 耗尽")
-		env.expect(sumSizeResult(0))
+		env.expect(usageResult(0))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "notes.txt", domain.PurposePost, testTextBytes()))
 		requireKind(t, err, apperr.KindInternal)
 	})
@@ -373,16 +437,5 @@ func TestImageDimensionsRejectsNonImage(t *testing.T) {
 	key := env.saveBytes(testTextBytes())
 	if width, height := env.svc.imageDimensions(key); width != nil || height != nil {
 		t.Fatalf("非图片内容应返回空尺寸，实际 %v,%v", width, height)
-	}
-}
-
-// TestUploadLimits 校验 http 层读取请求体前使用的上限来自系统设置。
-func TestUploadLimits(t *testing.T) {
-	env := newMediaTestEnv(t)
-	env.settings.values.MaxRequestBytes = 12345
-	env.settings.values.MaxUploadBytes = 6789
-	maxRequestBytes, maxUploadBytes := env.svc.UploadLimits(context.Background())
-	if maxRequestBytes != 12345 || maxUploadBytes != 6789 {
-		t.Fatalf("上传上限 = %d/%d，期望 12345/6789", maxRequestBytes, maxUploadBytes)
 	}
 }

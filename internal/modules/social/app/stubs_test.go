@@ -246,16 +246,17 @@ func (s *stubUsers) ListUserIDsByAIFlag(_ context.Context, isAI bool) ([]int64, 
 type stubPosts struct {
 	contracts.ContentService
 
-	getPost      model.Post
-	visiblePost  model.Post
-	posts        map[int64]model.Post
-	postIDs      []int64
-	plainTexts   map[int64]string
-	counterValue int
+	getPost         model.Post
+	visiblePost     model.Post
+	posts           map[int64]model.Post
+	publicPostIDs   []int64
+	publicPostLimit int
+	plainTexts      map[int64]string
+	counterValue    int
 
 	counters []contracts.PostCounterInput
 
-	getPostErr, visibleErr, postsErr, postIDsErr, textsErr, counterErr error
+	getPostErr, visibleErr, postsErr, publicPostIDsErr, textsErr, counterErr error
 }
 
 func newStubPosts() *stubPosts {
@@ -310,11 +311,12 @@ func (s *stubPosts) BumpPostCounter(_ context.Context, in contracts.PostCounterI
 	return s.counterValue, nil
 }
 
-func (s *stubPosts) ListPostIDsByAuthor(_ context.Context, _ int64) ([]int64, error) {
-	if s.postIDsErr != nil {
-		return nil, s.postIDsErr
+func (s *stubPosts) ListPublicPublishedPostIDsByAuthor(_ context.Context, _ int64, limit int) ([]int64, error) {
+	if s.publicPostIDsErr != nil {
+		return nil, s.publicPostIDsErr
 	}
-	return s.postIDs, nil
+	s.publicPostLimit = limit
+	return s.publicPostIDs, nil
 }
 
 func (s *stubPosts) GetPostPlainTexts(_ context.Context, postIDs []int64) (map[int64]string, error) {
@@ -342,11 +344,10 @@ type stubNotices struct {
 	contracts.NoticeService
 
 	notifications []contracts.NotificationInput
-	rebuilds      []contracts.RebuildMentionsInput
-	mentions      []contracts.MentionNotificationsInput
+	publications  []contracts.PublishMentionsInput
 	deactivated   []stubDeactivateMention
 
-	createErr, rebuildErr, mentionErr, deactivateErr error
+	createErr, publishErr, deactivateErr error
 }
 
 func (s *stubNotices) CreateNotification(_ context.Context, in contracts.NotificationInput) error {
@@ -354,14 +355,9 @@ func (s *stubNotices) CreateNotification(_ context.Context, in contracts.Notific
 	return s.createErr
 }
 
-func (s *stubNotices) RebuildMentions(_ context.Context, in contracts.RebuildMentionsInput) error {
-	s.rebuilds = append(s.rebuilds, in)
-	return s.rebuildErr
-}
-
-func (s *stubNotices) MentionNotifications(_ context.Context, in contracts.MentionNotificationsInput) error {
-	s.mentions = append(s.mentions, in)
-	return s.mentionErr
+func (s *stubNotices) PublishMentions(_ context.Context, in contracts.PublishMentionsInput) error {
+	s.publications = append(s.publications, in)
+	return s.publishErr
 }
 
 func (s *stubNotices) DeactivateMentions(_ context.Context, sourceType string, sourceID int64, at time.Time) error {
@@ -400,11 +396,17 @@ type stubFollowList struct {
 	limit          int
 }
 
+// stubFollowState 是 FollowState 三项关系状态的预置值。
+type stubFollowState struct {
+	following, pending, incoming bool
+}
+
 type stubFollows struct {
 	FollowRepo
 
 	following    map[[2]int64]bool
 	followingSet map[int64]map[int64]bool
+	states       map[[2]int64]stubFollowState
 
 	insertRowID       int64
 	insertActiveAt    time.Time
@@ -418,7 +420,7 @@ type stubFollows struct {
 	deactivates []stubFollowDeactivate
 	listCalls   map[string]stubFollowList
 
-	followingErr, followingSetErr, insertErr, deactivateErr,
+	followingErr, followStateErr, followingSetErr, insertErr, deactivateErr,
 	followersErr, followingListErr, recentErr error
 }
 
@@ -426,6 +428,7 @@ func newStubFollows() *stubFollows {
 	return &stubFollows{
 		following:         map[[2]int64]bool{},
 		followingSet:      map[int64]map[int64]bool{},
+		states:            map[[2]int64]stubFollowState{},
 		insertChanged:     true,
 		deactivateChanged: true,
 		listCalls:         map[string]stubFollowList{},
@@ -437,6 +440,16 @@ func (s *stubFollows) Following(_ context.Context, followerID, followeeID int64)
 		return false, s.followingErr
 	}
 	return s.following[[2]int64{followerID, followeeID}], nil
+}
+
+func (s *stubFollows) FollowState(
+	_ context.Context, viewerID, targetID int64,
+) (bool, bool, bool, error) {
+	if s.followStateErr != nil {
+		return false, false, false, s.followStateErr
+	}
+	state := s.states[[2]int64{viewerID, targetID}]
+	return state.following, state.pending, state.incoming, nil
 }
 
 func (s *stubFollows) FollowingSet(_ context.Context, followerID int64) (map[int64]bool, error) {
@@ -518,10 +531,9 @@ type stubRequestList struct {
 type stubRequests struct {
 	FollowRequestRepo
 
-	rows          map[int64]domain.RequestRow
-	hasPendingMap map[[2]int64]bool
-	incomingRows  []domain.RequestRow
-	outgoingRows  []domain.RequestRow
+	rows         map[int64]domain.RequestRow
+	incomingRows []domain.RequestRow
+	outgoingRows []domain.RequestRow
 
 	insertChanged bool
 	cancelChanged bool
@@ -531,7 +543,7 @@ type stubRequests struct {
 
 	inserts []stubRequestInsert
 
-	getErr, insertErr, updateErr, hasErr, incomingErr, outgoingErr, cancelErr error
+	getErr, insertErr, updateErr, incomingErr, outgoingErr, cancelErr error
 }
 
 type stubRequestInsert struct {
@@ -542,7 +554,6 @@ type stubRequestInsert struct {
 func newStubRequests() *stubRequests {
 	return &stubRequests{
 		rows:          map[int64]domain.RequestRow{},
-		hasPendingMap: map[[2]int64]bool{},
 		insertChanged: true,
 		cancelChanged: true,
 		calls:         map[string]stubRequestList{},
@@ -575,13 +586,6 @@ func (s *stubRequests) UpdateStatus(_ context.Context, id int64, status string, 
 	}
 	s.updates = append(s.updates, stubRequestUpdate{id: id, status: status, resolvedAt: resolvedAt})
 	return nil
-}
-
-func (s *stubRequests) HasPending(_ context.Context, requesterID, targetID int64) (bool, error) {
-	if s.hasErr != nil {
-		return false, s.hasErr
-	}
-	return s.hasPendingMap[[2]int64{requesterID, targetID}], nil
 }
 
 func (s *stubRequests) ListPendingIncoming(_ context.Context, targetID, cursor int64, limit int) ([]RequestRow, error) {
@@ -893,6 +897,7 @@ func (s *stubComments) ListByPostIDsSince(
 
 type stubRepostCall struct {
 	id, userID, postID int64
+	authorIsAI         bool
 	at                 time.Time
 }
 
@@ -924,11 +929,15 @@ func newStubReposts() *stubReposts {
 	}
 }
 
-func (s *stubReposts) Activate(_ context.Context, id, userID, postID int64, at time.Time) (int64, bool, error) {
+func (s *stubReposts) Activate(
+	_ context.Context, id, userID, postID int64, authorIsAI bool, at time.Time,
+) (int64, bool, error) {
 	if s.activateErr != nil {
 		return 0, false, s.activateErr
 	}
-	s.activates = append(s.activates, stubRepostCall{id: id, userID: userID, postID: postID, at: at})
+	s.activates = append(s.activates, stubRepostCall{
+		id: id, userID: userID, postID: postID, authorIsAI: authorIsAI, at: at,
+	})
 	return s.activateID, s.activateChanged, nil
 }
 

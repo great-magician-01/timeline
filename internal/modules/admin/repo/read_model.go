@@ -1,8 +1,9 @@
 // Package repo 是 admin 编排模块的显式只读 read-model。
 //
-// 目标架构明确允许 admin 的 read-model 跨表 JOIN/聚合（审核列表、概览统计、审计列表、
-// 任务列表、用户统计）：它只读、不写、不实现权限规则；可见性/权限判断由 app 层调用
-// shared/access 完成，本包只接收 app 传入的过滤条件。
+// 目标架构明确允许 admin 的 read-model 跨表只读查询（审核列表、概览统计、审计列表、
+// 任务列表）：它只读、不写、不实现权限规则；可见性/权限判断由 app 层调用
+// shared/access 完成，本包只接收 app 传入的过滤条件。用户统计按「每表一条简单查询」
+// 拆分，不使用跨表标量子查询。
 //
 // SQL 约束：所有时间条件由 app 传入显式参数（例如活跃会话统计的 at），SQL 中不出现
 // now()/CURRENT_DATE/::date/interval 等数据库时间函数；不执行任何写语句。
@@ -39,7 +40,7 @@ func (r *ReadModel) executor(ctx context.Context) db.Executor {
 
 // ===== 行结构与分页参数 =====
 
-// UserFilter 是用户列表的过滤条件；关键字由 app 预小写后传入。
+// UserFilter 是用户列表的过滤条件；关键字由 app 预小写并用 search.EscapeLikePattern 转义后传入。
 type UserFilter struct {
 	Status  string
 	IsAI    *bool
@@ -53,7 +54,7 @@ type PostFilter struct {
 	Visibility string
 	Status     string
 	Author     string
-	Keyword    string // 纯文本搜索词（app 已小写）
+	Keyword    string // 纯文本搜索词（app 已小写并转义 LIKE 通配符）
 	Cursor     int64
 	Limit      int
 }
@@ -213,6 +214,13 @@ func (b *filterBuilder) where() string {
 	return strings.Join(b.conds, " AND ")
 }
 
+// keywordLikeCondition 生成单列子串匹配条件：LOWER(column) LIKE '%' || placeholder || '%' ESCAPE '\'。
+// 关键词由 admin/app 预小写并用 search.EscapeLikePattern 转义，ESCAPE 让 %/_ 按字面量匹配；
+// 该形态能命中 0017 起的 LOWER(x) 表达式 trigram 索引（STRPOS 无法命中 trigram 索引）。
+func keywordLikeCondition(column, placeholder string) string {
+	return "LOWER(" + column + ") LIKE '%' || " + placeholder + " || '%' ESCAPE '\\'"
+}
+
 // ===== 账号 =====
 
 const userColumns = `id, username, COALESCE(email, ''), COALESCE(password_hash, ''),
@@ -248,9 +256,9 @@ func (r *ReadModel) ListUsers(ctx context.Context, f UserFilter) ([]model.User, 
 	}
 	if f.Keyword != "" {
 		placeholder := b.add(f.Keyword)
-		b.conds = append(b.conds, "(STRPOS(LOWER(username), "+placeholder+") > 0 OR "+
-			"STRPOS(LOWER(nickname), "+placeholder+") > 0 OR "+
-			"STRPOS(LOWER(COALESCE(email, '')), "+placeholder+") > 0)")
+		b.conds = append(b.conds, "("+keywordLikeCondition("username", placeholder)+" OR "+
+			keywordLikeCondition("nickname", placeholder)+" OR "+
+			keywordLikeCondition("COALESCE(email, '')", placeholder)+")")
 	}
 	if f.Cursor > 0 {
 		b.conds = append(b.conds, "id < "+b.add(f.Cursor))
@@ -283,50 +291,79 @@ func (r *ReadModel) CountActiveSessions(ctx context.Context, userID int64, at ti
 	return count, err
 }
 
-// userStatsRestSelect 是用户内容与关系统计中与帖子计数口径无关的 6 项只读计数
-// （评论、粉丝、关注、点赞送出/收到、转发）；供管理后台与个人主页两套口径复用。
-const userStatsRestSelect = `
-	(SELECT COUNT(*) FROM comments WHERE author_id = $1 AND status = 'published'),
-	(SELECT COUNT(*) FROM follows WHERE followee_id = $1 AND is_active),
-	(SELECT COUNT(*) FROM follows WHERE follower_id = $1 AND is_active),
-	(SELECT COUNT(*) FROM likes WHERE user_id = $1 AND is_active),
-	(SELECT COUNT(*) FROM likes l WHERE l.is_active AND (
-		(l.target_type = 'post' AND EXISTS (
-			SELECT 1 FROM posts p WHERE p.id = l.target_id AND p.author_id = $1
-		))
-		OR (l.target_type = 'comment' AND EXISTS (
-			SELECT 1 FROM comments c WHERE c.id = l.target_id AND c.author_id = $1
-		))
-	)),
-	(SELECT COUNT(*) FROM reposts WHERE user_id = $1 AND is_active)`
-
-// 两套用户统计查询只差帖子计数口径：管理后台计「未删除」，公开个人主页只计「已发布」。
+// 用户统计：每项一条单表查询，避免跨表标量子查询，也避免公开个人主页白算不消费的项。
+//
+// 公开个人主页只消费 posts/followers/following 三项；管理端用户详情消费全部 7 项。
+// 关注关系两向计数由两处共用。likes received 复用 posts.like_count / comments.like_count
+// 冗余计数列（两条单表 SUM 在应用内相加）：逻辑删除不回收计数，与旧 EXISTS 实时统计口径一致。
 const (
-	sqlUserStats = `SELECT
-			(SELECT COUNT(*) FROM posts WHERE author_id = $1 AND status <> 'deleted'),` +
-		userStatsRestSelect
-	sqlUserProfileStats = `SELECT
-			(SELECT COUNT(*) FROM posts WHERE author_id = $1 AND status = 'published'),` +
-		userStatsRestSelect
+	sqlUserStatsPostCount               = `SELECT COUNT(*) FROM posts WHERE author_id = $1 AND status <> 'deleted'`
+	sqlUserStatsCommentCount            = `SELECT COUNT(*) FROM comments WHERE author_id = $1 AND status = 'published'`
+	sqlFollowerCount                    = `SELECT COUNT(*) FROM follows WHERE followee_id = $1 AND is_active`
+	sqlFollowingCount                   = `SELECT COUNT(*) FROM follows WHERE follower_id = $1 AND is_active`
+	sqlUserStatsLikesGivenCount         = `SELECT COUNT(*) FROM likes WHERE user_id = $1 AND is_active`
+	sqlUserStatsRepostCount             = `SELECT COUNT(*) FROM reposts WHERE user_id = $1 AND is_active`
+	sqlUserStatsLikesReceivedOnPosts    = `SELECT COALESCE(SUM(like_count), 0) FROM posts WHERE author_id = $1`
+	sqlUserStatsLikesReceivedOnComments = `SELECT COALESCE(SUM(like_count), 0) FROM comments WHERE author_id = $1`
+
+	// sqlUserProfilePostCount 是公开个人主页的帖子口径（只计已发布，个人主页 post_count 契约）。
+	sqlUserProfilePostCount = `SELECT COUNT(*) FROM posts WHERE author_id = $1 AND status = 'published'`
 )
 
 // UserStats 统计管理后台用户详情页的内容与关系；帖子按「未删除」口径统计。
+//
+// 8 条单表查询顺序执行、错误直传：6 条 COUNT + likes received 的 2 条 SUM。
+// likes received 复用冗余计数列，逻辑删除不回收计数，与旧 EXISTS 实时统计口径一致
+// （docs/DATA_MODEL.md：冗余计数为展示优化，以明细为准）。
 func (r *ReadModel) UserStats(ctx context.Context, userID int64) (UserStats, error) {
+	exec := r.executor(ctx)
 	var stats UserStats
-	err := r.executor(ctx).QueryRow(ctx, sqlUserStats, userID).
-		Scan(&stats.Posts, &stats.Comments, &stats.Followers, &stats.Following,
-			&stats.LikesGiven, &stats.LikesReceived, &stats.Reposts)
-	return stats, err
+	if err := exec.QueryRow(ctx, sqlUserStatsPostCount, userID).Scan(&stats.Posts); err != nil {
+		return UserStats{}, err
+	}
+	if err := exec.QueryRow(ctx, sqlUserStatsCommentCount, userID).Scan(&stats.Comments); err != nil {
+		return UserStats{}, err
+	}
+	if err := exec.QueryRow(ctx, sqlFollowerCount, userID).Scan(&stats.Followers); err != nil {
+		return UserStats{}, err
+	}
+	if err := exec.QueryRow(ctx, sqlFollowingCount, userID).Scan(&stats.Following); err != nil {
+		return UserStats{}, err
+	}
+	if err := exec.QueryRow(ctx, sqlUserStatsLikesGivenCount, userID).Scan(&stats.LikesGiven); err != nil {
+		return UserStats{}, err
+	}
+	if err := exec.QueryRow(ctx, sqlUserStatsRepostCount, userID).Scan(&stats.Reposts); err != nil {
+		return UserStats{}, err
+	}
+	var likesOnPosts, likesOnComments int64
+	if err := exec.QueryRow(ctx, sqlUserStatsLikesReceivedOnPosts, userID).Scan(&likesOnPosts); err != nil {
+		return UserStats{}, err
+	}
+	if err := exec.QueryRow(ctx, sqlUserStatsLikesReceivedOnComments, userID).Scan(&likesOnComments); err != nil {
+		return UserStats{}, err
+	}
+	stats.LikesReceived = likesOnPosts + likesOnComments
+	return stats, nil
 }
 
-// UserProfileStats 统计公开个人主页的计数：帖子只计已发布（个人主页 post_count 契约），
-// 其余评论/关注/点赞/转发口径与 UserStats 一致。供组合根的个人主页只读适配器使用。
+// UserProfileStats 统计公开个人主页真正消费的三项计数：帖子只计已发布，
+// 关注关系两向各一条；3 条单表查询各自命中部分索引。返回的 UserStats 只填
+// Posts/Followers/Following，其余字段保持 0（个人主页响应不消费，不需要计算）。
+// 供组合根的个人主页只读适配器使用。
 func (r *ReadModel) UserProfileStats(ctx context.Context, userID int64) (UserStats, error) {
+	exec := r.executor(ctx)
 	var stats UserStats
-	err := r.executor(ctx).QueryRow(ctx, sqlUserProfileStats, userID).
-		Scan(&stats.Posts, &stats.Comments, &stats.Followers, &stats.Following,
-			&stats.LikesGiven, &stats.LikesReceived, &stats.Reposts)
-	return stats, err
+	if err := exec.QueryRow(ctx, sqlUserProfilePostCount, userID).Scan(&stats.Posts); err != nil {
+		return UserStats{}, err
+	}
+	if err := exec.QueryRow(ctx, sqlFollowerCount, userID).Scan(&stats.Followers); err != nil {
+		return UserStats{}, err
+	}
+	if err := exec.QueryRow(ctx, sqlFollowingCount, userID).Scan(&stats.Following); err != nil {
+		return UserStats{}, err
+	}
+	return stats, nil
 }
 
 // ===== 概览 =====
@@ -405,7 +442,6 @@ func scanPostRow(row pgx.Row) (PostRow, error) {
 // ListPosts 分页读取全部可见性级别的帖子（可按可见性/状态/作者/纯文本过滤）。
 func (r *ReadModel) ListPosts(ctx context.Context, f PostFilter) ([]PostRow, error) {
 	b := &filterBuilder{}
-	searchJoin := ""
 	if f.Visibility != "" {
 		b.conds = append(b.conds, "p.visibility = "+b.add(f.Visibility))
 	}
@@ -416,15 +452,15 @@ func (r *ReadModel) ListPosts(ctx context.Context, f PostFilter) ([]PostRow, err
 		b.conds = append(b.conds, "LOWER(u.username) = LOWER("+b.add(f.Author)+")")
 	}
 	if f.Keyword != "" {
-		searchJoin = " LEFT JOIN post_search AS ps ON ps.post_id = p.id"
-		b.conds = append(b.conds,
-			"STRPOS(LOWER(COALESCE(ps.plain_text, '')), "+b.add(f.Keyword)+") > 0")
+		// post_search.plain_text 为 NOT NULL；EXISTS 半连接让规划器可优先走 GIN trigram 位图扫描。
+		b.conds = append(b.conds, "EXISTS (SELECT 1 FROM post_search AS ps WHERE ps.post_id = p.id AND "+
+			keywordLikeCondition("ps.plain_text", b.add(f.Keyword))+")")
 	}
 	if f.Cursor > 0 {
 		b.conds = append(b.conds, "p.id < "+b.add(f.Cursor))
 	}
 	limitPlaceholder := b.add(f.Limit + 1)
-	query := postSelect + searchJoin + " WHERE " + b.where() +
+	query := postSelect + " WHERE " + b.where() +
 		" ORDER BY p.id DESC LIMIT " + limitPlaceholder
 	rows, err := r.executor(ctx).Query(ctx, query, b.args...)
 	if err != nil {
@@ -530,16 +566,12 @@ func (r *ReadModel) PostAttachments(ctx context.Context, postID int64) ([]Attach
 	return items, rows.Err()
 }
 
-// PostCommentContext 返回帖子顶层评论（最多 limit 条）与已发布评论总数。
-func (r *ReadModel) PostCommentContext(ctx context.Context, postID int64, limit int) ([]CommentRow, int64, error) {
-	exec := r.executor(ctx)
-	var total int64
-	if err := exec.QueryRow(ctx, `
-		SELECT COUNT(*) FROM comments WHERE post_id = $1 AND status = 'published'`,
-		postID).Scan(&total); err != nil {
-		return nil, 0, err
-	}
-	rows, err := exec.Query(ctx, `
+// PostCommentContext 返回帖子顶层评论（最多 limit 条）。
+//
+// 已发布评论总数不再单独 COUNT：调用方用已读到的 posts.comment_count 冗余计数列填充
+// （social 写路径在同一事务维护该列，口径同样是 published 评论，含楼中楼）。
+func (r *ReadModel) PostCommentContext(ctx context.Context, postID int64, limit int) ([]CommentRow, error) {
+	rows, err := r.executor(ctx).Query(ctx, `
 		SELECT c.id, c.post_id, c.content_html, c.status, c.created_at,
 		       u.id, u.username, u.nickname, u.avatar_url, u.is_ai, u.status
 		FROM comments AS c
@@ -548,7 +580,7 @@ func (r *ReadModel) PostCommentContext(ctx context.Context, postID int64, limit 
 		ORDER BY c.id ASC
 		LIMIT $2`, postID, limit)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 	items := make([]CommentRow, 0, limit)
@@ -558,12 +590,12 @@ func (r *ReadModel) PostCommentContext(ctx context.Context, postID int64, limit 
 		if err := rows.Scan(&item.ID, &item.PostID, &item.ContentHTML, &item.Status, &item.CreatedAt,
 			&item.Author.ID, &item.Author.Username, &item.Author.Nickname, &item.Author.AvatarURL,
 			&item.Author.IsAI, &authorStatus); err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		item.Author.IsSuspended = authorStatus != model.StatusActive
 		items = append(items, item)
 	}
-	return items, total, rows.Err()
+	return items, rows.Err()
 }
 
 // ===== 评论审核 =====
@@ -575,7 +607,7 @@ func (r *ReadModel) ListComments(ctx context.Context, f CommentFilter) ([]Commen
 		b.conds = append(b.conds, "LOWER(u.username) = LOWER("+b.add(f.Author)+")")
 	}
 	if f.Keyword != "" {
-		b.conds = append(b.conds, "STRPOS(LOWER(c.plain_text), "+b.add(f.Keyword)+") > 0")
+		b.conds = append(b.conds, keywordLikeCondition("c.plain_text", b.add(f.Keyword)))
 	}
 	if f.Cursor > 0 {
 		b.conds = append(b.conds, "c.id < "+b.add(f.Cursor))
@@ -646,7 +678,7 @@ func (r *ReadModel) ListAttachments(ctx context.Context, f AttachmentFilter) ([]
 		b.conds = append(b.conds, "a.status = "+b.add(f.Status))
 	}
 	if f.Keyword != "" {
-		b.conds = append(b.conds, "STRPOS(LOWER(a.original_filename), "+b.add(f.Keyword)+") > 0")
+		b.conds = append(b.conds, keywordLikeCondition("a.original_filename", b.add(f.Keyword)))
 	}
 	if f.Cursor > 0 {
 		b.conds = append(b.conds, "a.id < "+b.add(f.Cursor))

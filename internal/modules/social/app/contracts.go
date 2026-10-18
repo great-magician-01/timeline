@@ -21,6 +21,9 @@ var _ contracts.SocialService = (*Service)(nil)
 const (
 	maxRecentCommentRunes = 200
 	maxLikedSummaryRunes  = 80
+	// commentTriggerPostLimit 是 AI 被动回复触发扫描的候选帖子数上限：
+	// 只取作者最近 200 条公开已发布帖子，避免随历史发帖量线性放大扫描成本。
+	commentTriggerPostLimit = 200
 )
 
 // loadActor 读取以指定作者身份执行动作的账号，并校验可写状态：
@@ -459,7 +462,7 @@ func (s *Service) RepostForActor(ctx context.Context, in contracts.RepostInput) 
 	if post.Visibility != model.VisibilityPublic {
 		return false, 0, apperr.Forbidden("仅公开内容可以转发")
 	}
-	result, err := s.setRepost(ctx, actor.ID, post, true)
+	result, err := s.setRepost(ctx, actor.ID, actor.IsAI, post, true)
 	if err != nil {
 		return false, 0, err
 	}
@@ -475,7 +478,7 @@ func (s *Service) UnrepostForActor(ctx context.Context, in contracts.RepostInput
 	if in.PostID <= 0 {
 		return false, 0, apperr.Validation("转发目标无效")
 	}
-	result, err := s.setRepost(ctx, actor.ID, model.Post{ID: in.PostID}, false)
+	result, err := s.setRepost(ctx, actor.ID, actor.IsAI, model.Post{ID: in.PostID}, false)
 	if err != nil {
 		return false, 0, err
 	}
@@ -533,31 +536,21 @@ func (s *Service) ListUserReplies(ctx context.Context, query contracts.ReplyQuer
 
 // ListNewCommentsOnAuthorPosts 读取某作者公开帖子下、指定时间后的新评论；
 // ExcludeAuthorID > 0 时排除该作者自己的评论，避免 AI 回复自己的评论形成自循环。
+//
+// 候选帖子集由 content 的专用端口直接按「公开 + 已发布」收窄（最多最近 200 条），
+// 不再先查作者全部帖子 ID、再批量读整行并在 app 层过滤（AI 调度每 60 秒调用一次）。
 func (s *Service) ListNewCommentsOnAuthorPosts(ctx context.Context, query contracts.CommentTriggerQuery) ([]model.Comment, error) {
 	if query.AuthorID <= 0 {
 		return nil, nil
 	}
-	postIDs, err := s.deps.Posts.ListPostIDsByAuthor(ctx, query.AuthorID)
+	postIDs, err := s.deps.Posts.ListPublicPublishedPostIDsByAuthor(ctx, query.AuthorID, commentTriggerPostLimit)
 	if err != nil {
 		return nil, err
 	}
 	if len(postIDs) == 0 {
 		return nil, nil
 	}
-	posts, err := s.deps.Posts.GetPosts(ctx, postIDs)
-	if err != nil {
-		return nil, err
-	}
-	publicIDs := make([]int64, 0, len(posts))
-	for _, post := range posts {
-		if post.Status == model.PostStatusPublished && post.Visibility == model.VisibilityPublic {
-			publicIDs = append(publicIDs, post.ID)
-		}
-	}
-	if len(publicIDs) == 0 {
-		return nil, nil
-	}
-	return s.deps.Comments.ListByPostIDsSince(ctx, publicIDs, query.ExcludeAuthorID, query.Since, query.Limit)
+	return s.deps.Comments.ListByPostIDsSince(ctx, postIDs, query.ExcludeAuthorID, query.Since, query.Limit)
 }
 
 // IsPostLiked 判断用户是否已点赞帖子。
@@ -661,6 +654,7 @@ func (s *Service) ListRecentFollowees(ctx context.Context, userID int64, limit i
 }
 
 // ListTimelineReposts 读取生效中的纯转发事件，供 content 合并时间线。
+// human/ai 过滤直接映射为 reposts.author_is_ai 快照列条件，不再先查询全量账号 ID 数组。
 func (s *Service) ListTimelineReposts(ctx context.Context, query contracts.RepostTimelineQuery) ([]contracts.RepostEvent, error) {
 	repoQuery := RepostEventQuery{
 		AuthorID:     query.AuthorID,
@@ -671,11 +665,8 @@ func (s *Service) ListTimelineReposts(ctx context.Context, query contracts.Repos
 	}
 	switch query.Filter {
 	case "human", "ai":
-		ids, err := s.deps.Users.ListUserIDsByAIFlag(ctx, query.Filter == "ai")
-		if err != nil {
-			return nil, err
-		}
-		repoQuery.AllowedIDs = ids
+		authorIsAI := query.Filter == "ai"
+		repoQuery.AuthorIsAI = &authorIsAI
 	}
 	if repoQuery.Limit <= 0 {
 		return nil, nil

@@ -59,18 +59,15 @@ const maxTaskAttempts = 3
 // RunTask 执行一条 AI 任务（作业处理器与人工生成共用）。
 func (s *Service) RunTask(ctx context.Context, taskID int64) error {
 	now := s.now()
-	attempts, claimed, err := s.deps.Tasks.ClaimTask(ctx, taskID, now, taskLease)
+	// 领取与读取合并为一次 UPDATE ... RETURNING，不再额外 GetTask 往返。
+	task, claimed, err := s.deps.Tasks.ClaimTask(ctx, taskID, now, taskLease)
 	if err != nil {
 		return err
 	}
 	if !claimed {
 		return nil
 	}
-	task, err := s.deps.Tasks.GetTask(ctx, taskID)
-	if err != nil {
-		// 已领取却读不到任务：标记失败并交给作业层重试，不能把任务留在 running。
-		return s.failTaskInfrastructure(ctx, taskID, err)
-	}
+	attempts := task.Attempts
 	result := taskResult{ActionType: domain.ActionNoop}
 	finalize := func() error { return s.finishTask(ctx, task, result, attempts) }
 
@@ -367,9 +364,11 @@ func (s *Service) executeAction(ctx context.Context, rt contracts.Runtime, task 
 			ContentFormat: "markdown",
 			ContentSource: decision.Content,
 			Visibility:    model.VisibilityPublic,
-			AsDraft:       task.TriggerRefType == domain.GenerationModeDraft,
-			ScheduledAt:   task.ScheduledAt,
-			At:            now,
+			// 该路径作者恒为 AI 账号（rt.AIID）；写入作者类型快照供时间线按 AI 筛选。
+			AuthorIsAI:  true,
+			AsDraft:     task.TriggerRefType == domain.GenerationModeDraft,
+			ScheduledAt: task.ScheduledAt,
+			At:          now,
 		}
 		if decision.Action == domain.ActionQuote {
 			postID := target.ID
@@ -862,17 +861,18 @@ func (s *Service) Reconcile(ctx context.Context) error {
 		}
 	}
 
+	// running 超时判定下推到 SQL（started_at < now-lease），命中
+	// ai_tasks_running (started_at) WHERE status='running' 部分索引，避免每轮扫全表；
+	// started_at IS NULL 的行不满足比较条件，与旧逻辑的「跳过」一致。
+	now := s.now()
+	cutoff := now.Add(-taskLease)
 	running, _, err := s.deps.Tasks.ListTasks(ctx, repo.TaskFilter{
-		Status: domain.TaskStatusRunning, Limit: reconcileBatchLimit,
+		Status: domain.TaskStatusRunning, StartedBefore: &cutoff, Limit: reconcileBatchLimit,
 	})
 	if err != nil {
 		return err
 	}
-	now := s.now()
 	for _, task := range running {
-		if task.StartedAt == nil || now.Sub(*task.StartedAt) < taskLease {
-			continue
-		}
 		if err := s.deps.Tasks.SetTaskStatus(ctx, task.ID, domain.TaskStatusFailed,
 			domain.ErrorTypeDatabase+": 任务执行超时未完成，已重新投递", &now); err != nil {
 			record(err)

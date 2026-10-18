@@ -3,7 +3,10 @@ package repo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/great-magician-01/timeline/internal/modules/ai/domain"
 )
@@ -56,24 +59,44 @@ func (s *Store) SetProfileEnabled(ctx context.Context, aiID int64, enabled bool,
 	return err
 }
 
-// GetModelSettings 读取 AI 模型设置（联表读预设名与实际模型）；不存在返回 pgx.ErrNoRows。
+// GetModelSettings 读取 AI 模型设置（联表读预设名、实际模型与预设运行时字段）；
+// 不存在返回 pgx.ErrNoRows。预设逻辑删除时不满足 JOIN 条件，ProviderAvailable=false，
+// 与单独调用 GetProvider 的不可用语义一致，运行时装配无需再读一次预设行。
 func (s *Store) GetModelSettings(ctx context.Context, aiID int64) (domain.ModelSettings, error) {
 	settings := domain.ModelSettings{RawParams: json.RawMessage(`{}`), TimeoutSeconds: 60}
 	var rawParams []byte
 	err := s.exec(ctx).QueryRow(ctx, `
 		SELECT ms.provider_id, COALESCE(pr.name, ''), ms.model_override, ms.generation_params,
 		       ms.request_timeout_seconds, ms.updated_at,
-		       COALESCE(NULLIF(ms.model_override, ''), COALESCE(pr.default_model, ''))
+		       COALESCE(NULLIF(ms.model_override, ''), COALESCE(pr.default_model, '')),
+		       (pr.id IS NOT NULL),
+		       COALESCE(pr.base_url, ''), COALESCE(pr.api_key_cipher, ''),
+		       COALESCE(pr.default_model, ''), COALESCE(pr.is_enabled, FALSE)
 		FROM ai_model_settings ms
-		LEFT JOIN model_providers pr ON pr.id = ms.provider_id
+		LEFT JOIN model_providers pr ON pr.id = ms.provider_id AND NOT pr.is_deleted
 		WHERE ms.ai_id = $1`, aiID,
 	).Scan(&settings.ProviderID, &settings.ProviderName, &settings.ModelOverride, &rawParams,
-		&settings.TimeoutSeconds, &settings.UpdatedAt, &settings.Model)
+		&settings.TimeoutSeconds, &settings.UpdatedAt, &settings.Model,
+		&settings.ProviderAvailable,
+		&settings.ProviderBaseURL, &settings.ProviderAPIKeyCipher,
+		&settings.ProviderDefaultModel, &settings.ProviderIsEnabled)
 	if err != nil {
 		return domain.ModelSettings{}, normalizeNotFound(err)
 	}
 	settings.RawParams = domain.JSONOrEmpty(rawParams)
 	return settings, nil
+}
+
+// GetProfileEnabled 轻量读取 AI 启用状态；资料行不存在视为未启用（不返回 ErrNoRows）。
+// 供 agent 在模型返回后复核配置（避免重新装配完整运行时快照）。
+func (s *Store) GetProfileEnabled(ctx context.Context, aiID int64) (bool, error) {
+	var enabled bool
+	err := s.exec(ctx).QueryRow(ctx, `
+		SELECT is_enabled FROM ai_profiles WHERE user_id = $1`, aiID).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return enabled, err
 }
 
 // UpsertModelSettings 创建或更新 AI 模型设置。

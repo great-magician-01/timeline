@@ -166,6 +166,19 @@ func (f *fakeTasks) ListMemoryRefs(_ context.Context, taskID int64) ([]repo.Memo
 	return f.memoryRefs[taskID], nil
 }
 
+func (f *fakeTasks) ListMemoryRefsByTaskIDs(_ context.Context, taskIDs []int64) (map[int64][]repo.MemoryRef, error) {
+	if f.refsErr != nil {
+		return nil, f.refsErr
+	}
+	refs := make(map[int64][]repo.MemoryRef, len(taskIDs))
+	for _, taskID := range taskIDs {
+		if taskRefs, ok := f.memoryRefs[taskID]; ok {
+			refs[taskID] = taskRefs
+		}
+	}
+	return refs, nil
+}
+
 type fakeAI struct {
 	contracts.AIService
 	runtime    contracts.Runtime
@@ -179,6 +192,10 @@ func (f *fakeAI) RuntimeByAI(_ context.Context, aiID int64) (contracts.Runtime, 
 	runtime := f.runtime
 	runtime.AIID = aiID
 	return runtime, nil
+}
+
+func (f *fakeAI) ProfileEnabled(_ context.Context, _ int64) (bool, error) {
+	return f.runtime.Profile.IsEnabled, nil
 }
 
 type fakeJobs struct {

@@ -13,15 +13,16 @@ type BootstrapStatus struct {
 }
 
 // BootstrapRequired 表示系统尚无人类用户（未初始化）：首个注册者将成为超级管理员。
+// 只做 EXISTS 存在性判断（repo.HasHumanUser），成本与账号总量无关。
 func (s *Service) BootstrapRequired(ctx context.Context) (bool, error) {
 	if s.users == nil {
 		return false, apperr.Internal("auth 账号仓储未初始化")
 	}
-	humanUsers, err := s.users.CountHumanUsers(ctx)
+	hasHuman, err := s.users.HasHumanUser(ctx)
 	if err != nil {
 		return false, internal(err, "读取初始化状态失败")
 	}
-	return humanUsers == 0, nil
+	return !hasHuman, nil
 }
 
 // BootstrapStatus 返回人类用户数与超级管理员数，供启动日志判断初始化状态。

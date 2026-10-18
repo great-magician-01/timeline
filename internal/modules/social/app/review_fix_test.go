@@ -34,9 +34,10 @@ func (f *fixUsers) GetUser(context.Context, int64) (model.User, error) { return 
 
 type fixPosts struct {
 	contracts.ContentService
-	notFound bool
-	postIDs  []int64
-	posts    map[int64]model.Post
+	notFound      bool
+	publicPostIDs []int64
+	posts         map[int64]model.Post
+	postIDsLimit  int
 }
 
 func (f *fixPosts) GetPost(context.Context, int64) (model.Post, error) {
@@ -46,8 +47,9 @@ func (f *fixPosts) GetPost(context.Context, int64) (model.Post, error) {
 	return model.Post{}, nil
 }
 
-func (f *fixPosts) ListPostIDsByAuthor(context.Context, int64) ([]int64, error) {
-	return f.postIDs, nil
+func (f *fixPosts) ListPublicPublishedPostIDsByAuthor(_ context.Context, _ int64, limit int) ([]int64, error) {
+	f.postIDsLimit = limit
+	return f.publicPostIDs, nil
 }
 
 func (f *fixPosts) GetPosts(context.Context, []int64) (map[int64]model.Post, error) {
@@ -112,16 +114,10 @@ func newFixService(posts *fixPosts, comments *fixComments, likes *fixLikes, repo
 }
 
 // TestListNewCommentsOnAuthorPostsExcludesSelfComment 验证评论触发扫描：
-// 只查询作者自己的公开已发布帖子，并把 ExcludeAuthorID 透传给 repo（旧实现排除自评论）。
+// content 新端口直接返回作者「公开 + 已发布」帖子 ID（本次最多 200 条候选），
+// app 不再二次回读整行过滤；ExcludeAuthorID 透传给 repo（排除自评论）。
 func TestListNewCommentsOnAuthorPostsExcludesSelfComment(t *testing.T) {
-	posts := &fixPosts{
-		postIDs: []int64{7, 8, 9},
-		posts: map[int64]model.Post{
-			7: {ID: 7, AuthorID: 100, Status: model.PostStatusPublished, Visibility: model.VisibilityPublic},
-			8: {ID: 8, AuthorID: 100, Status: model.PostStatusPublished, Visibility: model.VisibilityFollowers},
-			9: {ID: 9, AuthorID: 100, Status: model.PostStatusDraft, Visibility: model.VisibilityPublic},
-		},
-	}
+	posts := &fixPosts{publicPostIDs: []int64{7, 12}}
 	comments := &fixComments{listItems: []model.Comment{{ID: 5, PostID: 7, AuthorID: 200}}}
 	svc := newFixService(posts, comments, nil, nil)
 
@@ -143,8 +139,11 @@ func TestListNewCommentsOnAuthorPostsExcludesSelfComment(t *testing.T) {
 	if comments.listExclude != 100 {
 		t.Fatalf("repo 收到 ExcludeAuthorID = %d，期望 100（排除自评论）", comments.listExclude)
 	}
-	if len(comments.listPostIDs) != 1 || comments.listPostIDs[0] != 7 {
-		t.Fatalf("repo 收到帖子过滤 = %v，期望仅公开已发布帖子 7", comments.listPostIDs)
+	if len(comments.listPostIDs) != 2 || comments.listPostIDs[0] != 7 || comments.listPostIDs[1] != 12 {
+		t.Fatalf("repo 收到帖子过滤 = %v，期望 content 端口返回的公开已发布帖子 [7 12]", comments.listPostIDs)
+	}
+	if posts.postIDsLimit != commentTriggerPostLimit {
+		t.Fatalf("候选帖子数上限 = %d，期望 %d", posts.postIDsLimit, commentTriggerPostLimit)
 	}
 }
 

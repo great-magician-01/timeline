@@ -173,6 +173,8 @@ type Provider struct {
 }
 
 // ModelSettings 是 ai_model_settings 的读取快照（含联表得到的预设名与实际模型）。
+// Provider* 字段来自同一次 LEFT JOIN model_providers：预设行缺失或已逻辑删除时
+// ProviderAvailable=false（等价于单独调用 GetProvider 返回不存在），由调用方按不可用处理。
 type ModelSettings struct {
 	ProviderID     *int64
 	ProviderName   string
@@ -181,6 +183,13 @@ type ModelSettings struct {
 	TimeoutSeconds int
 	Model          string
 	UpdatedAt      time.Time
+
+	// 预设运行时字段（与 model_providers 行一一对应，仅运行时装配使用）。
+	ProviderAvailable    bool
+	ProviderBaseURL      string
+	ProviderAPIKeyCipher string
+	ProviderDefaultModel string
+	ProviderIsEnabled    bool
 }
 
 // MemorySource 是 ai_memory_sources 的一条来源关联。

@@ -4,7 +4,6 @@ package app
 // 注册限频/设置读取失败/初始化锁/唯一冲突/事务内二次复核等分支、BootstrapStatus
 // 的统计错误、Config 的默认回退，以及 internal/rateLimited/requireRepos 等辅助。
 // 已有 app_test.go 已覆盖空库首个超管、开放/关闭注册与首注册不变式，此处不重复。
-
 import (
 	"context"
 	"errors"
@@ -106,7 +105,8 @@ func TestRegisterFailureMappings(t *testing.T) {
 	})
 
 	t.Run("事务内统计失败返回 Internal", func(t *testing.T) {
-		svc.users = &errorAfterCountRepo{fakeUserRepo: users, okCalls: 1, err: errInjected}
+		// 注册开启时外层不再判空，这里让事务内第一次 HasHumanUser 即返回错误。
+		svc.users = &errorAfterHasHumanRepo{fakeUserRepo: users, okCalls: 0, err: errInjected}
 		t.Cleanup(func() { svc.users = users })
 		if _, err := svc.Register(ctx, validRegisterInput("203.0.113.24")); !apperr.IsKind(err, apperr.KindInternal) {
 			t.Fatalf("事务内统计失败应返回 Internal，实际: %v", err)
@@ -116,7 +116,7 @@ func TestRegisterFailureMappings(t *testing.T) {
 	t.Run("事务内二次复核关闭注册", func(t *testing.T) {
 		// 预检查看到空库（bootstrap=true）因此跳过关闭判断；事务内看到已有用户，
 		// 且注册开关关闭，必须再次拒绝，防止并发初始化竞态。
-		svc.users = &sequenceCountRepo{fakeUserRepo: users, counts: []int64{0, 1}}
+		svc.users = &sequenceHasHumanRepo{fakeUserRepo: users, has: []bool{false, true}}
 		t.Cleanup(func() { svc.users = users })
 		svc.settings = fakeSettings{values: contracts.SystemSettings{RegistrationEnabled: false}}
 		t.Cleanup(restoreSettings)

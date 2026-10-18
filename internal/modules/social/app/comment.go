@@ -239,22 +239,14 @@ func (s *Service) notifyComment(
 	if post.Visibility != model.VisibilityPublic {
 		return nil
 	}
-	names := richtext.ExtractMentions(plain)
-	if err := s.deps.Notices.RebuildMentions(ctx, contracts.RebuildMentionsInput{
-		SourceType:   model.NoticeSourceComment,
-		SourceID:     commentID,
-		PostID:       postID,
-		MentionNames: names,
-		At:           at,
-	}); err != nil {
-		return err
-	}
-	return s.deps.Notices.MentionNotifications(ctx, contracts.MentionNotificationsInput{
+	// 一次调用同时完成「重建提及 + 写提及通知」，notice 内部只解析一次用户名。
+	return s.deps.Notices.PublishMentions(ctx, contracts.PublishMentionsInput{
 		SourceType:   model.NoticeSourceComment,
 		SourceID:     commentID,
 		PostID:       postID,
 		AuthorID:     actorID,
-		MentionNames: names,
+		PlainText:    plain,
+		MentionNames: richtext.ExtractMentions(plain),
 		At:           at,
 	})
 }

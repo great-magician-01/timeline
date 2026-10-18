@@ -245,7 +245,7 @@ func TestGetProfileHandler(t *testing.T) {
 	h := newHarness(t, true)
 	engine := h.engine()
 	h.seedUser(t, model.User{ID: 1, Username: "alice", Nickname: "爱丽丝", Bio: "简介"})
-	h.stats.value = app.ProfileStats{Posts: 3, Comments: 4, Followers: 5, Following: 6}
+	h.stats.value = app.ProfileStats{Posts: 3, Followers: 5, Following: 6}
 	h.relations.state = model.FollowStateFollowing
 
 	t.Run("游客视角返回统计与 none 关注态", func(t *testing.T) {

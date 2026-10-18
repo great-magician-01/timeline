@@ -32,11 +32,14 @@ type briefData struct {
 }
 
 // loadBriefData 批量载入帖子和被引用原帖、作者摘要、当前版本、附件与访问者互动状态。
+// preloaded 是调用方已经读到的帖子行（时间线候选/详情主帖），只对它缺失的 ID 补查一次，
+// 避免同一批 ID 在时间线/详情请求里重复执行 GetPosts。
 func (s *Service) loadBriefData(
 	ctx context.Context,
 	viewer model.Viewer,
 	following map[int64]bool,
 	postIDs []int64,
+	preloaded map[int64]model.Post,
 	extraUserIDs []int64,
 ) (*briefData, error) {
 	data := &briefData{
@@ -50,12 +53,22 @@ func (s *Service) loadBriefData(
 	}
 
 	wanted := domain.UniqueIDs(postIDs)
-	loaded, err := s.repo.GetPosts(ctx, wanted)
-	if err != nil {
-		return nil, s.wrap(err, "读取帖子失败")
+	missing := make([]int64, 0, len(wanted))
+	for _, id := range wanted {
+		if post, ok := preloaded[id]; ok && post.ID != 0 {
+			data.posts[id] = post
+			continue
+		}
+		missing = append(missing, id)
 	}
-	for id, post := range loaded {
-		data.posts[id] = post
+	if len(missing) > 0 {
+		loaded, err := s.repo.GetPosts(ctx, missing)
+		if err != nil {
+			return nil, s.wrap(err, "读取帖子失败")
+		}
+		for id, post := range loaded {
+			data.posts[id] = post
+		}
 	}
 
 	// 引用转发的原帖只展开一层，避免递归拉取。
@@ -97,8 +110,15 @@ func (s *Service) loadBriefData(
 	}
 	data.authors = authors
 
-	// 已发布内容的当前版本正文；未发布内容读取草稿工作区。
-	versions, err := s.repo.CurrentVersions(ctx, allIDs)
+	// 已发布内容的当前版本正文：版本 ID 直接取自已读到的 current_version_id，
+	// 只按版本 ID 批量回表，不再 JOIN posts。
+	currentVersionIDs := make([]int64, 0, len(allIDs))
+	for _, id := range allIDs {
+		if versionID := data.posts[id].CurrentVersionID; versionID != nil {
+			currentVersionIDs = append(currentVersionIDs, *versionID)
+		}
+	}
+	versions, err := s.repo.CurrentVersions(ctx, currentVersionIDs)
 	if err != nil {
 		return nil, s.wrap(err, "读取当前版本失败")
 	}
@@ -157,6 +177,17 @@ func (s *Service) loadBriefData(
 		data.states = states
 	}
 
+	// 引用原帖的可见性可能依赖关注集合：调用方传 nil（表示未加载）时按需补一次，
+	// 避免把 nil 当空集合而错误隐藏「仅关注者可见」的原帖。
+	if following == nil {
+		if s.quotedNeedsFollowing(viewer, data.posts, allIDs) {
+			following, err = s.followingSet(ctx, viewer)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	// 引用转发的原帖占位。
 	for _, id := range allIDs {
 		post, ok := data.posts[id]
@@ -166,6 +197,28 @@ func (s *Service) loadBriefData(
 		data.quoted[id] = data.buildQuoted(viewer, following, *post.QuotedPostID)
 	}
 	return data, nil
+}
+
+// quotedNeedsFollowing 判断引用原帖的可见性判定是否需要关注集合。
+func (s *Service) quotedNeedsFollowing(
+	viewer model.Viewer,
+	posts map[int64]model.Post,
+	ids []int64,
+) bool {
+	for _, id := range ids {
+		post, ok := posts[id]
+		if !ok || post.QuotedPostID == nil {
+			continue
+		}
+		quoted, ok := posts[*post.QuotedPostID]
+		if !ok {
+			continue
+		}
+		if needsFollowingSet(viewer, quoted) {
+			return true
+		}
+	}
+	return false
 }
 
 // userBriefs 批量读取作者摘要；用户端口缺失时退化为只含 ID 的占位。
@@ -285,13 +338,15 @@ func (d *briefData) brief(post model.Post, opts briefOptions) PostBrief {
 }
 
 // loadDetail 组装帖子详情。
+// post 是调用方已经读到的帖子行（写路径在事务内读取、提交后组装），因此不再重复读 posts。
 func (s *Service) loadDetail(
 	ctx context.Context,
 	viewer model.Viewer,
 	following map[int64]bool,
 	post model.Post,
 ) (PostDetail, error) {
-	data, err := s.loadBriefData(ctx, viewer, following, []int64{post.ID}, nil)
+	data, err := s.loadBriefData(ctx, viewer, following, []int64{post.ID},
+		map[int64]model.Post{post.ID: post}, nil)
 	if err != nil {
 		return PostDetail{}, err
 	}
