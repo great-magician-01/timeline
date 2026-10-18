@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 帖子详情（docs/PAGES_AND_PERMISSIONS.md P-07）：
-// 正文、附件、引用、作者关注入口、互动栏、评论与楼中楼回复。
+// 正文、附件、引用、作者关注入口、互动栏、评论与楼中楼回复；顶部提供返回上一页入口。
 // 所有权限提示只做展示，实际授权由后端逐个接口执行。
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -25,6 +25,7 @@ import CommentItem from '../components/CommentItem.vue'
 import EmptyState from '../components/EmptyState.vue'
 import PostActionMenu from '../components/PostActionMenu.vue'
 import UserAvatar from '../components/UserAvatar.vue'
+import { useBackNavigation } from '../composables/useBackNavigation'
 import { useCursorList } from '../composables/useCursorList'
 import { authState } from '../stores/auth'
 import { ui } from '../styles/ui'
@@ -33,6 +34,7 @@ import { textToParagraphHTML } from '../utils/text'
 
 const route = useRoute()
 const router = useRouter()
+const { goBack } = useBackNavigation()
 const my = computed(() => authState.user)
 const postId = computed(() => String(route.params.postId ?? ''))
 
@@ -300,6 +302,19 @@ watch(postId, () => void loadPost(), { immediate: true })
 
 <template>
   <div :class="[ui.constrain]">
+    <!-- 返回入口：优先回退浏览器历史并恢复原滚动位置；无站内上一页时回到首页 -->
+    <div class="mb-1 flex items-center">
+      <button
+        type="button"
+        class="-ml-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-[5px] text-[13.5px] text-ink-2 transition-[background,color] duration-150 ease-[ease] hover:bg-hover hover:text-ink"
+        aria-label="返回上一页"
+        @click="goBack"
+      >
+        <AppIcon name="arrow-left" :size="16" />
+        返回
+      </button>
+    </div>
+
     <div :class="[ui.stack]">
       <p v-if="loading" :class="[ui.card, ui.loadingRow]">
         <span :class="[ui.spinner]" aria-hidden="true"></span> 加载中…

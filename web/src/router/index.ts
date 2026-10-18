@@ -291,10 +291,35 @@ const routes: RouteRecordRaw[] = [
   },
 ]
 
+/** 回退/前进恢复滚动位置的最大等待时间：目标页数据异步加载，首次渲染时内容高度可能不足 */
+const SCROLL_RESTORE_TIMEOUT_MS = 800
+
+/**
+ * 回退/前进时恢复离开前的滚动位置：列表、评论等数据异步加载，
+ * 直接滚动会因内容高度不足被钳制；在有限时间内按帧等待内容高度足够后再滚动。
+ */
+function restoreScrollPosition(position: { left: number; top: number }): Promise<{ left: number; top: number }> {
+  if (position.top <= 0) return Promise.resolve(position)
+  const startedAt = performance.now()
+  return new Promise((resolve) => {
+    const check = (): void => {
+      const maxScrollTop = document.documentElement.scrollHeight - window.innerHeight
+      if (maxScrollTop >= position.top || performance.now() - startedAt >= SCROLL_RESTORE_TIMEOUT_MS) {
+        resolve(position)
+        return
+      }
+      window.requestAnimationFrame(check)
+    }
+    window.requestAnimationFrame(check)
+  })
+}
+
 export const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior() {
+  scrollBehavior(_to, _from, savedPosition) {
+    // 浏览器回退/前进（含详情页「返回」按钮）恢复离开时的位置；其余导航回到页首
+    if (savedPosition) return restoreScrollPosition(savedPosition)
     return { top: 0 }
   },
 })
