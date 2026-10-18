@@ -135,41 +135,24 @@ func TestRespondUnknownOrNilReturnsFalse(t *testing.T) {
 	}
 }
 
-// legacyFailureShape 模拟迁移期旧 internal/api.Failure 的字段形状（不 import 旧包）。
+// legacyFailureShape 模拟已删除的旧 internal/api.Failure 字段形状，
+// 仅用于断言新 Respond 不再兼容该形状（防止已删除的兼容层回潮）。
 type legacyFailureShape struct {
 	Status  int
 	Code    string
 	Message string
-	Details any
 }
 
 func (f *legacyFailureShape) Error() string { return f.Code + ": " + f.Message }
 
-func TestRespondSupportsLegacyFailureShape(t *testing.T) {
-	c, recorder := newTestContext()
-	legacy := &legacyFailureShape{
-		Status: http.StatusForbidden, Code: "forbidden", Message: "仅作者可操作",
-		Details: gin.H{"reason": "author_only"},
-	}
-	if !Respond(c, legacy) {
-		t.Fatal("迁移期应兼容旧 api.Failure 字段形状")
-	}
-	if recorder.Code != http.StatusForbidden {
-		t.Fatalf("status=%d", recorder.Code)
-	}
-	body := errorBody(t, recorder)
-	if body["code"] != "forbidden" || body["message"] != "仅作者可操作" {
-		t.Fatalf("body=%#v", body)
-	}
-	if details, ok := body["details"].(map[string]any); !ok || details["reason"] != "author_only" {
-		t.Fatalf("details=%v", body["details"])
-	}
-}
-
-func TestRespondLegacyRejectsInvalidShape(t *testing.T) {
+// TestRespondRejectsNonDomainFailureShape 保证已删除的旧 api.Failure 兼容层不会回潮：
+// 只识别 *apperr.Error，其它错误形状一律交给调用方按 500 处理。
+func TestRespondRejectsNonDomainFailureShape(t *testing.T) {
 	c, _ := newTestContext()
-	invalid := &legacyFailureShape{Status: 200, Code: "ok", Message: "不是错误"}
-	if Respond(c, invalid) {
-		t.Fatal("状态码不在 4xx/5xx 的形状不应被识别")
+	legacy := &legacyFailureShape{
+		Status: http.StatusForbidden, Code: "forbidden", Message: "旧形状",
+	}
+	if Respond(c, legacy) {
+		t.Fatal("旧 api.Failure 形状不应再被识别（兼容层已删除）")
 	}
 }

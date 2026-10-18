@@ -9,10 +9,11 @@ import (
 	"github.com/great-magician-01/timeline/internal/shared/contracts"
 )
 
-// 调度参数默认值（分钟）。
+// 调度参数默认值（分钟），与 docs/WORKFLOWS.md 记录的默认值一致：
+// post_interval_minutes=360、proactive_interval_minutes=60（0 关闭）。
 const (
-	defaultPostIntervalMinutes      = 1440
-	defaultProactiveIntervalMinutes = 360
+	defaultPostIntervalMinutes      = 360
+	defaultProactiveIntervalMinutes = 60
 )
 
 // RunScheduler 是 AI 调度周期任务（由组合根注册为每分钟一次）：
@@ -45,6 +46,10 @@ func (s *Service) RunScheduler(ctx context.Context) {
 		s.scheduleProactive(ctx, rt, now)
 		s.scanMentionTriggers(ctx, rt, now)
 		s.scanCommentTriggers(ctx, rt, now)
+		// 调度巡检复核记忆来源：来源已删除/转非公开时停用相关记忆，避免继续注入上下文。
+		if err := s.recheckSourceMemoriesLimit(ctx, aiID, memoryRefSchedulerBatch); err != nil {
+			s.deps.Log.Warn("调度巡检复核来源记忆失败", "err", err, "ai_id", aiID)
+		}
 	}
 }
 
@@ -152,8 +157,11 @@ func (s *Service) scanMentionTriggers(ctx context.Context, rt contracts.Runtime,
 func (s *Service) scanCommentTriggers(ctx context.Context, rt contracts.Runtime, now time.Time) {
 	comments, err := s.deps.Social.ListNewCommentsOnAuthorPosts(ctx, contracts.CommentTriggerQuery{
 		AuthorID: rt.AIID,
-		Since:    now.Add(-schedulerTriggerWindow),
-		Limit:    schedulerTriggerLimit,
+		// 排除 AI 自己刚发表的评论：AI 回复用户评论后，自己在自己帖子下的评论
+		// 不应再次触发“收到评论”任务（避免自回复循环）。
+		ExcludeAuthorID: rt.AIID,
+		Since:           now.Add(-schedulerTriggerWindow),
+		Limit:           schedulerTriggerLimit,
 	})
 	if err != nil {
 		s.deps.Log.Warn("扫描评论触发失败", "err", err, "ai_id", rt.AIID)

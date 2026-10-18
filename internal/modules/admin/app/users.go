@@ -10,8 +10,8 @@ import (
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
 
-// SuspendUser 停用账号：auth 端口更新状态并吊销会话，编排暂停其待执行作业；
-// 停用 AI 账号时额外暂停 AI 作业并取消待执行 AI 任务。审计与业务同事务。
+// SuspendUser 停用账号：auth 端口更新状态、吊销会话并在同一事务内写审计（唯一写入方）；
+// admin 负责编排暂停其待执行作业，停用 AI 账号时额外暂停 AI 作业并取消待执行 AI 任务。
 func (s *Service) SuspendUser(ctx context.Context, actor model.Viewer, targetID int64) (model.User, error) {
 	return s.setUserStatus(ctx, actor, targetID, true)
 }
@@ -50,21 +50,8 @@ func (s *Service) setUserStatus(ctx context.Context, actor model.Viewer, targetI
 				return err
 			}
 		}
-		action := contracts.AuditActionUserUnsuspend
-		if suspend {
-			action = contracts.AuditActionUserSuspend
-		}
-		return s.audit.Write(txCtx, contracts.AuditEntry{
-			AdminID:    actor.ID,
-			Action:     action,
-			TargetType: "user",
-			TargetID:   &targetID,
-			Detail: map[string]any{
-				"previous_status": target.Status,
-				"changed":         target.Status != updated.Status,
-			},
-			At: now,
-		})
+		// 账号启停审计由 auth 端口在同一事务内写入（唯一写入方），admin 不再重复写。
+		return nil
 	})
 	if err != nil {
 		return model.User{}, err
@@ -123,7 +110,8 @@ func (s *Service) pauseUserPendingJobs(ctx context.Context, actorID int64, targe
 	return nil
 }
 
-// ResetPassword 管理员重置密码：密码校验、哈希、会话吊销与 token_version 递增由 auth 实现。
+// ResetPassword 管理员重置密码：密码校验、哈希、会话吊销、token_version 递增与审计
+// 均由 auth 端口在同一事务内完成（审计唯一写入方），admin 只做目标校验与编排。
 func (s *Service) ResetPassword(ctx context.Context, actor model.Viewer, targetID int64, newPassword string) error {
 	now := s.now()
 	return s.tx.WithTx(ctx, func(txCtx context.Context) error {
@@ -145,13 +133,7 @@ func (s *Service) ResetPassword(ctx context.Context, actor model.Viewer, targetI
 		}); err != nil {
 			return err
 		}
-		return s.audit.Write(txCtx, contracts.AuditEntry{
-			AdminID:    actor.ID,
-			Action:     contracts.AuditActionUserResetPwd,
-			TargetType: "user",
-			TargetID:   &targetID,
-			Detail:     map[string]any{},
-			At:         now,
-		})
+		// 重置密码审计由 auth 端口在同一事务内写入（唯一写入方），admin 不再重复写。
+		return nil
 	})
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/great-magician-01/timeline/internal/platform/clock"
+	"github.com/great-magician-01/timeline/internal/platform/db"
 )
 
 const (
@@ -48,6 +49,10 @@ type Runner struct {
 
 	pollInterval time.Duration
 	workers      int
+
+	// execProvider 仅供单元测试注入假执行器；nil 时按连接池解析当前执行器。
+	// 生产装配不设置该字段，保持「事务优先、连接池兜底」的既有语义。
+	execProvider func(ctx context.Context) (db.Executor, error)
 }
 
 // NewRunner 构造作业运行器。clk 是运行期唯一时间来源，不得为 nil。

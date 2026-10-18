@@ -27,7 +27,10 @@ type UploadInput struct {
 	// SizeHint 是客户端 multipart 头部声明的大小，仅用于提前拒绝明显超配额的请求；
 	// 真实大小以 storage.Save 实际写入字节为准。
 	SizeHint int64
-	Content  io.Reader
+	// Prechecked 表示 http 层已成功执行 PrecheckUpload（写权限 + 限频 + 配额已满预检），
+	// 此时不再重复消费上传限频额度。
+	Prechecked bool
+	Content    io.Reader
 }
 
 // UploadResult 是上传结果：附件行 + 衍生文件初始状态。
@@ -36,7 +39,30 @@ type UploadResult struct {
 	Derivatives map[string]string
 }
 
-// Upload 处理附件上传：配额与限频校验 → 内容嗅探与落盘 → 事务内写附件行、
+// PrecheckUpload 在 http 层解析 multipart 之前完成鉴权、上传限频与「存储配额已满」预检，
+// 使未登录/停用/AI 会话、超频与配额耗尽的请求不必先被读取请求体（旧实现顺序）。
+// 解析完成后 Upload 仍会按真实文件大小做最终配额校验。
+func (s *Service) PrecheckUpload(ctx context.Context, viewer model.Viewer) error {
+	if err := access.RequireWritable(viewer); err != nil {
+		return err
+	}
+	values := s.settingsOrDefaults(ctx)
+	if allowed, retryAfter := s.uploadLimiter.ConsumeLimit(
+		"user:"+format.FormatID(viewer.ID), values.UploadRateLimit, values.UploadRateWindow,
+	); !allowed {
+		return apperr.RateLimited(retryAfter)
+	}
+	used, err := repo.SumSizeByUploader(ctx, s.exec(ctx), viewer.ID)
+	if err != nil {
+		return s.internal("统计已用存储空间失败", err)
+	}
+	if domain.ExceedsStorageQuota(used, 0, values.StorageQuotaBytes) {
+		return domain.ErrStorageQuotaExhausted
+	}
+	return nil
+}
+
+// Upload 处理附件上传：鉴权 → 配额与限频校验 → 内容嗅探与落盘 → 事务内写附件行、
 // 衍生文件记录、入队衍生作业、头像回写。只信任实际内容，文件名仅用于展示。
 func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, error) {
 	if err := access.RequireWritable(in.Viewer); err != nil {
@@ -49,10 +75,12 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, err
 
 	// 上传大小、请求大小、存储配额与限频均为系统设置，每次请求即时读取。
 	values := s.settingsOrDefaults(ctx)
-	if allowed, retryAfter := s.uploadLimiter.ConsumeLimit(
-		"user:"+format.FormatID(in.Viewer.ID), values.UploadRateLimit, values.UploadRateWindow,
-	); !allowed {
-		return UploadResult{}, apperr.RateLimited(retryAfter)
+	if !in.Prechecked {
+		if allowed, retryAfter := s.uploadLimiter.ConsumeLimit(
+			"user:"+format.FormatID(in.Viewer.ID), values.UploadRateLimit, values.UploadRateWindow,
+		); !allowed {
+			return UploadResult{}, apperr.RateLimited(retryAfter)
+		}
 	}
 
 	exec := s.exec(ctx)
@@ -155,6 +183,7 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, err
 				RefID:          &refID,
 				IdempotencyKey: domain.DerivativeJobKey(attachmentID, derivativeType),
 				Payload:        map[string]any{"attachment_id": attachmentID, "type": derivativeType},
+				At:             at,
 			}); err != nil {
 				return s.internal("投递衍生文件作业失败", err)
 			}

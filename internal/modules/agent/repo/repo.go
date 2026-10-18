@@ -144,14 +144,15 @@ type CallLogInsert struct {
 
 // CallLogFilter 是调用记录列表过滤条件。
 type CallLogFilter struct {
-	AIID      int64
-	TaskID    int64
-	Status    string
-	ErrorType string
-	From      *time.Time
-	To        *time.Time
-	Cursor    int64
-	Limit     int
+	AIID       int64
+	ProviderID int64
+	TaskID     int64
+	Status     string
+	ErrorType  string
+	From       *time.Time
+	To         *time.Time
+	Cursor     int64
+	Limit      int
 }
 
 // MemoryRef 是 ai_task_memory_refs 行。
@@ -440,6 +441,9 @@ func (r *Repo) ListCallLogs(ctx context.Context, filter CallLogFilter) ([]CallLo
 	if filter.AIID > 0 {
 		sql += ` AND ai_id = ` + addArg(filter.AIID)
 	}
+	if filter.ProviderID > 0 {
+		sql += ` AND provider_id = ` + addArg(filter.ProviderID)
+	}
 	if filter.TaskID > 0 {
 		sql += ` AND task_id = ` + addArg(filter.TaskID)
 	}
@@ -500,7 +504,7 @@ func (r *Repo) MarkDeletedBefore(ctx context.Context, cutoff time.Time, limit in
 	rows, err := r.ex(ctx).Query(ctx, `
 		SELECT id FROM ai_call_logs
 		WHERE NOT is_deleted AND created_at < $1
-		ORDER BY id LIMIT $2`, cutoff, limit)
+		ORDER BY created_at, id LIMIT $2`, cutoff, limit)
 	if err != nil {
 		return 0, err
 	}

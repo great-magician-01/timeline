@@ -176,6 +176,13 @@ type MemorySourceInput struct {
 	At         time.Time
 }
 
+// MemorySourceRef 是记忆来源关联的轻量引用（只包含可复核的公开内容来源：post/comment）。
+// 消费者：agent（长期记忆沉淀时聚合来源、来源失效复核）。
+type MemorySourceRef struct {
+	SourceType string
+	SourceID   int64
+}
+
 // SupersedeMemoryInput 把一批记忆标记为被新记忆取代。消费者：agent（长期记忆沉淀）。
 type SupersedeMemoryInput struct {
 	AIID           int64
@@ -223,6 +230,13 @@ type AIService interface {
 
 	// AddMemorySources 写入记忆与来源内容的关联。消费者：agent。
 	AddMemorySources(ctx context.Context, memoryID int64, sources []MemorySourceInput) error
+
+	// ListMemorySources 读取一批记忆已记录的内容来源（post/comment 去重）。消费者：agent（沉淀）。
+	ListMemorySources(ctx context.Context, memoryIDs []int64) ([]MemorySourceRef, error)
+
+	// ListActiveMemorySourceRefs 读取某 AI 全部生效记忆引用的内容来源（去重、有限条数）。
+	// 消费者：agent（来源失效复核：来源删除或转非公开时停用相关记忆）。
+	ListActiveMemorySourceRefs(ctx context.Context, aiID int64, limit int) ([]MemorySourceRef, error)
 
 	// SupersedeMemories 把一批记忆标记为被新记忆取代。消费者：agent。
 	SupersedeMemories(ctx context.Context, in SupersedeMemoryInput) error

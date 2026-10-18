@@ -118,9 +118,6 @@ func ValidateSuperAdminInvariant(role string, isSuperAdmin, isAI bool) error {
 	return nil
 }
 
-// CanManageAdmins 判断访问者能否授权/撤销管理员（仅超级管理员本人）。
-func CanManageAdmins(viewer model.Viewer) bool { return access.CanManageAdmins(viewer) }
-
 // CanChangeAdminRole 判断操作者能否修改目标账号角色（复用 shared/access 纯策略）。
 func CanChangeAdminRole(actor, target model.User) error {
 	return access.CanChangeAdminRole(actor, target)

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/great-magician-01/timeline/internal/platform/config"
 	"github.com/great-magician-01/timeline/internal/platform/db"
@@ -17,11 +18,56 @@ import (
 	"github.com/great-magician-01/timeline/internal/transport/router"
 )
 
+// discardLogger 返回丢弃输出的测试日志器。
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// fakeReadiness 是 server.Readiness 的假实现，用于不连接数据库地覆盖就绪分支。
+type fakeReadiness struct {
+	ready      bool
+	pool       *pgxpool.Pool
+	migrations bool
+}
+
+func (f fakeReadiness) Ready() bool          { return f.ready }
+func (f fakeReadiness) Pool() *pgxpool.Pool  { return f.pool }
+func (f fakeReadiness) MigrationsDone() bool { return f.migrations }
+
 // newSlimServer 构造不注册业务路由的 slim server（全局中间件/健康检查/前端托管），
 // 用于不依赖数据库的 HTTP 行为测试。
 func newSlimServer(t *testing.T, cfg *config.Config) *server.Server {
 	t.Helper()
-	return server.New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), db.NewReadiness())
+	return server.New(cfg, discardLogger(), db.NewReadiness())
+}
+
+// TestBootstrapAPIUnavailableReturns503 覆盖启动早期（DB/迁移未就绪）未知 /api 路径
+// 返回 503 service_unavailable，而不是误导性的 404。
+func TestBootstrapAPIUnavailableReturns503(t *testing.T) {
+	srv := server.New(&config.Config{LogLevel: "debug"}, discardLogger(), fakeReadiness{})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/config", nil)
+	resp := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("未就绪 /api status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "service_unavailable") {
+		t.Fatalf("未就绪 /api 错误码不符: %s", resp.Body.String())
+	}
+}
+
+// TestUnknownAPIAfterReadyReturns404 覆盖就绪后未知 /api 路径仍返回 JSON 404。
+func TestUnknownAPIAfterReadyReturns404(t *testing.T) {
+	srv := server.New(&config.Config{LogLevel: "debug"}, discardLogger(), fakeReadiness{ready: true, migrations: true})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/not-exists", nil)
+	resp := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("就绪后未知 /api status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "not_found") {
+		t.Fatalf("就绪后未知 /api 错误码不符: %s", resp.Body.String())
+	}
 }
 
 func TestHealthDoesNotRequireDatabase(t *testing.T) {
@@ -93,6 +139,33 @@ func TestBusinessAPIWaitsForReadiness(t *testing.T) {
 	}
 	if got := resp.Header().Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("API 响应必须禁止缓存，Cache-Control=%q", got)
+	}
+}
+
+// TestSwapHandlerActivatesFullEngine 覆盖启动期 handler 切换：
+// bootstrap 引擎只含健康检查/前端托管，SwapHandler 后对外切换为组合根装配的完整引擎，
+// 且原引擎上的路由不会被意外暴露（避免"边服务边注册路由"的竞态设计）。
+func TestSwapHandlerActivatesFullEngine(t *testing.T) {
+	cfg := &config.Config{LogLevel: "debug"}
+	bootstrap := server.New(cfg, discardLogger(), fakeReadiness{})
+	full := server.New(cfg, discardLogger(), fakeReadiness{ready: true, migrations: true})
+	full.Engine().GET("/api/v1/full-only", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	do := func(handler http.Handler, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		resp := httptest.NewRecorder()
+		handler.ServeHTTP(resp, req)
+		return resp
+	}
+
+	if got := do(bootstrap.Handler(), "/api/v1/full-only").Code; got == http.StatusOK {
+		t.Fatalf("切换前 bootstrap 不应提供完整引擎的业务路由，status=%d", got)
+	}
+	bootstrap.SwapHandler(full.Handler())
+	if got := do(bootstrap.Handler(), "/api/v1/full-only").Code; got != http.StatusOK {
+		t.Fatalf("SwapHandler 后应使用完整引擎，status=%d", got)
 	}
 }
 

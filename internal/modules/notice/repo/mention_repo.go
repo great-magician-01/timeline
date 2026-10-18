@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/great-magician-01/timeline/internal/modules/notice/app"
+	"github.com/great-magician-01/timeline/internal/modules/notice/domain"
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
 	"github.com/great-magician-01/timeline/internal/platform/db"
 )
@@ -72,16 +72,16 @@ func (r *MentionRepo) DeactivateAll(ctx context.Context, sourceType string, sour
 // ListActive 读取某用户 since 之后生效中的提及（ID 倒序）。
 func (r *MentionRepo) ListActive(
 	ctx context.Context, userID int64, since time.Time, limit int,
-) ([]app.MentionRow, error) {
+) ([]domain.MentionRow, error) {
 	rows, err := db.ExecutorFrom(ctx, r.pool).Query(ctx, sqlMentionListActive, userID, since, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	items := make([]app.MentionRow, 0, limit)
+	items := make([]domain.MentionRow, 0, limit)
 	for rows.Next() {
-		var row app.MentionRow
+		var row domain.MentionRow
 		if err := rows.Scan(&row.ID, &row.MentionedUserID, &row.SourceType, &row.SourceID, &row.CreatedAt); err != nil {
 			return nil, err
 		}
@@ -91,12 +91,12 @@ func (r *MentionRepo) ListActive(
 }
 
 // GetActive 读取单条生效提及；不存在返回领域 not_found。
-func (r *MentionRepo) GetActive(ctx context.Context, mentionID int64) (app.MentionRow, error) {
-	var row app.MentionRow
+func (r *MentionRepo) GetActive(ctx context.Context, mentionID int64) (domain.MentionRow, error) {
+	var row domain.MentionRow
 	err := db.ExecutorFrom(ctx, r.pool).QueryRow(ctx, sqlMentionGetActive, mentionID).
 		Scan(&row.ID, &row.MentionedUserID, &row.SourceType, &row.SourceID, &row.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return app.MentionRow{}, apperr.NotFound("提及不存在")
+		return domain.MentionRow{}, apperr.NotFound("提及不存在")
 	}
 	return row, err
 }

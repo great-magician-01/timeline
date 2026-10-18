@@ -69,12 +69,16 @@ func TestBuildPostCandidatesSQLFilters(t *testing.T) {
 		"EXISTS (SELECT 1 FROM post_tags",
 		"tg.name = $6",
 		"EXISTS (SELECT 1 FROM post_search",
-		"STRPOS(LOWER(ps.plain_text), $7) > 0",
+		"LOWER(ps.plain_text) LIKE '%' || LOWER($7) || '%'",
 		"LIMIT $8",
 	} {
 		if !strings.Contains(sql, want) {
 			t.Errorf("SQL 缺少片段 %q:\n%s", want, sql)
 		}
+	}
+	// 搜索必须使用 LIKE 才能命中 0014 的 trigram 表达式索引，STRPOS 不走索引。
+	if strings.Contains(sql, "STRPOS") {
+		t.Fatalf("搜索条件不应再使用 STRPOS（不能命中 trigram 索引）:\n%s", sql)
 	}
 	if strings.Contains(sql, "WHERE (p.published_at") {
 		t.Fatalf("首页查询不应包含游标条件:\n%s", sql)

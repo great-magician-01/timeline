@@ -96,15 +96,6 @@ func (r *SessionRepo) UpdateTokenVersion(ctx context.Context, sessionID, tokenVe
 	return err
 }
 
-// CountActive 统计账号当前有效会话数（管理后台用户详情）。
-func (r *SessionRepo) CountActive(ctx context.Context, userID int64, now time.Time) (int64, error) {
-	var count int64
-	err := r.exec(ctx).QueryRow(ctx, `
-		SELECT COUNT(*) FROM auth_sessions
-		WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > $2`, userID, now).Scan(&count)
-	return count, err
-}
-
 // userColumnsJoined 是 JOIN 查询中带 u. 前缀的 users 列投影。
 const userColumnsJoined = `u.id, u.username, COALESCE(u.email, ''), COALESCE(u.password_hash, ''),
 	u.nickname, u.avatar_url, u.bio, u.role, u.is_super_admin, u.is_ai, u.status,

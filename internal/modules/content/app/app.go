@@ -52,7 +52,8 @@ type Deps struct {
 	// Settings 读取发帖限频等系统设置。
 	Settings contracts.SettingsReader
 
-	// PostLimiter 是发帖/编辑限频器；为 nil 时不限频（仅用于单元测试/特殊装配）。
+	// PostLimiter 是发帖/编辑限频器；组合根未注入时 New 会按默认阈值兜底创建，
+	// 不允许为 nil（nil 等于关闭发帖限频，违反安全红线）。
 	PostLimiter *ratelimit.Limiter
 }
 
@@ -63,9 +64,13 @@ type Service struct {
 }
 
 // New 构造 content 应用服务；nil Clock 回退系统时钟（仅用于单元测试/特殊装配）。
+// 发帖限频器始终存在：组合根未注入时按默认阈值兜底创建，避免装配遗漏导致限频静默失效。
 func New(deps Deps) *Service {
 	if deps.Clock == nil {
 		deps.Clock = clock.System()
+	}
+	if deps.PostLimiter == nil {
+		deps.PostLimiter = ratelimit.New(domain.DefaultPostRateLimit, domain.DefaultPostRateWindow)
 	}
 	return &Service{deps: deps, repo: repo.New(deps.Pools)}
 }
@@ -157,16 +162,14 @@ func (s *Service) requireAuthor(
 }
 
 // consumePostQuota 消耗一次发帖/编辑额度；超限返回带 RetryAfter 的领域限频错误。
-// 阈值与窗口每次从系统设置读取，管理后台修改后立即生效。
+// 阈值与窗口每次从系统设置读取，管理后台修改后立即生效；设置端口缺失或读取失败时使用默认值。
 func (s *Service) consumePostQuota(ctx context.Context, userID int64) error {
-	if s.deps.PostLimiter == nil {
-		return nil
-	}
-	values, err := s.deps.Settings.Settings(ctx)
 	limit, window := domain.DefaultPostRateLimit, domain.DefaultPostRateWindow
-	if err == nil {
-		limit = values.PostRateLimit
-		window = values.PostRateWindow
+	if s.deps.Settings != nil {
+		if values, err := s.deps.Settings.Settings(ctx); err == nil {
+			limit = values.PostRateLimit
+			window = values.PostRateWindow
+		}
 	}
 	allowed, retryAfter := s.deps.PostLimiter.ConsumeLimit("user:"+format.FormatID(userID), limit, window)
 	if allowed {

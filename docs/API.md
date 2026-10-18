@@ -1,7 +1,7 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.7.3  
+> **文档版本**：0.7.4  
 > **最近更新**：2026-10-18  
 > **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
@@ -90,9 +90,9 @@
 | 415 | `unsupported_media_type` | 文件类型不允许 |
 | 429 | `rate_limited` | 触发频率限制，带 `Retry-After` 头 |
 | 500 | `internal_error` | 服务端错误 |
+| 503 | `service_unavailable` | 数据库连接或迁移尚未就绪，稍后重试；`/api/*` 在就绪前返回该错误，就绪后未知接口恢复 404 `not_found` |
 
-**实现说明**：领域错误由 `platform/apperr` 表达（`Kind`/`Code`/`Message`/`Details`/`RetryAfter`），`transport/httpx.Respond` 是 `Kind` → HTTP 状态码/错误码/`Retry-After` 的唯一映射入口；handler 不自行拼装错误响应，无法识别的错误统一按 500 `internal_error` 记录并返回。实现位置调整不改变本节表格中的路径、方法、状态码、错误码与 JSON 字段契约。
-| 503 | `service_unavailable` | 数据库连接或迁移尚未就绪，稍后重试 |
+**实现说明**：领域错误由 `platform/apperr` 表达（`Kind`/`Code`/`Message`/`Details`/`RetryAfter`），`transport/httpx.Respond` 是 `Kind` → HTTP 状态码/错误码/`Retry-After` 的唯一映射入口；handler 不自行拼装错误响应，无法识别的错误统一按 500 `internal_error` 记录并返回。实现位置调整不改变本节表格中的路径、方法、状态码、错误码与 JSON 字段契约。本次后端重构与行为缺陷修复同样只影响内部实现和错误语义边界（例如就绪前的 `/api/*` 503、管理端作业处置的 404），不新增或删除接口、不改变既有成功响应与错误码约定。
 
 ### 2.7 幂等与重试
 
@@ -403,6 +403,7 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.7.4 | 修复文档格式缺陷（接口契约不变）：§2.6 错误码表的 `503 service_unavailable` 行原被“实现说明”段落截断，现移回表格并补充 `/api/*` 就绪前 503、就绪后未知路径 404 的边界说明；实现说明补一句“本轮后端重构与行为缺陷修复不新增/删除接口、不改变既有成功响应与错误码约定”。 |
 | 2026-10-18 | 0.7.2 | 需求基线更新至 0.24.0；`GET /auth/config` 增加 `bootstrap_required`；注册接口说明空库首个注册用户返回 `role=admin`+`is_super_admin=true`、未初始化时忽略注册开关、不自动登录；新增 private_user 对象（`is_super_admin`，公开 user_brief 不含）；新增 `POST /admin/users/:id/grant-admin` 与 `.../revoke-admin` 契约（仅超管、CSRF 先行、幂等、400/403/404、审计动作、返回 `{user}`）；§12.1 明确普通管理员不能操作超级管理员账号；审计 `action_type` 增加两个动作。 |
 | 2026-10-18 | 0.7.3 | 仅补充实现说明（接口契约不变）：§2.2 说明响应时间由服务端应用时钟生成并格式化为 `+08:00`，业务时间由应用显式传参、数据库不提供时间默认值；§2.6 说明领域错误由 `platform/apperr` 表达、`transport/httpx.Respond` 为 Kind→HTTP 映射唯一入口。 |
 | 2026-10-18 | 0.7.1 | 搜索设置响应增加 `usable`，区分“已保存”和“当前不可用”；明确 Base URL 明文、仅 API Key 加密，并补充主动目标范围二次校验契约。 |

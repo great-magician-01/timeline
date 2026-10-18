@@ -93,9 +93,6 @@ func New(deps Deps) *Service {
 	}
 }
 
-// domainBcryptCost 保留为历史常量别名，实际使用 domain.PasswordBcryptCost。
-const domainBcryptCost = domain.PasswordBcryptCost
-
 // Logger 返回应用日志器，供 http 层记录内部错误。
 func (s *Service) Logger() *slog.Logger { return s.log }
 
@@ -110,6 +107,17 @@ func (s *Service) settingsSnapshot(ctx context.Context) (contracts.SystemSetting
 		return contracts.SystemSettings{RegistrationEnabled: true}, nil
 	}
 	return s.settings.Settings(ctx)
+}
+
+// settingsSnapshotOrDefaults 读取系统设置快照；数据库等读取失败时记录告警并回退
+// 默认值（注册开放），与旧 settings.LoadOrDefaults 语义一致，供公开配置接口使用。
+func (s *Service) settingsSnapshotOrDefaults(ctx context.Context) contracts.SystemSettings {
+	settings, err := s.settingsSnapshot(ctx)
+	if err != nil {
+		s.log.Warn("读取系统设置失败，回退默认值", "err", err)
+		return contracts.SystemSettings{RegistrationEnabled: true}
+	}
+	return settings
 }
 
 // internal 把非领域错误包装为 Internal Kind（http 层据此记录日志并返回 500）。

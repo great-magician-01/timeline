@@ -11,7 +11,7 @@ const SessionTTL = 30 * 24 * time.Hour
 
 // SessionState 表示一次请求的会话解析结果。
 // 解析失败不直接决定 HTTP 状态：ResolveSession 记录原因，RequireLogin 再按方法
-// 与原因映射为 401/403（与旧中间件语义一致）。
+// 与原因映射为 401/403（停用）/500（内部错误），与旧中间件语义一致。
 type SessionState string
 
 const (
@@ -29,6 +29,10 @@ const (
 	SessionSuspended SessionState = "suspended"
 	// SessionAIAccount 表示 AI 账号不能持有 Web 会话。
 	SessionAIAccount SessionState = "ai_account"
+	// SessionResolveError 表示会话解析遇到内部错误（数据库不可用等）。
+	// 公开读仍按游客继续；登录路由由 RequireLogin 返回 500 internal_error，
+	// 与旧 RequireAuth 的内部错误语义一致，避免把故障误报成“未登录”。
+	SessionResolveError SessionState = "resolve_error"
 	// SessionValid 表示会话有效。
 	SessionValid SessionState = "valid"
 )

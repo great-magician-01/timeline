@@ -93,18 +93,20 @@ func run() int {
 		return 0
 	}
 
-	// HTTP 先启动：bootstrap server 只含健康检查/静态托管；数据库就绪后再换 handler。
+	// HTTP 先启动：bootstrap server 只含健康检查/静态托管；数据库与迁移就绪后，
+	// 组合根在一个独立的新 server 上完整装配（路由注册不触碰正在服务的引擎），
+	// 最后用 SwapHandler 原子切换到完整 handler。
 	readiness := db.NewReadiness()
-	srv := server.New(cfg, log, readiness)
+	bootstrapSrv := server.New(cfg, log, readiness)
 	httpSrv := &http.Server{
 		Addr:              listenAddr,
-		Handler:           srv.Handler(),
+		Handler:           bootstrapSrv.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	var application atomic.Pointer[app.App]
 
-	// 后台：连接数据库 → 迁移 → 标记就绪 → 构造完整 app 并切换 handler。
+	// 后台：连接数据库 → 迁移 → 在独立 server 上装配 → 切换 handler → 标记就绪。
 	go func() {
 		pool, err := db.Wait(ctx, cfg.DSN(), log)
 		if err != nil {
@@ -114,20 +116,25 @@ func run() int {
 		if cfg.RunMigrations {
 			if err := migrate.Run(ctx, pool, log); err != nil {
 				log.Error("数据库迁移失败，服务保持未就绪", "err", err)
+				readiness.SetMigrationError(err)
 				return
 			}
 		} else {
 			log.Info("RUN_MIGRATIONS=false，跳过自动迁移")
 		}
-		readiness.MarkMigrationsDone()
 
-		instance, err := app.New(cfg, log, readiness, ids, store, srv.Engine())
+		// 独立 fullSrv：路由在监听之外构建，避免与在途请求并发修改 Gin 路由树。
+		fullSrv := server.New(cfg, log, readiness)
+		instance, err := app.New(cfg, log, readiness, ids, store, fullSrv.Engine())
 		if err != nil {
 			log.Error("组合根装配失败，服务保持未就绪", "err", err)
+			readiness.SetMigrationError(err)
 			return
 		}
 		application.Store(instance)
-		srv.SwapHandler(instance.Handler())
+		bootstrapSrv.SwapHandler(fullSrv.Handler())
+		// 完整 handler 已接管后再标记就绪：此前 /api 一律 503，就绪后未知路径才 404。
+		readiness.MarkMigrationsDone()
 		instance.Start(ctx)
 		instance.Bootstrap(ctx)
 		log.Info("数据库与迁移就绪，/readyz 可返回 200")

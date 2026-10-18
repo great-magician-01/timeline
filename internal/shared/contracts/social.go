@@ -123,8 +123,12 @@ type FolloweeRef struct {
 // 消费者：agent（scanCommentTriggers 兜底扫描）。
 type CommentTriggerQuery struct {
 	AuthorID int64
-	Since    time.Time
-	Limit    int
+	// ExcludeAuthorID > 0 时排除该作者自己发表的评论：AI 回复用户评论后，
+	// 自己在自己帖子下的评论不应再次触发“收到评论”任务（旧实现 SQL 的 `author_id <> $1`）。
+	// 消费者应传 rt.AIID。
+	ExcludeAuthorID int64
+	Since           time.Time
+	Limit           int
 }
 
 // RelationReader 是 social 模块发布的最小关系读取能力。

@@ -294,6 +294,13 @@ func (h *Handler) ListCallLogs(c *gin.Context) {
 			return
 		}
 	}
+	if raw := strings.TrimSpace(c.Query("provider_id")); raw != "" {
+		filter.ProviderID, err = httpx.ParseID(raw)
+		if err != nil {
+			httpx.Error(c, http.StatusBadRequest, "invalid_request", "provider_id 无效")
+			return
+		}
+	}
 	if raw := strings.TrimSpace(c.Query("task_id")); raw != "" {
 		filter.TaskID, err = httpx.ParseID(raw)
 		if err != nil {

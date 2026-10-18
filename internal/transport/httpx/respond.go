@@ -34,10 +34,9 @@ func ErrorWithDetails(c *gin.Context, status int, code, message string, details 
 // 映射顺序：
 //  1. platform/apperr.Error：按 Kind 映射 HTTP 状态与默认错误码，Code/Message/Details
 //     优先使用领域错误携带的值，RetryAfter 写入 Retry-After 响应头；
-//  2. 迁移期兼容旧 internal/api.Failure（通过 legacy.go 的字段形状识别，不 import 旧包）；
-//  3. 无法识别的错误返回 false，由调用方按内部错误处理（500 + 访问日志）。
+//  2. 无法识别的错误返回 false，由调用方按内部错误处理（500 + 访问日志）。
 //
-// 与旧实现一致：err 为 nil 或无法识别时返回 false。
+// err 为 nil 或无法识别时返回 false。
 func Respond(c *gin.Context, err error) bool {
 	if err == nil {
 		return false
@@ -64,10 +63,6 @@ func Respond(c *gin.Context, err error) bool {
 			message = defaultMessage(status)
 		}
 		ErrorWithDetails(c, status, code, message, appErr.Details)
-		return true
-	}
-	if failure, ok := legacyFailureOf(err); ok {
-		ErrorWithDetails(c, failure.status, failure.code, failure.message, failure.details)
 		return true
 	}
 	return false

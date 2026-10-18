@@ -17,6 +17,8 @@ import (
 type fakeUserRepo struct {
 	users map[int64]model.User
 	seq   int64
+	// countErr 非空时让 CountHumanUsers 返回该错误，用于测试初始化状态查询失败的兜底。
+	countErr error
 }
 
 func newFakeUserRepo() *fakeUserRepo { return &fakeUserRepo{users: map[int64]model.User{}} }
@@ -178,6 +180,9 @@ func (r *fakeUserRepo) Search(_ context.Context, keyword string, _ int64, limit 
 }
 
 func (r *fakeUserRepo) CountHumanUsers(_ context.Context) (int64, error) {
+	if r.countErr != nil {
+		return 0, r.countErr
+	}
 	var count int64
 	for _, u := range r.users {
 		if !u.IsAI {
@@ -337,9 +342,16 @@ type fakeLocker struct{}
 
 func (fakeLocker) AcquireBootstrapLock(context.Context) error { return nil }
 
-type fakeSettings struct{ values contracts.SystemSettings }
+// fakeSettings 是系统设置读取端口的 fake；err 非空时模拟数据库读取失败。
+type fakeSettings struct {
+	values contracts.SystemSettings
+	err    error
+}
 
 func (f fakeSettings) Settings(context.Context) (contracts.SystemSettings, error) {
+	if f.err != nil {
+		return contracts.SystemSettings{}, f.err
+	}
 	return f.values, nil
 }
 

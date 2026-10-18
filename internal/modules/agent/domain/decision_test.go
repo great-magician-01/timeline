@@ -67,8 +67,8 @@ func TestLimits(t *testing.T) {
 	if !CooldownElapsed(time.Time{}, now, 60) || CooldownElapsed(now, now, 60) {
 		t.Fatal("冷却判断错误")
 	}
-	if ReplyDepthAllowed(2, 2) || !ReplyDepthAllowed(1, 2) || !ReplyDepthAllowed(9, 0) {
-		t.Fatal("回复深度判断错误")
+	if ReplyDepthAllowed(2, 2) || !ReplyDepthAllowed(1, 2) || ReplyDepthAllowed(9, 0) {
+		t.Fatal("回复深度判断错误（maxDepth<=0 应表示不参与回复）")
 	}
 }
 

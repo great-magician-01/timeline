@@ -190,7 +190,10 @@ func (s *Service) versionAttachmentViews(
 		return nil, s.wrap(err, "读取历史版本附件失败")
 	}
 	ids := byVersion[versionID]
-	rows, derivatives := s.loadAttachments(ctx, ids)
+	rows, derivatives, err := s.loadAttachments(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	views := make([]AttachmentView, 0, len(ids))
 	for _, id := range ids {
 		attachment, ok := rows[id]

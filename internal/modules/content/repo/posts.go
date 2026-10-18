@@ -134,12 +134,12 @@ func (r *Repo) SoftDelete(ctx context.Context, postID int64, at time.Time) error
 // 不修改 posts.updated_at（互动不改变内容编辑时间，与旧实现一致），也不使用 GREATEST：
 // 负向变更通过「col + delta >= 0」条件更新保证计数不会被减到负数；条件不满足时
 // 视为已夹取到 0，返回当前值（已删除/不存在帖子返回 NotFound）。
-func (r *Repo) BumpCounter(ctx context.Context, postID int64, counter string, delta int, at time.Time) (int, error) {
+// 计数变更不写任何时间列，因此本方法不接收应用时间参数。
+func (r *Repo) BumpCounter(ctx context.Context, postID int64, counter string, delta int) (int, error) {
 	column, err := domain.CounterColumn(counter)
 	if err != nil {
 		return 0, err
 	}
-	_ = at // 计数变更不写时间列；参数保留以维持跨模块契约形状
 	if delta >= 0 {
 		var value int
 		err = r.ex(ctx).QueryRow(ctx, `

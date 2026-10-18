@@ -14,7 +14,6 @@ import (
 
 	"github.com/great-magician-01/timeline/internal/modules/admin/repo"
 	"github.com/great-magician-01/timeline/internal/platform/clock"
-	"github.com/great-magician-01/timeline/internal/platform/db"
 	"github.com/great-magician-01/timeline/internal/shared/contracts"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
@@ -133,16 +132,24 @@ type WebSearchSnapshot struct {
 	APIKeyMasked string
 }
 
-// GlobalAIHalter 是全局停止 AI 时的跨模块编排端口（契约缺口，可选注入）：
-// 当前 contracts 没有「全局取消待执行 AI 任务 + 暂停 AI 作业」的能力，
-// 组合根可用 modules/agent 的用例实现该端口；未注入时仅写开关与审计。
+// GlobalAIHalter 是全局 AI 开关的跨模块编排端口（契约缺口，可选注入）：
+// 当前 contracts 没有「取消待执行 AI 任务 + 暂停 AI 作业 + 写全局开关审计」的组合能力，
+// 组合根用 modules/agent 的 SetGlobal 实现该端口；开关写入与审计的唯一写入方是该端口，
+// admin 侧不再重复写审计。未注入时仅写开关、不写审计。
 type GlobalAIHalter interface {
 	HaltGlobalAI(ctx context.Context, actorID int64, at time.Time) error
+	EnableGlobalAI(ctx context.Context, actorID int64, at time.Time) error
+}
+
+// TxManager 是 admin app 的事务入口（实现：platform/db.TxManager）。
+// 以窄接口注入，便于 app 层用假事务做无数据库单测（与 auth app 的 TxManager 端口一致）。
+type TxManager interface {
+	WithTx(ctx context.Context, fn func(context.Context) error) error
 }
 
 // Deps 是 admin app 的构造依赖；必填端口由组合根注入并负责非 nil。
 type Deps struct {
-	Tx    *db.TxManager
+	Tx    TxManager
 	Clock clock.Clock
 	Log   *slog.Logger
 	Read  *repo.ReadModel
@@ -163,7 +170,7 @@ type Deps struct {
 
 // Service 是 admin 用例入口。
 type Service struct {
-	tx       *db.TxManager
+	tx       TxManager
 	clock    clock.Clock
 	log      *slog.Logger
 	read     *repo.ReadModel

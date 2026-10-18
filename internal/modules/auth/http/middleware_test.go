@@ -230,3 +230,49 @@ func TestResolveSessionWithoutCookie(t *testing.T) {
 		t.Fatalf("会话状态 = %q, ok=%v，期望 missing", state, ok)
 	}
 }
+
+// TestResolveSessionInternalErrorFallsBackToGuest 覆盖会话解析内部错误：
+// 公开读仍按游客继续（不写响应、不注入 Viewer），但记录 SessionResolveError，
+// 供 RequireLogin 在登录路由上映射为 500。
+func TestResolveSessionInternalErrorFallsBackToGuest(t *testing.T) {
+	h := New(zeroService())
+	c, recorder := newTestContext(http.MethodGet, "/api/v1/timeline")
+	c.Request.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "stale-token"})
+	h.ResolveSession(c)
+
+	if recorder.Body.Len() != 0 {
+		t.Fatalf("解析内部错误时公开读应按游客继续、不写响应: %s", recorder.Body.String())
+	}
+	if viewer, ok := httpx.Viewer(c); ok && viewer.Authenticated {
+		t.Fatal("解析内部错误不应注入已认证 Viewer")
+	}
+	state, ok := sessionStateOf(c)
+	if !ok || state != domain.SessionResolveError {
+		t.Fatalf("会话状态 = %q, ok=%v，期望 %q", state, ok, domain.SessionResolveError)
+	}
+}
+
+// TestRequireLoginResolveErrorReturns500 覆盖旧 RequireAuth 语义：会话解析内部错误时，
+// 登录路由返回 500 internal_error，而不是误报 401 unauthenticated；同时不清 Cookie，
+// 故障恢复后同一会话仍可继续使用。
+func TestRequireLoginResolveErrorReturns500(t *testing.T) {
+	h := New(zeroService())
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			c, recorder := newTestContext(method, "/api/v1/auth/me")
+			c.Request.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "stale-token"})
+			h.ResolveSession(c)
+			h.RequireLogin(c)
+
+			if recorder.Code != http.StatusInternalServerError {
+				t.Fatalf("解析内部错误应返回 500，实际 %d：%s", recorder.Code, recorder.Body.String())
+			}
+			if code := errorCode(t, recorder); code != "internal_error" {
+				t.Fatalf("解析内部错误错误码 = %q，期望 internal_error", code)
+			}
+			if cookie := recorder.Header().Get("Set-Cookie"); strings.Contains(cookie, SessionCookieName+"=") {
+				t.Fatalf("解析内部错误不应清除会话 Cookie: %s", cookie)
+			}
+		})
+	}
+}

@@ -110,10 +110,9 @@ func (s *Service) SearchUsers(ctx context.Context, keyword string, cursor int64,
 
 // ProfileResult 是个人主页资料响应数据。
 type ProfileResult struct {
-	User           model.User
-	Stats          ProfileStats
-	FollowState    string
-	ActiveSessions int64
+	User        model.User
+	Stats       ProfileStats
+	FollowState string
 }
 
 // GetProfile 读取个人主页资料、统计与访问者视角的关注状态。
@@ -150,13 +149,10 @@ type ConfigResult struct {
 	BootstrapRequired   bool
 }
 
-// Config 读取注册开关与初始化状态；初始化状态查询失败时回退 false 并记录告警，
-// 不阻塞公开配置接口（与旧实现一致）。
+// Config 读取注册开关与初始化状态：读设置失败时回退默认值（开放注册），初始化状态
+// 查询失败时回退 false 并记录告警；两者都不阻塞公开配置接口（与旧 LoadOrDefaults 一致）。
 func (s *Service) Config(ctx context.Context) (ConfigResult, error) {
-	settings, err := s.settingsSnapshot(ctx)
-	if err != nil {
-		return ConfigResult{}, internal(err, "读取注册开关失败")
-	}
+	settings := s.settingsSnapshotOrDefaults(ctx)
 	bootstrap, err := s.BootstrapRequired(ctx)
 	if err != nil {
 		s.log.Warn("读取初始化状态失败", "err", err)

@@ -311,13 +311,14 @@ func (s *Service) maskProviderKey(record domain.Provider) string {
 	return maskSecret(plain)
 }
 
-// loadProvider 读取未删除的预设；不存在时返回 not_found。
+// loadProvider 读取未删除的预设；不存在时返回 not_found，其它错误不得吞掉。
 func (s *Service) loadProvider(ctx context.Context, providerID int64) (domain.Provider, error) {
 	record, err := s.repo.GetProvider(ctx, providerID)
 	if err != nil {
 		if notFound := notFoundIfNoRows(err, "模型接口预设不存在"); notFound != nil {
 			return domain.Provider{}, notFound
 		}
+		return domain.Provider{}, internalError(err, "读取模型接口预设失败")
 	}
 	return record, nil
 }

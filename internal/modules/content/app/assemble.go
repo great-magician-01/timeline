@@ -91,7 +91,11 @@ func (s *Service) loadBriefData(
 	for _, id := range allIDs {
 		userIDs = append(userIDs, data.posts[id].AuthorID)
 	}
-	data.authors = s.userBriefs(ctx, userIDs)
+	authors, err := s.userBriefs(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	data.authors = authors
 
 	// 已发布内容的当前版本正文；未发布内容读取草稿工作区。
 	versions, err := s.repo.CurrentVersions(ctx, allIDs)
@@ -136,7 +140,10 @@ func (s *Service) loadBriefData(
 	for _, list := range rawIDs {
 		attachmentIDs = append(attachmentIDs, list...)
 	}
-	attachmentRows, derivatives := s.loadAttachments(ctx, attachmentIDs)
+	attachmentRows, derivatives, err := s.loadAttachments(ctx, attachmentIDs)
+	if err != nil {
+		return nil, err
+	}
 	for id, list := range rawIDs {
 		data.attachments[id] = availableAttachmentViews(list, attachmentRows, derivatives)
 	}
@@ -162,38 +169,40 @@ func (s *Service) loadBriefData(
 }
 
 // userBriefs 批量读取作者摘要；用户端口缺失时退化为只含 ID 的占位。
-func (s *Service) userBriefs(ctx context.Context, userIDs []int64) map[int64]model.UserBrief {
+// 读取失败必须向上传递，不能用空摘要静默降级（避免 200 响应里作者信息缺失）。
+func (s *Service) userBriefs(ctx context.Context, userIDs []int64) (map[int64]model.UserBrief, error) {
 	result := map[int64]model.UserBrief{}
 	if s.deps.Users == nil {
-		return result
+		return result, nil
 	}
 	briefs, err := s.deps.Users.GetUserBriefs(ctx, domain.UniqueIDs(userIDs))
 	if err != nil {
-		return result
+		return nil, s.wrap(err, "读取作者摘要失败")
 	}
-	return briefs
+	return briefs, nil
 }
 
 // loadAttachments 批量读取附件行与衍生文件状态。
+// 读取失败必须向上传递：附件缺失会改变列表内容，不能静默降级为空集合。
 func (s *Service) loadAttachments(
 	ctx context.Context,
 	attachmentIDs []int64,
-) (map[int64]model.Attachment, map[int64]map[string]string) {
+) (map[int64]model.Attachment, map[int64]map[string]string, error) {
 	ids := domain.UniqueIDs(attachmentIDs)
 	rows := map[int64]model.Attachment{}
 	derivatives := map[int64]map[string]string{}
 	if len(ids) == 0 || s.deps.Media == nil {
-		return rows, derivatives
+		return rows, derivatives, nil
 	}
 	loaded, err := s.deps.Media.AttachmentsByIDs(ctx, ids)
 	if err != nil {
-		return rows, derivatives
+		return nil, nil, s.wrap(err, "读取附件失败")
 	}
 	statuses, err := s.deps.Media.DerivativeStatuses(ctx, ids)
 	if err != nil {
-		return loaded, derivatives
+		return nil, nil, s.wrap(err, "读取附件衍生文件状态失败")
 	}
-	return loaded, statuses
+	return loaded, statuses, nil
 }
 
 // availableAttachmentViews 组装展示用附件视图：只保留仍然有效的附件。

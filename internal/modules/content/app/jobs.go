@@ -63,7 +63,7 @@ func (s *Service) HandlePublishJob(ctx context.Context, job jobs.Job) error {
 			s.logInfo("作者账号已停用，已暂停定时发布作业", "job_id", job.ID, "post_id", postID)
 			return nil
 		}
-		if err := s.publishLocked(txCtx, postID, post.AuthorID); err != nil {
+		if err := s.publishLocked(txCtx, postID, post.AuthorID, now); err != nil {
 			return err
 		}
 		s.logInfo("定时发布完成", "job_id", job.ID, "post_id", postID)

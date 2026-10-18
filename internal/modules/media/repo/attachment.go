@@ -114,36 +114,67 @@ func LinkToPost(ctx context.Context, exec db.Executor, postID int64, attachmentI
 	return err
 }
 
-// MarkExpiredTempDeleted 把超过保留期且未被引用的临时帖子附件标记失效，返回受影响行数。
-// $1 是应用计算的截止时间，$2 是应用时间。
+// listExpiredTempAttachmentCandidatesSQL 选出超过保留期、尚未挂帖子的临时帖子附件候选 ID。
+// $1 是应用计算的截止时间，$2 是当前头像附件 ID 列表（auth 端口提供）。
 //
-// 引用保护（与旧实现一致，全流程只更新状态、不删除记录与物理文件）：
+// 保护条件（全流程只更新状态、不删除记录与物理文件）：
 //   - 只处理仍可用、用途为帖子、尚未挂到任何帖子的记录（头像附件不在此列）；
-//   - 不存在生效中的草稿关联（post_draft_attachments.is_active）；
-//   - 不被任何用户当前头像引用（$3 由 auth 端口 ListAvatarAttachmentIDs 提供）。
-//
-// 说明：post_draft_attachments 属于 content 模块；这里保留只读引用检查是清理任务
-// 的既有安全语义。后续可在 contracts 增加“批量查询草稿引用附件”的只读端口后移除
-// 这段跨表子查询（见 task-14 未决点）。
-const markExpiredTempDeletedSQL = `
-	UPDATE attachments AS a
-	SET status = 'deleted', updated_at = $2
+//   - 不被任何用户当前头像引用（$2 由 auth 端口 ListAvatarAttachmentIDs 提供；
+//     存量头像引用由迁移 0016 回填 users.avatar_attachment_id 保证，清理不依赖 avatar_url，
+//     也不查询 users 表）；
+//   - 草稿引用不在 SQL 内检查：由 app 通过 content 端口 ActiveDraftAttachmentIDs 二次过滤，
+//     避免 media 跨模块查询 content 拥有的 post_draft_attachments 表。
+const listExpiredTempAttachmentCandidatesSQL = `
+	SELECT a.id FROM attachments AS a
 	WHERE a.post_id IS NULL
 	  AND a.status = 'available'
 	  AND a.purpose = 'post'
 	  AND a.created_at < $1
-	  AND a.id <> ALL($3)
-	  AND NOT EXISTS (
-		SELECT 1 FROM post_draft_attachments AS da
-		WHERE da.attachment_id = a.id AND da.is_active
-	  )`
+	  AND a.id <> ALL($2)
+	ORDER BY a.id
+	LIMIT $3`
 
-// MarkExpiredTempDeleted 执行临时附件失效（见上）。
-func MarkExpiredTempDeleted(ctx context.Context, exec db.Executor, cutoff, at time.Time, avatarAttachmentIDs []int64) (int64, error) {
+// ListExpiredTempAttachmentCandidates 返回过期临时附件候选 ID（按 ID 升序，最多 limit 条）。
+func ListExpiredTempAttachmentCandidates(
+	ctx context.Context, exec db.Executor, cutoff time.Time, limit int, avatarAttachmentIDs []int64,
+) ([]int64, error) {
+	if limit <= 0 {
+		limit = defaultCleanupCandidateLimit
+	}
 	if avatarAttachmentIDs == nil {
 		avatarAttachmentIDs = []int64{}
 	}
-	tag, err := exec.Exec(ctx, markExpiredTempDeletedSQL, cutoff, at, avatarAttachmentIDs)
+	rows, err := exec.Query(ctx, listExpiredTempAttachmentCandidatesSQL, cutoff, avatarAttachmentIDs, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]int64, 0, limit)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// defaultCleanupCandidateLimit 是单次清理最多处理的候选附件数（避免一次扫描过大）。
+const defaultCleanupCandidateLimit = 1000
+
+// markDeletedByIDsSQL 把一批附件置为逻辑失效；已失效的记录不重复计入。
+const markDeletedByIDsSQL = `
+	UPDATE attachments
+	SET status = 'deleted', updated_at = $2
+	WHERE id = ANY($1) AND status <> 'deleted'`
+
+// MarkDeletedByIDs 批量逻辑失效附件，返回实际变更行数（空集合直接返回 0）。
+func MarkDeletedByIDs(ctx context.Context, exec db.Executor, ids []int64, at time.Time) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	tag, err := exec.Exec(ctx, markDeletedByIDsSQL, ids, at)
 	if err != nil {
 		return 0, err
 	}

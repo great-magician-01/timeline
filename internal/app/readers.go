@@ -45,13 +45,14 @@ func (a aiTaskReaderAdapter) TodayActionCounts(ctx context.Context, aiIDs []int6
 }
 
 // profileStatsAdapter 用 admin 只读 read-model 的跨表聚合恢复个人主页统计。
+// 帖子只计已发布（个人主页 post_count 契约），与管理后台「未删除」口径分开。
 // 消费者：auth 模块 GetProfile。
 type profileStatsAdapter struct {
 	read *adminrepo.ReadModel
 }
 
 func (a profileStatsAdapter) ProfileStats(ctx context.Context, userID int64) (authapp.ProfileStats, error) {
-	stats, err := a.read.UserStats(ctx, userID)
+	stats, err := a.read.UserProfileStats(ctx, userID)
 	if err != nil {
 		return authapp.ProfileStats{}, err
 	}

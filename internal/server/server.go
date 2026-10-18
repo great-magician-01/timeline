@@ -8,17 +8,28 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/great-magician-01/timeline/internal/platform/config"
-	"github.com/great-magician-01/timeline/internal/platform/db"
 	"github.com/great-magician-01/timeline/internal/transport/middleware"
 )
+
+// Readiness 是 server 需要的运行时就绪状态能力；*platform/db.Readiness 直接满足，
+// 测试可注入假实现（无需真实连接池）。
+type Readiness interface {
+	// Ready 报告连接池已设置且迁移已完成。
+	Ready() bool
+	// Pool 返回当前连接池；未连接时返回 nil。
+	Pool() *pgxpool.Pool
+	// MigrationsDone 报告迁移是否完成（或按配置跳过）。
+	MigrationsDone() bool
+}
 
 // Server 持有 Gin 引擎与当前对外 handler（支持启动期切换）。
 type Server struct {
 	cfg       *config.Config
 	log       *slog.Logger
-	readiness *db.Readiness
+	readiness Readiness
 	engine    *gin.Engine
 
 	mu      sync.RWMutex
@@ -27,7 +38,7 @@ type Server struct {
 
 // New 构造 slim server：引擎 + 全局中间件 + 健康检查 + 前端托管。
 // 业务路由由组合根通过 Engine() 注册后再 SwapHandler(app.Handler())。
-func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness) *Server {
+func New(cfg *config.Config, log *slog.Logger, readiness Readiness) *Server {
 	if log == nil {
 		log = slog.Default()
 	}

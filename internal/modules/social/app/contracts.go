@@ -202,8 +202,7 @@ func (s *Service) DeleteCommentAsAdmin(ctx context.Context, in contracts.DeleteC
 		if comment.Deleted() {
 			return nil
 		}
-		post, err := s.deps.Posts.GetPost(ctx, comment.PostID)
-		if err != nil {
+		if _, err := s.deps.Posts.GetPost(ctx, comment.PostID); err != nil {
 			if apperr.IsKind(err, apperr.KindNotFound) {
 				return apperr.NotFound("评论不存在")
 			}
@@ -228,7 +227,6 @@ func (s *Service) DeleteCommentAsAdmin(ctx context.Context, in contracts.DeleteC
 		if err := s.deps.Notices.DeactivateMentions(ctx, model.NoticeSourceComment, in.CommentID, now); err != nil {
 			return err
 		}
-		_ = post // 帖子仅用于确认评论归属仍然有效
 		targetID := in.CommentID
 		return s.deps.Audit.Write(ctx, audit.Entry{
 			AdminID:    actor.ID,
@@ -307,6 +305,11 @@ func (s *Service) UnlikeForActor(ctx context.Context, in contracts.LikeInput) (b
 			}
 			post, err := s.deps.Posts.GetPost(ctx, in.TargetID)
 			if err != nil {
+				// 目标从未存在时保持取消点赞的幂等语义（旧实现返回计数 0）。
+				if apperr.IsKind(err, apperr.KindNotFound) {
+					count = 0
+					return nil
+				}
 				return err
 			}
 			count = post.LikeCount
@@ -322,6 +325,11 @@ func (s *Service) UnlikeForActor(ctx context.Context, in contracts.LikeInput) (b
 		}
 		comment, err := s.deps.Comments.Get(ctx, in.TargetID)
 		if err != nil {
+			// 目标从未存在时保持取消点赞的幂等语义（旧实现返回计数 0）。
+			if apperr.IsKind(err, apperr.KindNotFound) {
+				count = 0
+				return nil
+			}
 			return err
 		}
 		count = comment.LikeCount
@@ -523,7 +531,8 @@ func (s *Service) ListUserReplies(ctx context.Context, query contracts.ReplyQuer
 	return s.deps.Comments.ListByAuthor(ctx, query.AuthorID, query.AfterAt, query.AfterID, query.Limit)
 }
 
-// ListNewCommentsOnAuthorPosts 读取某作者公开帖子下、指定时间后的新评论。
+// ListNewCommentsOnAuthorPosts 读取某作者公开帖子下、指定时间后的新评论；
+// ExcludeAuthorID > 0 时排除该作者自己的评论，避免 AI 回复自己的评论形成自循环。
 func (s *Service) ListNewCommentsOnAuthorPosts(ctx context.Context, query contracts.CommentTriggerQuery) ([]model.Comment, error) {
 	if query.AuthorID <= 0 {
 		return nil, nil
@@ -548,7 +557,7 @@ func (s *Service) ListNewCommentsOnAuthorPosts(ctx context.Context, query contra
 	if len(publicIDs) == 0 {
 		return nil, nil
 	}
-	return s.deps.Comments.ListByPostIDsSince(ctx, publicIDs, query.Since, query.Limit)
+	return s.deps.Comments.ListByPostIDsSince(ctx, publicIDs, query.ExcludeAuthorID, query.Since, query.Limit)
 }
 
 // IsPostLiked 判断用户是否已点赞帖子。

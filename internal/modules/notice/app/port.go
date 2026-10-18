@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/great-magician-01/timeline/internal/modules/notice/domain"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
 
@@ -32,14 +33,9 @@ type NotificationRepo interface {
 	MarkAllRead(ctx context.Context, recipientID int64) (int64, error)
 }
 
-// MentionRow 是 mentions 行读取结构。
-type MentionRow struct {
-	ID              int64
-	MentionedUserID int64
-	SourceType      string
-	SourceID        int64
-	CreatedAt       time.Time
-}
+// MentionRow 是 mentions 行读取结构（定义在 domain，repo 不依赖 app）。
+// 保留 app 包别名，既有 app 内引用无需改动。
+type MentionRow = domain.MentionRow
 
 // MentionRepo 是 mentions 表 SQL 端口。
 type MentionRepo interface {

@@ -92,7 +92,14 @@ const (
 		ORDER BY created_at DESC, id DESC LIMIT $4`
 
 	// 一组帖子在 since 之后的新评论（AI 被动回复触发兜底扫描）。
+	// author_id <> $4 排除作者自己的评论：AI 回复用户后，自己的评论不再触发自回复任务。
 	sqlCommentByPostIDsSince = `SELECT ` + commentColumns + `
+		FROM comments
+		WHERE post_id = ANY($1) AND status = 'published' AND created_at > $2
+		  AND author_id <> $4
+		ORDER BY id DESC LIMIT $3`
+
+	sqlCommentByPostIDsSinceAllAuthors = `SELECT ` + commentColumns + `
 		FROM comments
 		WHERE post_id = ANY($1) AND status = 'published' AND created_at > $2
 		ORDER BY id DESC LIMIT $3`
@@ -128,13 +135,23 @@ func (r *CommentRepo) ListByAuthor(
 }
 
 // ListByPostIDsSince 读取一组帖子在 since 之后的新评论（按 ID 倒序）。
+// excludeAuthorID > 0 时排除该作者自己的评论（旧实现 `author_id <> $1`）。
 func (r *CommentRepo) ListByPostIDsSince(
-	ctx context.Context, postIDs []int64, since time.Time, limit int,
+	ctx context.Context, postIDs []int64, excludeAuthorID int64, since time.Time, limit int,
 ) ([]model.Comment, error) {
 	if len(postIDs) == 0 {
 		return nil, nil
 	}
-	rows, err := db.ExecutorFrom(ctx, r.pool).Query(ctx, sqlCommentByPostIDsSince, postIDs, since, limit)
+	exec := db.ExecutorFrom(ctx, r.pool)
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if excludeAuthorID > 0 {
+		rows, err = exec.Query(ctx, sqlCommentByPostIDsSince, postIDs, since, limit, excludeAuthorID)
+	} else {
+		rows, err = exec.Query(ctx, sqlCommentByPostIDsSinceAllAuthors, postIDs, since, limit)
+	}
 	if err != nil {
 		return nil, err
 	}

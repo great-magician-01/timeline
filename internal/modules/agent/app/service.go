@@ -13,7 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/great-magician-01/callable"
@@ -25,7 +25,6 @@ import (
 	"github.com/great-magician-01/timeline/internal/platform/clock"
 	"github.com/great-magician-01/timeline/internal/platform/jobs"
 	"github.com/great-magician-01/timeline/internal/platform/settings"
-	"github.com/great-magician-01/timeline/internal/platform/websearch"
 	"github.com/great-magician-01/timeline/internal/shared/contracts"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
@@ -233,7 +232,8 @@ func (s *Service) Enqueue(ctx context.Context, in EnqueueInput) (int64, bool, er
 
 // enqueueTaskJob 投递 ai_task 作业（触发即执行；定时任务由作业 run_at 控制）。
 func (s *Service) enqueueTaskJob(ctx context.Context, taskID int64) error {
-	runAt := s.now()
+	now := s.now()
+	runAt := now
 	task, err := s.deps.Tasks.GetTask(ctx, taskID)
 	if err != nil {
 		return err
@@ -245,29 +245,33 @@ func (s *Service) enqueueTaskJob(ctx context.Context, taskID int64) error {
 		Type:           contracts.JobTypeAITask,
 		RefType:        domain.RefTask,
 		RefID:          &taskID,
-		IdempotencyKey: "ai_task:" + strconv.FormatInt(taskID, 10),
+		IdempotencyKey: taskJobIdempotencyKey(taskID),
 		Payload:        jobPayload{TaskID: taskID},
 		RunAt:          runAt,
 		MaxAttempts:    3,
+		At:             now,
 	})
 }
 
 // ===== 作业入口（由组合根注册） =====
 
 // HandleAITaskJob 执行 ai_task 作业：领取任务 → 决策 → 动作 → 记忆/结果写回。
+// 负载无效属于不可重试的处理完成，直接返回 nil，避免作业层按错误反复重试。
 func (s *Service) HandleAITaskJob(ctx context.Context, job jobs.Job) error {
 	var payload jobPayload
 	if err := job.PayloadJSON(&payload); err != nil || payload.TaskID <= 0 {
-		return apperr.Validation("AI 任务作业负载无效")
+		s.deps.Log.Warn("AI 任务作业负载无效，已忽略", "job_id", job.ID)
+		return nil
 	}
 	return s.RunTask(ctx, payload.TaskID)
 }
 
-// HandleMemoryJob 执行记忆沉淀作业。
+// HandleMemoryJob 执行记忆沉淀作业；负载无效视为处理完成，避免作业层重试。
 func (s *Service) HandleMemoryJob(ctx context.Context, job jobs.Job) error {
 	var payload jobPayload
 	if err := job.PayloadJSON(&payload); err != nil || payload.AIID <= 0 {
-		return apperr.Validation("记忆沉淀作业负载无效")
+		s.deps.Log.Warn("记忆沉淀作业负载无效，已忽略", "job_id", job.ID)
+		return nil
 	}
 	return s.consolidateMemories(ctx, payload.AIID)
 }
@@ -354,18 +358,24 @@ func (s *Service) CancelPendingTasksForActor(ctx context.Context, in contracts.C
 	if at.IsZero() {
 		at = s.now()
 	}
-	tasks, _, err := s.deps.Tasks.ListTasks(ctx, repo.TaskFilter{AIID: in.AIID, Status: domain.TaskStatusPending, Limit: 200})
-	if err != nil {
-		return 0, err
-	}
 	canceled := 0
-	for _, task := range tasks {
-		if err := s.deps.Tasks.SetTaskStatus(ctx, task.ID, domain.TaskStatusCanceled, "账号处置取消", &at); err != nil {
+	for {
+		tasks, _, err := s.deps.Tasks.ListTasks(ctx, repo.TaskFilter{
+			AIID: in.AIID, Status: domain.TaskStatusPending, Limit: 200,
+		})
+		if err != nil {
 			return canceled, err
 		}
-		canceled++
+		if len(tasks) == 0 {
+			return canceled, nil
+		}
+		for _, task := range tasks {
+			if err := s.deps.Tasks.SetTaskStatus(ctx, task.ID, domain.TaskStatusCanceled, "账号处置取消", &at); err != nil {
+				return canceled, err
+			}
+			canceled++
+		}
 	}
-	return canceled, nil
 }
 
 // ===== 全局开关 =====
@@ -379,21 +389,23 @@ func (s *Service) GlobalState(ctx context.Context) (GlobalState, error) {
 	return GlobalState{Enabled: values.AIGlobalEnabled}, nil
 }
 
-// SetGlobal 打开/关闭全局 AI 开关；关闭时暂停待执行作业与任务（不删除记录）。
+// SetGlobal 打开/关闭全局 AI 开关；关闭时取消全部待执行任务并暂停待执行作业（逻辑状态，不删除记录）。
 func (s *Service) SetGlobal(ctx context.Context, adminID int64, enabled bool) error {
 	at := s.now()
-	pending, err := s.deps.Tasks.ListPendingTasks(ctx, 200)
-	if err != nil {
-		return err
-	}
 	if !enabled {
-		for _, task := range pending {
-			if err := s.deps.Tasks.SetTaskStatus(ctx, task.ID, domain.TaskStatusCanceled, "全局 AI 开关关闭", &at); err != nil {
-				return err
-			}
+		if err := s.cancelAllPendingTasks(ctx, "全局 AI 开关关闭", at); err != nil {
+			return err
 		}
-		// 与旧实现一致：暂停 ref_type='ai' 的全部待执行作业（ai_task / 记忆沉淀），
-		// 逻辑状态变更，不删除作业记录。
+		// ai_task 作业的 ref_type 是任务类型、ref_id 是任务 ID：按作业类型整体暂停。
+		if _, err := s.deps.Jobs.PauseAllPending(ctx, contracts.PauseAllPendingInput{
+			JobType: contracts.JobTypeAITask,
+			RefType: domain.RefTask,
+			At:      at,
+		}); err != nil {
+			return err
+		}
+		// 调度（ai_schedule）与记忆沉淀作业的 ref_type='ai'、ref_id 是 AI 账号 ID：
+		// 暂停该引用类型下全部 pending 作业（等价旧实现按 AI 作业类型整体暂停）。
 		if _, err := s.deps.Jobs.PauseAllPending(ctx, contracts.PauseAllPendingInput{
 			RefType: domain.RefAI,
 			At:      at,
@@ -422,6 +434,24 @@ func (s *Service) SetGlobal(ctx context.Context, adminID int64, enabled bool) er
 	})
 }
 
+// cancelAllPendingTasks 按批循环取消全部 pending 任务，避免只处理首批 200 条而遗漏。
+func (s *Service) cancelAllPendingTasks(ctx context.Context, reason string, at time.Time) error {
+	for {
+		pending, err := s.deps.Tasks.ListPendingTasks(ctx, 200)
+		if err != nil {
+			return err
+		}
+		if len(pending) == 0 {
+			return nil
+		}
+		for _, task := range pending {
+			if err := s.deps.Tasks.SetTaskStatus(ctx, task.ID, domain.TaskStatusCanceled, reason, &at); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // ===== 工具 =====
 
 // truncateRunes 按字符截断字符串。
@@ -442,51 +472,96 @@ func marshalJSON(value any) []byte {
 	return encoded
 }
 
-// asInternal 把无法识别的错误包装为内部错误（保留原始错误链供日志）。
-func asInternal(err error, message string) error {
-	if err == nil {
-		return nil
-	}
-	var appErr *apperr.Error
-	if errors.As(err, &appErr) {
-		return err
-	}
-	return apperr.Wrap(err, apperr.KindInternal, message)
-}
-
 // decisionFormat 构造决策结构化输出格式。
 func decisionFormat() callable.ResponseFormat {
 	return callable.JSONSchema("ai_decision", domain.DecisionSchema(), true)
 }
 
-// callModel 调用一次决策模型并写入调用记录。
-func (s *Service) callModel(ctx context.Context, rt contracts.Runtime, taskID int64,
-	systemPrompt, userPrompt string, format callable.ResponseFormat, searchRound int) (*callable.Response, error) {
-	client := aiclient.NewChatClient(aiclient.ProviderConfig{
+// classifyModelError 把模型调用错误映射为任务终态与错误类型：
+// 429/5xx/传输层失败可有限重试；其它 4xx（鉴权/参数/不支持工具调用）按 rejected 不重试；
+// 超时按可重试失败；上下文取消按 canceled（docs/WORKFLOWS.md 7.5、7.6）。
+func classifyModelError(err error) (status, errorType string, retryable bool) {
+	if err == nil {
+		return domain.TaskStatusSucceeded, "", false
+	}
+	var apiErr *aiclient.APIError
+	if errors.As(err, &apiErr) {
+		switch {
+		case apiErr.StatusCode == 0:
+			return domain.TaskStatusFailed, domain.ErrorTypeNetwork, true
+		case apiErr.StatusCode == 429 || apiErr.StatusCode >= 500:
+			return domain.TaskStatusFailed, domain.ErrorTypeNetwork, true
+		case apiErr.StatusCode == 401 || apiErr.StatusCode == 403 || apiErr.StatusCode == 404:
+			return domain.TaskStatusRejected, domain.ErrorTypeForbidden, false
+		default:
+			return domain.TaskStatusRejected, domain.ErrorTypeModel, false
+		}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return domain.TaskStatusFailed, domain.ErrorTypeNetwork, true
+	}
+	if errors.Is(err, context.Canceled) {
+		return domain.TaskStatusCanceled, "", false
+	}
+	return domain.TaskStatusFailed, domain.ErrorTypeNetwork, true
+}
+
+// modelForRuntime 返回一次调用实际使用的模型名：AI 的 model_override 优先，
+// 为空时回退预设默认模型（docs/WORKFLOWS.md 7.4 第 6 条）。
+func modelForRuntime(rt contracts.Runtime) string {
+	if model := strings.TrimSpace(rt.Model); model != "" {
+		return model
+	}
+	return strings.TrimSpace(rt.Provider.DefaultModel)
+}
+
+// newModelClient 按 AI 运行时快照构造模型客户端；实际模型名使用 modelForRuntime。
+func (s *Service) newModelClient(rt contracts.Runtime) *aiclient.ChatClient {
+	provider := aiclient.ProviderConfig{
 		ID:           rt.Provider.ID,
 		Name:         rt.Provider.Name,
 		BaseURL:      rt.Provider.BaseURL,
 		APIKey:       rt.Provider.APIKey,
-		DefaultModel: rt.Provider.DefaultModel,
+		DefaultModel: modelForRuntime(rt),
 		IsEnabled:    rt.Provider.IsEnabled,
-	}, aiclient.GenerationParams{
+	}
+	return aiclient.NewChatClient(provider, aiclient.GenerationParams{
 		MaxTokens:   rt.Params.MaxTokens,
 		Temperature: rt.Params.Temperature,
 		TopP:        rt.Params.TopP,
 		Stop:        rt.Params.Stop,
 	}, rt.Timeout)
-	request := callable.NewRequest(callable.System(systemPrompt), callable.User(userPrompt)).
-		WithResponseFormat(format)
+}
+
+// callModelRound 执行一轮模型请求并写入一条调用记录（工具轮的每一轮各自成条）。
+// 调用记录不包含 API Key 或请求头；请求/响应按上限截断。
+func (s *Service) callModelRound(ctx context.Context, rt contracts.Runtime, taskID int64,
+	request *callable.Request, searchRound int, webSearch bool) (*callable.Response, error) {
+	if request == nil {
+		return nil, apperr.Internal("模型请求为空")
+	}
+	client := s.newModelClient(rt)
+	model := modelForRuntime(rt)
 	startedAt := s.now()
 	resp, err := client.Create(ctx, request)
 	finishedAt := s.now()
+	params := map[string]any{"max_tokens": rt.Params.MaxTokens, "search_round": searchRound}
+	if rt.Params.Temperature != nil {
+		params["temperature"] = *rt.Params.Temperature
+	}
+	if rt.Params.TopP != nil {
+		params["top_p"] = *rt.Params.TopP
+	}
+	if webSearch {
+		params["web_search"] = true
+	}
 	logEntry := repo.CallLogInsert{
 		TaskID:         &taskID,
 		AIID:           &rt.AIID,
 		ProviderID:     ptrInt64(rt.Provider.ID),
-		Model:          rt.Model,
-		Params:         marshalJSON(map[string]any{"max_tokens": rt.Params.MaxTokens, "search_round": searchRound}),
-		RequestContent: truncateRunes(systemPrompt+"\n\n"+userPrompt, 8000),
+		Model:          model,
+		Params:         marshalJSON(params),
+		RequestContent: truncateRunes(renderRequestContent(request), 8000),
 		Status:         "success",
 		Attempt:        1,
 		LatencyMS:      finishedAt.Sub(startedAt).Milliseconds(),
@@ -497,9 +572,22 @@ func (s *Service) callModel(ctx context.Context, rt contracts.Runtime, taskID in
 	if err != nil {
 		logEntry.Status = "error"
 		logEntry.ErrorType = domain.ErrorTypeNetwork
-		logEntry.ErrorMessage = truncateRunes(err.Error(), 1000)
+		message := err.Error()
+		if apiErr, ok := err.(*aiclient.APIError); ok && apiErr.StatusCode > 0 {
+			code := apiErr.StatusCode
+			logEntry.HTTPStatus = &code
+			switch {
+			case code == 429:
+				logEntry.ErrorType = domain.ErrorTypeRateLimited
+			case code >= 400 && code < 500:
+				logEntry.ErrorType = domain.ErrorTypeForbidden
+			default:
+				logEntry.ErrorType = domain.ErrorTypeNetwork
+			}
+		}
+		logEntry.ErrorMessage = truncateRunes(message, 1000)
 	} else if resp != nil {
-		logEntry.ResponseContent = truncateRunes(resp.Text, 8000)
+		logEntry.ResponseContent = truncateRunes(renderResponseContent(resp), 8000)
 		logEntry.UsageInputTokens = ptrInt(resp.Usage.InputTokens)
 		logEntry.UsageOutputTokens = ptrInt(resp.Usage.OutputTokens)
 		logEntry.UsageReasoningTokens = ptrInt(resp.Usage.ReasoningTokens)
@@ -517,6 +605,53 @@ func (s *Service) callModel(ctx context.Context, rt contracts.Runtime, taskID in
 		return nil, apperr.Wrap(err, apperr.KindInternal, "模型调用失败")
 	}
 	return resp, nil
+}
+
+// renderRequestContent 把请求消息渲染为可存档文本；只包含文本与工具调用，
+// 不含 ThinkingPart、请求头或 API Key。
+func renderRequestContent(req *callable.Request) string {
+	if req == nil {
+		return ""
+	}
+	var builder strings.Builder
+	for _, message := range req.Messages {
+		builder.WriteString("[")
+		builder.WriteString(string(message.Role))
+		builder.WriteString("]\n")
+		for _, part := range message.Parts {
+			switch current := part.(type) {
+			case callable.TextPart:
+				builder.WriteString(current.Text)
+			case callable.ToolCallPart:
+				builder.WriteString("[tool_call name=" + current.Name + "] ")
+				builder.WriteString(current.Arguments)
+				builder.WriteString("\n")
+			case callable.ToolResultPart:
+				builder.WriteString("[tool_result name=" + current.Name + "] ")
+				builder.WriteString(current.Content)
+				builder.WriteString("\n")
+			}
+		}
+		builder.WriteString("\n")
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+// renderResponseContent 记录模型文本与工具调用；工具轮通常没有文本。
+func renderResponseContent(resp *callable.Response) string {
+	if resp == nil {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString(resp.Text)
+	for _, call := range resp.ToolCalls {
+		if builder.Len() > 0 {
+			builder.WriteString("\n")
+		}
+		builder.WriteString("[tool_call name=" + call.Name + "] ")
+		builder.WriteString(call.Arguments)
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func ptrInt(value int) *int {
@@ -539,23 +674,4 @@ func derefString(value *string) string {
 		return ""
 	}
 	return *value
-}
-
-// webSearchSnippet 在允许且配置时执行一次受控搜索，把结果作为不可信资料拼接。
-func (s *Service) webSearchSnippet(ctx context.Context, behavior contracts.BehaviorSettings, query string) (string, error) {
-	if !behavior.AllowWebSearch || query == "" {
-		return "", nil
-	}
-	cfg, err := s.deps.AI.WebSearchConfig(ctx)
-	if err != nil || !cfg.Configured() {
-		return "", nil
-	}
-	client := websearch.NewClient(10 * time.Second)
-	output, err := client.Search(ctx, cfg.BaseURL, cfg.APIKey, truncateRunes(query, 200))
-	if err != nil {
-		s.deps.Log.Warn("联网搜索失败，降级为普通决策", "err", err)
-		return "", nil
-	}
-	encoded := marshalJSON(output)
-	return truncateRunes(string(encoded), 4000), nil
 }

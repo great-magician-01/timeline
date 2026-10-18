@@ -84,8 +84,8 @@ func (a auditAdapter) Write(ctx context.Context, entry contracts.AuditEntry) err
 // ===== platform/jobs → contracts.JobsQueue =====
 //
 // Enqueue/CancelPending 走 platform/jobs 的既有方法（ctx 携带事务时自动复用）；
-// 人工处置（Pause/Retry/Cancel/SetJobStatus/Get/ListByRef）已下沉到 platform/jobs，
-// 组合根不做任何 SQL。
+// 人工处置（Pause/Retry/Cancel/Reactivate/SetJobStatus/Get/ListByRef）已下沉到
+// platform/jobs，组合根不做任何 SQL。
 type jobsAdapter struct {
 	pool   *pgxpool.Pool
 	runner *platformjobs.Runner
@@ -100,6 +100,7 @@ func (a jobsAdapter) Enqueue(ctx context.Context, in contracts.JobEnqueue) error
 		Payload:        in.Payload,
 		RunAt:          in.RunAt,
 		MaxAttempts:    in.MaxAttempts,
+		At:             in.At,
 	})
 }
 
@@ -121,6 +122,12 @@ func (a jobsAdapter) RetryJob(ctx context.Context, in contracts.JobActionInput) 
 
 func (a jobsAdapter) CancelJob(ctx context.Context, in contracts.JobActionInput) (contracts.JobSnapshot, error) {
 	return a.runner.CancelJob(ctx, in)
+}
+
+func (a jobsAdapter) Reactivate(
+	ctx context.Context, idempotencyKey string, runAt, at time.Time,
+) (bool, error) {
+	return a.runner.Reactivate(ctx, idempotencyKey, runAt, at)
 }
 
 func (a jobsAdapter) SetJobStatus(ctx context.Context, jobID int64, status string, at time.Time) error {

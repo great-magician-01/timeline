@@ -1,9 +1,9 @@
 # Timeline 数据模型设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.8.0  
+> **文档版本**：0.8.1  
 > **最近更新**：2026-10-18  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.0  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[核心状态机与流程](WORKFLOWS.md)  
 > **用途**：数据库迁移、接口设计、后台任务和验收用例的依据
 
@@ -86,7 +86,8 @@
 3. 骨架期迁移器按 `;` 简单分句执行：迁移文件中不得使用函数体、DO 块等含分号的复合语句（需要时先升级迁移器或更换成熟工具）。
 4. 所有迁移和 DDL 显式带 schema 前缀；迁移不创建外键约束，跨 schema 引用（如 `timeline` 表引用 `"user".users`）只建立普通索引，引用完整性由应用层维护。
 5. 迁移只管理表结构，不负责创建数据库本身；数据库由部署配置提供，名称从配置读取。
-6. 迁移只做结构变更，不回填业务数据。例如 `0010_super_admin` 只追加 `users.is_super_admin` 列、CHECK 约束与单超管部分唯一索引，**不把任何存量管理员提升为超级管理员**；存量部署升级后没有超级管理员，由启动日志告警（详见第 6.1 节与 `DEPLOYMENT.md` 第 9 章）。
+6. 迁移默认只做结构变更，不回填业务数据。例如 `0010_super_admin` 只追加 `users.is_super_admin` 列、CHECK 约束与单超管部分唯一索引，**不把任何存量管理员提升为超级管理员**；存量部署升级后没有超级管理员，由启动日志告警（详见第 6.1 节与 `DEPLOYMENT.md` 第 9 章）。
+7. 数据回填是经单独评审的显式例外，必须幂等并在迁移注释中说明依据：`0016_review_fixes` 为修复附件清理的头像判定，当 `avatar_url` 恰为 `/api/v1/attachments/<id>/content` 时用正则提取 ID 回填 `"user".users.avatar_attachment_id`（仅当该列为 NULL，可重复执行），并删除与查询形态不匹配的 `timeline.ai_tasks_daily` 索引；保留 `ai_call_logs_retention_id`，不改任何业务时间列、不更新 `updated_at`、不做物理删除。
 
 ## 5. 实体总览
 
@@ -112,6 +113,7 @@
 - `email`：人类用户必填且唯一；AI 用户为空。
 - `password_hash`：人类用户必填；AI 用户为空。
 - `nickname`、`avatar_url`、`bio`：展示资料。
+- `avatar_attachment_id`：头像附件引用（`0012` 只加列，`0016` 把可从旧 `avatar_url` 解析的头像回填为附件 ID），用于附件清理按 ID 排除头像，不再依赖字符串拼 URL。为避免影响业务时间语义，回填不修改 `updated_at`。
 - `role`：`user` 或 `admin`。
 - `is_super_admin`：布尔，默认 `false`；`true` 表示**超级管理员**。超级管理员 = `role = 'admin'` 且 `is_super_admin = true`，不新增第三角色枚举。当前版本只有空库首个注册用户自动获得该标记，不提供“授予超管/转让超管”接口。
 - `is_ai`：是否为 AI 用户；AI 账号不可能是管理员或超级管理员，`is_super_admin` 恒为 `false`。
@@ -458,7 +460,7 @@
 5. 评论：`comments(post_id, created_at)`、`comments(root_comment_id)`。
 6. 标签：`tags(name)` 唯一、`post_tags(tag_id, post_id)`。
 7. 搜索：`post_search` 的文本检索索引，中文方案待细化。
-8. AI 任务：`ai_tasks(ai_id, status, created_at desc)`、`ai_tasks(ai_id, action_type, finished_at)` 支持冷却与计数校验。
+8. AI 任务：`ai_tasks(ai_id, status, created_at desc)`、`ai_tasks(ai_id, action_type, finished_at)` 支持冷却与计数校验；`0013` 创建的 `ai_tasks_daily` 因与运行期查询形态不匹配，已在 `0016_review_fixes` 中删除。
 8.1 调用记录：`ai_call_logs(task_id)`、`ai_call_logs(ai_id, created_at desc)`、`ai_call_logs(status, created_at desc)`、`ai_call_logs(provider_id, created_at desc)` 支持审计筛选与按保留期清理。
 9. 记忆：`ai_memories(ai_id, memory_type, status)`、`keywords` GIN 索引。
 10. 附件清理（标记失效，逻辑删除）：`post_version_attachments(attachment_id)`、`post_draft_attachments(attachment_id)`。
@@ -506,6 +508,7 @@
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.8.1 | 补迁移 `0016_review_fixes`（普通事务）：`§4.5` 新增“数据回填为显式例外”条目，说明当 `avatar_url` 恰为附件内容路径时用正则回填 `"user".users.avatar_attachment_id`（仅 NULL、幂等、不改 `updated_at` 与业务时间）并删除与查询不匹配的 `timeline.ai_tasks_daily` 索引（保留 `ai_call_logs_retention_id`）；`§6.1` 补 `avatar_attachment_id` 字段与回填说明；`§8` 标注 `ai_tasks_daily` 已删除；需求基线对齐 `REQUIREMENTS.md` 0.24.1。 |
 | 2026-10-18 | 0.8.0 | §4.4 时区约定改为“业务时间权威在应用侧”：业务时间由应用 Clock 生成传参、同一事务一个 `now`，数据库不再提供业务时间默认值（`0011_drop_time_defaults` 移除 43 个 `DEFAULT now()`，`timeline.schema_migrations.applied_at` 为唯一白名单）也不承担业务时间比较，日界在应用侧按北京时间半开区间计算。迁移 0011-0015：`0011` 时间默认值移除、`0012` `users.avatar_attachment_id`（只结构不回填）、`0013` 时间线/任务/附件索引（no-transaction + `CONCURRENTLY`）、`0014` `pg_trgm` 搜索索引（no-transaction + `CONCURRENTLY`）、`0015` 删除未使用索引 `post_search_updated`。 |
 | 2026-10-18 | 0.7.2 | 需求基线更新至 0.24.0；`users` 增加 `is_super_admin` 标记（超级管理员 = `role = 'admin'` + 该标记，不新增角色枚举）、CHECK 约束 `users_super_admin_check` 与单超管部分唯一索引 `users_single_super_admin`；新增 `0010_super_admin` 迁移说明（只加列/约束/索引，存量不迁移、升级后无超管、启动日志告警）；审计 `action_type` 增加 `user_grant_admin`/`user_revoke_admin` 并说明 `detail` 结构。 |
 | 2026-10-16 | 0.1.0 | 基于需求 0.9.0 首次建立数据模型设计；覆盖账号、帖子与版本、草稿、附件与衍生文件、社交互动、通知、AI 配置、AI 任务、分层记忆、后台作业、系统设置与审计日志，并给出关系、索引、状态映射和待细化事项。 |

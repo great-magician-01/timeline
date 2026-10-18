@@ -214,7 +214,9 @@ func (s *Service) RetryAITask(ctx context.Context, adminID, taskID int64) (repo.
 	if err := s.deps.Tasks.SetTaskStatus(ctx, taskID, domain.TaskStatusPending, "", nil); err != nil {
 		return repo.Task{}, err
 	}
-	if err := s.enqueueTaskJob(ctx, taskID); err != nil {
+	// 任务重试必须保证确实有可执行作业：已有 failed 作业人工重试、canceled/paused 作业
+	// 重新激活；若旧作业已 succeeded 无法恢复，则用一次性幂等键补投新的执行作业。
+	if err := s.requeueTaskForAdminRetry(ctx, taskID, at); err != nil {
 		return repo.Task{}, err
 	}
 	if err := s.deps.Audit.Write(ctx, contracts.AuditEntry{
@@ -245,8 +247,20 @@ func (s *Service) CancelAITask(ctx context.Context, adminID, taskID int64) (repo
 	if err := s.deps.Tasks.SetTaskStatus(ctx, taskID, domain.TaskStatusCanceled, "管理员取消", &at); err != nil {
 		return repo.Task{}, err
 	}
-	if job, jobErr := s.deps.Jobs.GetJob(ctx, taskID); jobErr == nil && job.ID > 0 {
-		_, _ = s.deps.Jobs.CancelJob(ctx, contracts.JobActionInput{JobID: job.ID, At: at})
+	// 作业的 ref_id 是任务 ID、ref_type='ai_task'：按引用查询后取消，不能把 taskID 当作业 ID。
+	if jobs, jobErr := s.deps.Jobs.ListByRef(ctx, contracts.JobRefQuery{
+		RefType: domain.RefTask, RefIDs: []int64{taskID}, Types: []string{contracts.JobTypeAITask}, Limit: 10,
+	}); jobErr == nil {
+		for _, job := range jobs {
+			switch job.Status {
+			case contracts.JobStatusPending, contracts.JobStatusRunning, contracts.JobStatusPaused:
+				if _, cancelErr := s.deps.Jobs.CancelJob(ctx, contracts.JobActionInput{JobID: job.ID, At: at}); cancelErr != nil {
+					s.deps.Log.Warn("取消 AI 任务作业失败", "err", cancelErr, "task_id", taskID, "job_id", job.ID)
+				}
+			}
+		}
+	} else {
+		s.deps.Log.Warn("查询 AI 任务作业失败", "err", jobErr, "task_id", taskID)
 	}
 	if err := s.deps.Audit.Write(ctx, contracts.AuditEntry{
 		AdminID:    adminID,
@@ -284,6 +298,49 @@ func (s *Service) GetTask(ctx context.Context, taskID int64) (TaskView, error) {
 		return TaskView{}, err
 	}
 	return s.taskView(ctx, task)
+}
+
+// requeueTaskForAdminRetry 保证人工重试的任务确实有可执行作业：
+// pending/running 作业直接复用；failed 作业人工重试；canceled/paused 作业重新激活；
+// 已 succeeded 等无法恢复的终态用一次性幂等键补投新作业。
+func (s *Service) requeueTaskForAdminRetry(ctx context.Context, taskID int64, at time.Time) error {
+	jobs, err := s.deps.Jobs.ListByRef(ctx, contracts.JobRefQuery{
+		RefType: domain.RefTask, RefIDs: []int64{taskID}, Types: []string{contracts.JobTypeAITask}, Limit: 10,
+	})
+	if err != nil {
+		return err
+	}
+	if len(jobs) == 0 {
+		return s.enqueueTaskJob(ctx, taskID)
+	}
+	job := jobs[0]
+	switch job.Status {
+	case contracts.JobStatusPending, contracts.JobStatusRunning:
+		return nil
+	case contracts.JobStatusFailed:
+		_, err := s.deps.Jobs.RetryJob(ctx, contracts.JobActionInput{JobID: job.ID, At: at})
+		return err
+	case contracts.JobStatusCanceled, contracts.JobStatusPaused:
+		reactivated, err := s.deps.Jobs.Reactivate(ctx, taskJobIdempotencyKey(taskID), at, at)
+		if err != nil {
+			return err
+		}
+		if reactivated {
+			return nil
+		}
+	}
+	s.deps.Log.Warn("AI 任务旧作业已终态，按一次性幂等键重新投递",
+		"task_id", taskID, "job_id", job.ID, "status", job.Status)
+	return s.deps.Jobs.Enqueue(ctx, contracts.JobEnqueue{
+		Type:           contracts.JobTypeAITask,
+		RefType:        domain.RefTask,
+		RefID:          &taskID,
+		IdempotencyKey: taskJobIdempotencyKey(taskID) + ":retry:" + apiID(at.UnixNano()),
+		Payload:        jobPayload{TaskID: taskID},
+		RunAt:          at,
+		MaxAttempts:    3,
+		At:             at,
+	})
 }
 
 // scheduledAtFromRaw 解析 RFC3339 定时时间（供 http 层复用）。

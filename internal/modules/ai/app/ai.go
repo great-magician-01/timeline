@@ -436,25 +436,9 @@ func (s *Service) SetAIEnabled(ctx context.Context, adminID, aiID int64, enabled
 		if err := s.repo.SetProfileEnabled(txCtx, aiID, enabled, at); err != nil {
 			return internalError(err, "更新 AI 启用状态失败")
 		}
-		// 停用 AI 时与旧实现保持一致：先暂停 ref_type='ai' 的 pending 后台作业，
-		// 再取消待执行的 AI 任务；两个端口都可选（未接线时降级跳过）。
-		// 作业类型按组合根约定逐个暂停（与 admin 停用账号的处置一致）。
-		if !enabled && s.deps.Jobs != nil {
-			for _, jobType := range []string{
-				contracts.JobTypeAITask,
-				contracts.JobTypeAISchedule,
-				contracts.JobTypeMemoryConsolidate,
-			} {
-				if _, err := s.deps.Jobs.PausePending(txCtx, contracts.PausePendingJobsInput{
-					JobType: jobType,
-					RefType: "ai",
-					RefIDs:  []int64{aiID},
-					At:      at,
-				}); err != nil {
-					return internalError(err, "暂停 AI 后台作业失败")
-				}
-			}
-		}
+		// 停用 AI 时先取消待执行任务（ai_task 作业的 ref_type='ai_task'、ref_id 是任务 ID，
+		// 无法按 AI ID 批量暂停，取消任务后作业执行时不会再领取任务），再暂停该 AI 的
+		// 记忆沉淀作业（ref_type='ai'、ref_id 是 AI ID，按正确引用暂停）。
 		if !enabled && s.deps.Agent != nil {
 			if _, err := s.deps.Agent.CancelPendingTasksForActor(txCtx, contracts.CancelTasksInput{
 				ActorID: adminID,
@@ -462,6 +446,17 @@ func (s *Service) SetAIEnabled(ctx context.Context, adminID, aiID int64, enabled
 				At:      at,
 			}); err != nil {
 				return internalError(err, "取消 AI 待执行任务失败")
+			}
+		}
+		if !enabled && s.deps.Jobs != nil {
+			// 该 AI 的调度（ai_schedule）与记忆沉淀作业 ref_type='ai'、ref_id=AI ID；
+			// JobType 为空表示暂停该 AI 名下所有 pending 作业（等价旧实现）。
+			if _, err := s.deps.Jobs.PausePending(txCtx, contracts.PausePendingJobsInput{
+				RefType: "ai",
+				RefIDs:  []int64{aiID},
+				At:      at,
+			}); err != nil {
+				return internalError(err, "暂停 AI 待执行作业失败")
 			}
 		}
 		action := contracts.AuditActionAIEnable

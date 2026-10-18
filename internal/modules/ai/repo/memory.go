@@ -278,6 +278,68 @@ func (s *Store) InsertMemorySources(ctx context.Context, sources []domain.Memory
 	return inserted, nil
 }
 
+// ListMemorySources 读取一批记忆记录的内容来源（post/comment 去重）。
+func (s *Store) ListMemorySources(ctx context.Context, memoryIDs []int64) ([]domain.MemorySource, error) {
+	if len(memoryIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.exec(ctx).Query(ctx, `
+		SELECT DISTINCT source_type, source_id FROM ai_memory_sources
+		WHERE memory_id = ANY($1) AND source_type IN ('post', 'comment')
+		ORDER BY source_type, source_id`, memoryIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	sources := make([]domain.MemorySource, 0)
+	for rows.Next() {
+		var source domain.MemorySource
+		if err := rows.Scan(&source.SourceType, &source.SourceID); err != nil {
+			return nil, err
+		}
+		sources = append(sources, source)
+	}
+	return sources, rows.Err()
+}
+
+// ListActiveMemorySourceRefs 读取某 AI 生效记忆引用的内容来源（去重、有限条数）：
+// 同时覆盖直接引用（ai_memories.source_ref_*）与沉淀时写入的来源关联（ai_memory_sources）。
+func (s *Store) ListActiveMemorySourceRefs(ctx context.Context, aiID int64, limit int) ([]domain.MemorySource, error) {
+	if aiID <= 0 {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.exec(ctx).Query(ctx, `
+		SELECT source_type, source_id FROM (
+			SELECT DISTINCT source_ref_type AS source_type, source_ref_id AS source_id
+			FROM ai_memories
+			WHERE ai_id = $1 AND status = 'active'
+			  AND source_ref_type IN ('post', 'comment') AND source_ref_id IS NOT NULL
+			UNION
+			SELECT DISTINCT s.source_type, s.source_id
+			FROM ai_memory_sources AS s
+			JOIN ai_memories AS m ON m.id = s.memory_id
+			WHERE m.ai_id = $1 AND m.status = 'active'
+		) AS sources
+		ORDER BY source_type, source_id
+		LIMIT $2`, aiID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	sources := make([]domain.MemorySource, 0, limit)
+	for rows.Next() {
+		var source domain.MemorySource
+		if err := rows.Scan(&source.SourceType, &source.SourceID); err != nil {
+			return nil, err
+		}
+		sources = append(sources, source)
+	}
+	return sources, rows.Err()
+}
+
 // InvalidateMemoriesBySources 按记忆来源关联批量失效记忆，返回影响行数。
 func (s *Store) InvalidateMemoriesBySources(
 	ctx context.Context,

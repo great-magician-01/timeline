@@ -112,8 +112,9 @@ type CommentRepo interface {
 	RecentByPost(ctx context.Context, postID int64, limit int) ([]model.Comment, error)
 	// ListByAuthor 按作者分页读取回复评论（(created_at, id) 倒序）。
 	ListByAuthor(ctx context.Context, authorID int64, afterAt time.Time, afterID int64, limit int) ([]model.Comment, error)
-	// ListByPostIDsSince 读取一组帖子在 since 之后的新评论（按 ID 倒序）。
-	ListByPostIDsSince(ctx context.Context, postIDs []int64, since time.Time, limit int) ([]model.Comment, error)
+	// ListByPostIDsSince 读取一组帖子在 since 之后的新评论（按 ID 倒序）；
+	// excludeAuthorID > 0 时排除该作者自己的评论，避免 AI 回复自己的评论形成自循环。
+	ListByPostIDsSince(ctx context.Context, postIDs []int64, excludeAuthorID int64, since time.Time, limit int) ([]model.Comment, error)
 }
 
 // RepostRepo 是纯转发 SQL 端口。

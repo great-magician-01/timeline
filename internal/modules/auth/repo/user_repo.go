@@ -75,10 +75,12 @@ func (r *UserRepo) ByUsername(ctx context.Context, username string) (model.User,
 }
 
 // ByLoginIdentifier 按用户名或邮箱（大小写不敏感）读取账号。
+// 邮箱列允许 NULL（AI 账号），但人类账号恒非空且登录标识非空，因此不使用 COALESCE，
+// 保持 LOWER(email) 可命中 users_email_unique（LOWER(email) WHERE email IS NOT NULL）索引。
 func (r *UserRepo) ByLoginIdentifier(ctx context.Context, identifier string) (model.User, error) {
 	return r.queryUser(ctx, r.exec(ctx).QueryRow(ctx,
 		`SELECT `+userColumns+` FROM users
-		 WHERE LOWER(username) = LOWER($1) OR LOWER(COALESCE(email, '')) = LOWER($1)`, identifier))
+		 WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1)`, identifier))
 }
 
 // UpdateProfile 按字段更新资料；nil 指针表示不修改。返回更新后的账号行。

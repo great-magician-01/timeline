@@ -4,6 +4,7 @@ package domain
 
 import (
 	"strings"
+	"time"
 
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
 	"github.com/great-magician-01/timeline/internal/shared/model"
@@ -11,6 +12,16 @@ import (
 
 // PreviewRunes 是通知预览文本的最大字符数（超出截断并追加省略号）。
 const PreviewRunes = 120
+
+// MentionRow 是 mentions 行读取结构。定义在 domain 使 repo 无需 import app
+// （保持 repo → domain 的依赖方向，与 social 的 FollowRow/RequestRow 一致）。
+type MentionRow struct {
+	ID              int64
+	MentionedUserID int64
+	SourceType      string
+	SourceID        int64
+	CreatedAt       time.Time
+}
 
 // Types 是 notifications.type 的合法取值（与迁移 CHECK、shared/model 常量一致）。
 var Types = []string{

@@ -95,6 +95,11 @@ func (s *Service) setRepost(ctx context.Context, actorID int64, post model.Post,
 		if !changed {
 			current, err := s.deps.Posts.GetPost(ctx, post.ID)
 			if err != nil {
+				// 目标从未存在时保持取消转发的幂等语义（旧实现返回计数 0）。
+				if apperr.IsKind(err, apperr.KindNotFound) {
+					result = RepostResult{Reposted: false, Count: 0}
+					return nil
+				}
 				return err
 			}
 			result = RepostResult{Reposted: false, Count: current.RepostCount}

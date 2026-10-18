@@ -75,21 +75,6 @@ func (s *Service) CreatePost(ctx context.Context, viewer model.Viewer, in PostIn
 	if err := s.consumePostQuota(ctx, viewer.ID); err != nil {
 		return PostDetail{}, err
 	}
-	author, err := s.loadUser(ctx, viewer.ID, "作者账号不存在")
-	if err != nil {
-		return PostDetail{}, err
-	}
-	content, err := s.prepareContent(ctx, author, contentInput{
-		Format:        in.ContentFormat,
-		Source:        in.ContentSource,
-		Visibility:    in.Visibility,
-		AttachmentIDs: in.AttachmentIDs,
-		QuotedPostID:  in.QuotedPostID,
-	}, true)
-	if err != nil {
-		return PostDetail{}, err
-	}
-
 	postID, err := s.nextID()
 	if err != nil {
 		return PostDetail{}, err
@@ -100,6 +85,22 @@ func (s *Service) CreatePost(ctx context.Context, viewer model.Viewer, in PostIn
 	}
 	var detail PostDetail
 	err = s.withTx(ctx, func(txCtx context.Context) error {
+		// 作者账号、附件归属与引用目标校验必须与写入处于同一事务：
+		// 数据库无外键，完整性由应用层在事务内保证，避免校验后写入前引用被失效/删除。
+		author, err := s.loadUser(txCtx, viewer.ID, "作者账号不存在")
+		if err != nil {
+			return err
+		}
+		content, err := s.prepareContent(txCtx, author, contentInput{
+			Format:        in.ContentFormat,
+			Source:        in.ContentSource,
+			Visibility:    in.Visibility,
+			AttachmentIDs: in.AttachmentIDs,
+			QuotedPostID:  in.QuotedPostID,
+		}, true)
+		if err != nil {
+			return err
+		}
 		post := model.Post{
 			ID:           postID,
 			AuthorID:     viewer.ID,
@@ -154,7 +155,7 @@ func (s *Service) applyCreateAction(
 	case domain.ActionDraft:
 		return nil
 	case domain.ActionPublish:
-		return s.publishLocked(ctx, postID, authorID)
+		return s.publishLocked(ctx, postID, authorID, at)
 	case domain.ActionSchedule:
 		if scheduledAt == nil {
 			return apperr.Validation("请填写定时发布时间")
@@ -162,7 +163,7 @@ func (s *Service) applyCreateAction(
 		if err := s.repo.SetScheduled(ctx, postID, *scheduledAt, at); err != nil {
 			return s.wrap(err, "设置定时发布失败")
 		}
-		return s.enqueuePublishJob(ctx, postID, *scheduledAt)
+		return s.enqueuePublishJob(ctx, postID, *scheduledAt, at)
 	default:
 		return apperr.Validation("缺少或无效的操作类型")
 	}
@@ -194,23 +195,25 @@ func (s *Service) UpdatePost(
 	if err := s.consumePostQuota(ctx, viewer.ID); err != nil {
 		return PostDetail{}, err
 	}
-	author, err := s.loadUser(ctx, viewer.ID, "作者账号不存在")
-	if err != nil {
-		return PostDetail{}, err
-	}
-	// 引用目标在编辑阶段不可变更：历史版本不记录该字段，改动会导致时间线语义不一致。
-	content, err := s.prepareContent(ctx, author, contentInput{
-		Format:        in.ContentFormat,
-		Source:        in.ContentSource,
-		Visibility:    in.Visibility,
-		AttachmentIDs: in.AttachmentIDs,
-	}, false)
-	if err != nil {
-		return PostDetail{}, err
-	}
 
 	var detail PostDetail
-	err = s.withTx(ctx, func(txCtx context.Context) error {
+	err := s.withTx(ctx, func(txCtx context.Context) error {
+		// 附件归属与引用目标校验必须与写入处于同一事务（数据库无外键，完整性由应用层保证）。
+		author, err := s.loadUser(txCtx, viewer.ID, "作者账号不存在")
+		if err != nil {
+			return err
+		}
+		// 引用目标在编辑阶段不可变更：历史版本不记录该字段，改动会导致时间线语义不一致。
+		content, err := s.prepareContent(txCtx, author, contentInput{
+			Format:        in.ContentFormat,
+			Source:        in.ContentSource,
+			Visibility:    in.Visibility,
+			AttachmentIDs: in.AttachmentIDs,
+		}, false)
+		if err != nil {
+			return err
+		}
+		now := s.Now()
 		post, err := s.repo.GetPostForUpdate(txCtx, postID)
 		if err != nil {
 			return err
@@ -223,9 +226,9 @@ func (s *Service) UpdatePost(
 			return err
 		}
 		if domain.Editable(post.Status) {
-			post, err = s.updateDraftWorkspace(txCtx, post, content, in)
+			post, err = s.updateDraftWorkspace(txCtx, post, content, in, now)
 		} else {
-			post, err = s.appendVersion(txCtx, post, content)
+			post, err = s.appendVersion(txCtx, post, content, now)
 		}
 		if err != nil {
 			return err
@@ -240,17 +243,18 @@ func (s *Service) UpdatePost(
 }
 
 // updateDraftWorkspace 保存草稿/定时帖的编辑内容，并处理草稿版本冲突与定时时间调整。
+// now 是本次事务的统一应用时间，由调用方取一次后传入。
 func (s *Service) updateDraftWorkspace(
 	ctx context.Context,
 	post model.Post,
 	content domain.Content,
 	in UpdatePostInput,
+	now time.Time,
 ) (model.Post, error) {
 	if in.Revision == nil {
 		return post, apperr.Validation("缺少草稿版本号").
 			WithDetails(map[string]any{"revision": "草稿保存需要携带 revision"})
 	}
-	now := s.Now()
 	draft, err := s.repo.GetDraftForUpdate(ctx, post.ID)
 	if err != nil {
 		return post, err
@@ -284,10 +288,10 @@ func (s *Service) updateDraftWorkspace(
 			if err := s.repo.SetScheduled(ctx, post.ID, at, now); err != nil {
 				return post, s.wrap(err, "更新定时发布时间失败")
 			}
-			if err := s.cancelPublishJobs(ctx, post.ID); err != nil {
+			if err := s.cancelPublishJobs(ctx, post.ID, now); err != nil {
 				return post, err
 			}
-			if err := s.enqueuePublishJob(ctx, post.ID, at); err != nil {
+			if err := s.enqueuePublishJob(ctx, post.ID, at, now); err != nil {
 				return post, err
 			}
 		}
@@ -296,12 +300,13 @@ func (s *Service) updateDraftWorkspace(
 }
 
 // appendVersion 为已发布内容追加一个新版本，并重建标签、搜索与提及。
+// at 是本次事务的统一应用时间，由调用方取一次后传入。
 func (s *Service) appendVersion(
 	ctx context.Context,
 	post model.Post,
 	content domain.Content,
+	at time.Time,
 ) (model.Post, error) {
-	now := s.Now()
 	maxVersion, err := s.repo.MaxVersionNumber(ctx, post.ID)
 	if err != nil {
 		return post, s.wrap(err, "读取当前版本号失败")
@@ -320,28 +325,32 @@ func (s *Service) appendVersion(
 		PlainText:     content.Plain,
 		Visibility:    content.Visibility,
 		CreatedBy:     post.AuthorID,
-		CreatedAt:     now,
+		CreatedAt:     at,
 	}); err != nil {
 		return post, s.wrap(err, "写入新版本失败")
 	}
 	if err := s.repo.InsertVersionAttachments(ctx, versionID, content.AttachmentIDs); err != nil {
 		return post, s.wrap(err, "写入版本附件失败")
 	}
-	if err := s.linkAttachments(ctx, post.ID, content.AttachmentIDs, now); err != nil {
+	if err := s.linkAttachments(ctx, post.ID, content.AttachmentIDs, at); err != nil {
 		return post, err
 	}
-	if err := s.repo.SetCurrentVersionAndVisibility(ctx, post.ID, versionID, content.Visibility, now); err != nil {
+	if err := s.repo.SetCurrentVersionAndVisibility(ctx, post.ID, versionID, content.Visibility, at); err != nil {
 		return post, s.wrap(err, "更新当前版本失败")
 	}
 	if err := s.repo.SyncDraftAfterPublish(ctx, post.ID, content.Format, content.Source,
-		content.HTML, content.Plain, now); err != nil {
+		content.HTML, content.Plain, at); err != nil {
 		return post, s.wrap(err, "同步草稿工作区失败")
+	}
+	// 草稿工作区附件同步为当前版本快照，避免编辑页/后续派生读取到过期附件集合。
+	if err := s.repo.ReplaceDraftAttachments(ctx, post.ID, content.AttachmentIDs); err != nil {
+		return post, s.wrap(err, "同步草稿附件失败")
 	}
 	updated, err := s.repo.GetPost(ctx, post.ID)
 	if err != nil {
 		return post, err
 	}
-	if err := s.rebuildDerived(ctx, updated, content.Plain, now); err != nil {
+	if err := s.rebuildDerived(ctx, updated, content.Plain, at); err != nil {
 		return post, err
 	}
 	return updated, nil
@@ -361,6 +370,7 @@ func (s *Service) PublishPost(
 	}
 	var detail PostDetail
 	err := s.withTx(ctx, func(txCtx context.Context) error {
+		now := s.Now()
 		post, err := s.repo.GetPostForUpdate(txCtx, postID)
 		if err != nil {
 			return err
@@ -372,10 +382,10 @@ func (s *Service) PublishPost(
 		if err != nil {
 			return err
 		}
-		if err := s.publishLocked(txCtx, postID, viewer.ID); err != nil {
+		if err := s.publishLocked(txCtx, postID, viewer.ID, now); err != nil {
 			return err
 		}
-		if err := s.cancelPublishJobs(txCtx, postID); err != nil {
+		if err := s.cancelPublishJobs(txCtx, postID, now); err != nil {
 			return err
 		}
 		updated, err := s.repo.GetPost(txCtx, postID)
@@ -392,8 +402,9 @@ func (s *Service) PublishPost(
 }
 
 // publishLocked 把草稿或定时帖发布为已发布内容：写入首个版本、更新当前版本与发布时间，
-// 并重建标签、搜索、提及与引用通知。调用方必须已处于事务中且已锁定帖子行。
-func (s *Service) publishLocked(ctx context.Context, postID int64, actorID int64) error {
+// 并重建标签、搜索、提及与引用通知。调用方必须已处于事务中且已锁定帖子行；
+// at 是本次事务的统一应用时间，由调用方取一次后传入。
+func (s *Service) publishLocked(ctx context.Context, postID int64, actorID int64, at time.Time) error {
 	post, err := s.repo.GetPostForUpdate(ctx, postID)
 	if err != nil {
 		return err
@@ -419,8 +430,8 @@ func (s *Service) publishLocked(ctx context.Context, postID int64, actorID int64
 	if err := domain.CheckVisibilityPolicy(author.IsAI, post.Visibility); err != nil {
 		return err
 	}
-	now := s.Now()
-	publishedAt := now
+	// 首次发布时间只写一次：已有 published_at 时保留（等价旧实现的 COALESCE 语义）。
+	publishedAt := at
 	if post.PublishedAt != nil {
 		publishedAt = *post.PublishedAt
 	}
@@ -448,22 +459,22 @@ func (s *Service) publishLocked(ctx context.Context, postID int64, actorID int64
 			Visibility:            post.Visibility,
 			RestoredFromVersionID: nil,
 			CreatedBy:             actorID,
-			CreatedAt:             now,
+			CreatedAt:             at,
 		}); err != nil {
 			return s.wrap(err, "写入首个版本失败")
 		}
 		if err := s.repo.InsertVersionAttachments(ctx, versionID, attachments); err != nil {
 			return s.wrap(err, "写入版本附件失败")
 		}
-		if err := s.linkAttachments(ctx, postID, attachments, now); err != nil {
+		if err := s.linkAttachments(ctx, postID, attachments, at); err != nil {
 			return err
 		}
-		if err := s.repo.SetPublished(ctx, postID, versionID, publishedAt, now); err != nil {
+		if err := s.repo.SetPublished(ctx, postID, versionID, publishedAt, at); err != nil {
 			return s.wrap(err, "更新发布状态失败")
 		}
 	} else {
 		// 重试或重复投递：只推进状态，不追加版本，也不再改动首次发布时间。
-		if err := s.repo.SetPublishedWithoutVersion(ctx, postID, publishedAt, now); err != nil {
+		if err := s.repo.SetPublishedWithoutVersion(ctx, postID, publishedAt, at); err != nil {
 			return s.wrap(err, "更新发布状态失败")
 		}
 	}
@@ -471,7 +482,7 @@ func (s *Service) publishLocked(ctx context.Context, postID int64, actorID int64
 	if err != nil {
 		return err
 	}
-	return s.rebuildDerived(ctx, updated, draft.Plain, now)
+	return s.rebuildDerived(ctx, updated, draft.Plain, at)
 }
 
 // SchedulePost 设置或修改定时发布时间。
@@ -484,11 +495,12 @@ func (s *Service) SchedulePost(
 	if err := s.requireWritableViewer(viewer); err != nil {
 		return PostDetail{}, err
 	}
+	now := s.Now()
 	raw := ""
 	if in.ScheduledAt != nil {
 		raw = *in.ScheduledAt
 	}
-	at, err := domain.ParseScheduledAt(raw, s.Now())
+	at, err := domain.ParseScheduledAt(raw, now)
 	if err != nil {
 		return PostDetail{}, err
 	}
@@ -511,14 +523,13 @@ func (s *Service) SchedulePost(
 		if !domain.CanSetSchedule(post.Status) {
 			return apperr.Forbidden("已发布的内容不能设置定时发布")
 		}
-		now := s.Now()
 		if err := s.repo.SetScheduled(txCtx, postID, at, now); err != nil {
 			return s.wrap(err, "更新定时发布时间失败")
 		}
-		if err := s.cancelPublishJobs(txCtx, postID); err != nil {
+		if err := s.cancelPublishJobs(txCtx, postID, now); err != nil {
 			return err
 		}
-		if err := s.enqueuePublishJob(txCtx, postID, at); err != nil {
+		if err := s.enqueuePublishJob(txCtx, postID, at, now); err != nil {
 			return err
 		}
 		updated, err := s.repo.GetPost(txCtx, postID)
@@ -545,6 +556,7 @@ func (s *Service) CancelSchedule(
 	}
 	var detail PostDetail
 	err := s.withTx(ctx, func(txCtx context.Context) error {
+		now := s.Now()
 		post, err := s.repo.GetPostForUpdate(txCtx, postID)
 		if err != nil {
 			return err
@@ -560,10 +572,10 @@ func (s *Service) CancelSchedule(
 			return apperr.Forbidden("已发布的内容不能取消定时")
 		}
 		if post.Status == model.PostStatusScheduled {
-			if err := s.repo.RevertToDraft(txCtx, postID, s.Now()); err != nil {
+			if err := s.repo.RevertToDraft(txCtx, postID, now); err != nil {
 				return s.wrap(err, "取消定时失败")
 			}
-			if err := s.cancelPublishJobs(txCtx, postID); err != nil {
+			if err := s.cancelPublishJobs(txCtx, postID, now); err != nil {
 				return err
 			}
 		}
@@ -591,12 +603,23 @@ func (s *Service) DeletePost(ctx context.Context, viewer model.Viewer, postID in
 	if viewer.IsAI {
 		return apperr.Forbidden("AI 账号不能通过此接口操作")
 	}
-	return s.deletePost(ctx, viewer, postID, viewer.IsAdmin)
+	return s.deletePost(ctx, viewer, postID, viewer.IsAdmin, time.Time{})
 }
 
 // deletePost 是删除用例内核：author 自行删除不写审计，管理员删除写审计。
-func (s *Service) deletePost(ctx context.Context, viewer model.Viewer, postID int64, asAdmin bool) error {
+// at 为零值时使用当前应用时钟；跨模块调用方（如管理后台）传入本事务统一的 now。
+func (s *Service) deletePost(
+	ctx context.Context,
+	viewer model.Viewer,
+	postID int64,
+	asAdmin bool,
+	at time.Time,
+) error {
 	return s.withTx(ctx, func(txCtx context.Context) error {
+		now := at
+		if now.IsZero() {
+			now = s.Now()
+		}
 		post, err := s.repo.GetPostForUpdate(txCtx, postID)
 		if err != nil {
 			return err
@@ -614,11 +637,10 @@ func (s *Service) deletePost(ctx context.Context, viewer model.Viewer, postID in
 		if post.Status == model.PostStatusDeleted {
 			return nil
 		}
-		now := s.Now()
 		if err := s.repo.SoftDelete(txCtx, postID, now); err != nil {
 			return s.wrap(err, "删除帖子失败")
 		}
-		if err := s.cancelPublishJobs(txCtx, postID); err != nil {
+		if err := s.cancelPublishJobs(txCtx, postID, now); err != nil {
 			return err
 		}
 		// 搜索投影同步清空（逻辑删除，不物理删除行）。
@@ -808,8 +830,9 @@ func (s *Service) linkAttachments(ctx context.Context, postID int64, attachmentI
 }
 
 // enqueuePublishJob 入队定时发布作业。
-// 幂等键已存在时不会被重复插入；若作业被取消/暂停过，通过可选 reactivate 能力重新激活。
-func (s *Service) enqueuePublishJob(ctx context.Context, postID int64, at time.Time) error {
+// 幂等键已存在时不会被重复插入；取消/暂停后重新设置同一时间时，由 JobsQueue.Reactivate
+// 在同事务内把旧作业重新激活（作业未被重新激活不视为错误：幂等键已存在即成功）。
+func (s *Service) enqueuePublishJob(ctx context.Context, postID int64, at, now time.Time) error {
 	if s.deps.Jobs == nil {
 		return nil
 	}
@@ -820,26 +843,23 @@ func (s *Service) enqueuePublishJob(ctx context.Context, postID int64, at time.T
 		RefID:          &postID,
 		IdempotencyKey: key,
 		RunAt:          at,
+		At:             now,
 	}); err != nil {
 		return s.wrap(err, "写入定时发布作业失败")
 	}
-	// 取消后重新设置同一时间时，旧作业已是 canceled/paused；若适配器支持则重新激活。
-	if reactivator, ok := s.deps.Jobs.(jobReactivator); ok {
-		if err := reactivator.Reactivate(ctx, key, at); err != nil {
-			return s.wrap(err, "重新激活定时发布作业失败")
-		}
+	reactivated, err := s.deps.Jobs.Reactivate(ctx, key, at, now)
+	if err != nil {
+		return s.wrap(err, "重新激活定时发布作业失败")
+	}
+	if !reactivated && s.deps.Log != nil {
+		s.deps.Log.Debug("定时发布作业无需重新激活",
+			"post_id", postID, "idempotency_key", key)
 	}
 	return nil
 }
 
-// jobReactivator 是 platform/jobs 适配器可选提供的能力：按幂等键把 canceled/paused
-// 作业重新置为 pending。contracts.JobsQueue 暂无该入口，缺失时只是保留旧作业状态。
-type jobReactivator interface {
-	Reactivate(ctx context.Context, idempotencyKey string, runAt time.Time) error
-}
-
-// cancelPublishJobs 取消该帖子所有未执行的定时发布作业。
-func (s *Service) cancelPublishJobs(ctx context.Context, postID int64) error {
+// cancelPublishJobs 取消该帖子所有未执行的定时发布作业；at 为事务统一的 now。
+func (s *Service) cancelPublishJobs(ctx context.Context, postID int64, at time.Time) error {
 	if s.deps.Jobs == nil {
 		return nil
 	}
@@ -847,7 +867,7 @@ func (s *Service) cancelPublishJobs(ctx context.Context, postID int64) error {
 		JobType: contracts.JobTypePostPublish,
 		RefType: domain.RefTypePost,
 		RefID:   postID,
-		At:      s.Now(),
+		At:      at,
 	}); err != nil {
 		return s.wrap(err, "取消定时发布作业失败")
 	}

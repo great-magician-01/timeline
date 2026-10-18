@@ -1,7 +1,7 @@
 # Timeline Docker 单机部署
 
 > **文档状态**：部署基线，与当前实现同步  
-> **文档版本**：0.4.0  
+> **文档版本**：0.4.1  
 > **最近更新**：2026-10-18  
 > **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
 > **关联文档**：[接口设计](API.md)、[数据模型设计](DATA_MODEL.md)、[验收用例](ACCEPTANCE.md)  
@@ -186,7 +186,30 @@ services:
 6. **启动日志初始化状态**：迁移完成并把服务标记为就绪后，应用会输出初始化状态日志——人类用户为 0 时告警“系统尚未初始化：首个注册用户将自动成为超级管理员，请先完成初始化再对外开放”；已有用户但不存在超管时告警“系统已有用户但不存在超级管理员：管理员授权功能不可用”；存在超管时正常输出人类用户数与超管数。读取失败只告警，不影响启动与就绪。
 7. **注册开关**：默认开放注册（需求基线），上线后可在管理后台设置中关闭；空库状态下注册开关不阻断首个注册。
 8. **迁移器 v2 与 no-transaction 指令**：迁移器按文件名顺序追加执行；首行为 `-- timeline:no-transaction` 的单文件迁移**不包事务**，用于 `CREATE INDEX CONCURRENTLY` 等不能在事务内执行的语句（`0013`、`0014`）。此类迁移必须幂等（`IF NOT EXISTS`），失败后迁移器不自动回滚，需人工按顺序核对并重跑；旧的事务式迁移器执行 `CONCURRENTLY` 会失败，因此必须先随新版应用镜像切换到迁移器 v2，再应用这些迁移。
-9. **扩展权限（pg_trgm）**：`0014_search_trgm` 需要 `CREATE EXTENSION` 权限。应用账号无数据库级权限时，由 DBA 在目标库预先执行 `CREATE EXTENSION IF NOT EXISTS pg_trgm;`，迁移再以 `IF NOT EXISTS` 幂等创建；否则 `0014` 失败、迁移未完成且 `/readyz` 不返回就绪。
+9. **`CREATE INDEX CONCURRENTLY` 失败与 INVALID 索引处置**：并发建索引失败（连接中断、超时、`pg_trgm` 缺失等）可能留下 `indisvalid = false` 的 `INVALID` 索引，它不参与查询但会占用空间并阻止同名索引重建。恢复步骤：先用下面的只读查询确认 INVALID 索引，再用 `DROP INDEX CONCURRENTLY` 删除，最后重新启动应用（或 `migrate` 子命令）重跑迁移：
+
+   ```sql
+   -- 只读检查：列出两个 schema 中的 INVALID 索引（期望 0 行）
+   SELECT n.nspname AS schema_name, c.relname AS index_name, i.indisvalid
+   FROM pg_index i
+   JOIN pg_class c ON c.oid = i.indexrelid
+   JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname IN ('timeline', 'user') AND NOT i.indisvalid
+   ORDER BY 1, 2;
+   ```
+
+   ```sql
+   -- 清理示例：把 <index_name> 替换为上一步查询结果中的真实索引名；CONCURRENTLY 不能在事务块内执行
+   DROP INDEX CONCURRENTLY IF EXISTS timeline.<index_name>;
+   ```
+
+   no-transaction 迁移在成功前不记录版本，因此删除 INVALID 索引后重跑是安全的；失败语句之后的迁移不会被执行，需按文件名顺序确认。该恢复动作只删索引、不改业务数据，但仍建议先确认没有同名有效索引。
+10. **扩展权限与 `pg_trgm` schema（`0014_search_trgm`）**：`0014` 需要 `CREATE EXTENSION` 权限。应用账号无数据库级权限时，由 DBA 在目标库预先执行 `CREATE EXTENSION IF NOT EXISTS pg_trgm;`，迁移再以 `IF NOT EXISTS` 幂等创建；否则 `0014` 失败、迁移未完成且 `/readyz` 不返回就绪。扩展必须安装在连接 `search_path` 内的 schema（DSN 固定 `search_path=timeline,"user"`，生产约定为 `timeline`）：若扩展已被预装到其它 schema，索引语句会找不到 `gin_trgm_ops` 而失败，需先调整扩展 schema 再重跑：
+
+   ```sql
+   ALTER EXTENSION pg_trgm SET SCHEMA timeline;
+   -- 或新建时直接指定：CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA timeline;
+   ```
 
 ## 7. HTTPS 与 Cookie 安全
 
@@ -271,7 +294,8 @@ backups/20261017-030000/
 5. **0010_super_admin（0.24.0 起）**：该迁移只追加 `"user".users.is_super_admin` 列、`users_super_admin_check` CHECK 约束与单超管部分唯一索引，**不迁移、不回填任何存量用户**。因此从更早版本升级的既有部署**没有超级管理员**：管理员授权/撤销接口不可用（普通管理员原有的用户管理能力不受影响），启动日志会告警“系统已有用户但不存在超级管理员：管理员授权功能不可用”。需要超管能力时另行制定迁移方案（例如人工确认一名现有管理员并更新该标记），不在常规升级中自动执行；空库新部署不受影响。
 6. **回滚与备份注意**：新增列与索引对旧二进制向后兼容（旧代码不读取该列，仍按 `role` 判断管理员），回滚旧镜像通常不需要回滚数据库结构；但**旧版本没有超级管理员概念**，回滚后授权/撤销接口与超管保护同时消失，回滚前请确认不再需要该能力。恢复旧备份后重新启动新版本会自动应用 `0010`，同样不会产生超级管理员（见第 8.3 节）。
 7. **时间默认值移除（`0011_drop_time_defaults`）**：该迁移移除 43 个业务时间列的 `DEFAULT now()`，必须在“所有写路径显式传时间”的新版本应用代码已上线后执行（迁移随同一新版本启动）；旧二进制若仍依赖数据库默认值，在本迁移后写入会因 `NOT NULL` 失败。回滚时应优先回滚到同样显式传时间的版本，而不是更早版本。
-8. **迁移回滚方式**：仓库迁移只追加、不提供 down 脚本。需要回滚结构时，追加反向迁移（恢复列/索引/默认值）或从升级前完整备份恢复；`no-transaction` 迁移失败不会自动回滚，按第 6 章人工核对后重跑即可（幂等语句可安全重试）。
+8. **0016_review_fixes（本次审查修复）**：普通事务迁移。① 当 `avatar_url` 恰为 `/api/v1/attachments/<id>/content` 时用正则提取 ID，回填 `"user".users.avatar_attachment_id`（仅当该列为 `NULL`，可重复执行，不更新 `updated_at`）；② 删除 `timeline.ai_tasks_daily` 索引（与运行期查询形态不匹配，属纯写放大），保留 `0013` 的 `ai_call_logs_retention_id`。该迁移不修改时间默认值、不改变表字段语义，旧版本二进制仍可运行（新增列/索引回填对旧代码向后兼容）；回填量取决于历史头像用户数，升级前仍建议按第 8 章先做完整备份。
+9. **迁移回滚方式**：仓库迁移只追加、不提供 down 脚本。需要回滚结构时，追加反向迁移（恢复列/索引/默认值）或从升级前完整备份恢复；`no-transaction` 迁移失败不会自动回滚，按第 6 章人工核对后重跑即可（幂等语句可安全重试）。
 
 ## 10. 日志、健康与排障
 
@@ -293,6 +317,13 @@ backups/20261017-030000/
 9. 按实际协议设置 `COOKIE_SECURE`，验证登录会话正常。
 10. 在独立环境执行一次 `restore.sh` 恢复演练（OPS-02），确认附件文件可下载、`/readyz` 正常。
 11. 确认宿主机时间同步正常（如 `chronyc tracking` 或 `timedatectl` 显示已同步）：应用时钟是业务时间权威，时钟漂移会直接改变定时发布、作业租约与日界统计；容器使用宿主机内核时钟，无需在容器内单独配置 NTP。
+12. 迁移完成后执行只读核查脚本，确认业务时间默认值已全部移除（`0011` 生效）：
+
+    ```bash
+    psql "$DSN" -f deploy/scripts/check-time-defaults.sql
+    ```
+
+    期望：查询一（业务表残留 `now()`/`CURRENT_TIMESTAMP` 默认值）返回 0 行；查询二返回 1 行，即唯一白名单 `timeline.schema_migrations.applied_at`；查询三列出两个 schema 中仍带时间默认值的全部列，正常应只有白名单 1 行。脚本只包含 `SELECT`，不修改数据库；升级 `0011` 之后、恢复备份后或怀疑时间语义漂移时都可重复执行。
 
 ## 12. 待细化
 
@@ -310,6 +341,7 @@ backups/20261017-030000/
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
+| 2026-10-18 | 0.4.1 | 迁移运维补充（部署结构不变）：§6 新增 `CREATE INDEX CONCURRENTLY` 失败后 INVALID 索引的只读检查与 `DROP INDEX CONCURRENTLY` 重跑处置，并明确 `pg_trgm` 扩展必须安装到连接 `search_path` 内的 schema（生产为 `timeline`，附 `ALTER EXTENSION ... SET SCHEMA` 处理）；§9 新增 `0016_review_fixes` 升级说明（头像回填 + 删除不匹配的 `ai_tasks_daily` 索引，向后兼容、回填量取决于历史头像数）并顺延回滚条目编号；§11 首次部署检查清单新增 `deploy/scripts/check-time-defaults.sql` 只读核查（查询一 0 行、查询二 1 行白名单）。 |
 | 2026-10-18 | 0.3.9 | 需求基线更新至 0.24.0；删除 `init-admin` 初始化方式，首次部署改为“就绪后立即通过注册页创建首个账号（自动超级管理员）并登录，之后对外开放/按需关闭注册”，并新增抢注窗口安全提示、启动日志初始化状态说明；升级章节补充 `0010_super_admin` 不迁移存量（升级后无超管、启动日志告警、需超管能力另行制定方案）与回滚注意（新增列对旧二进制向后兼容，旧版本无超管概念）；恢复章节补充旧备份恢复后无超管；首次部署检查清单同步。 |
 | 2026-10-18 | 0.4.0 | 按目标架构与时间权威同步：§2 新增 NTP/时钟同步部署阻断项（应用时钟是业务时间权威）；§6 补充迁移器 v2 的 `-- timeline:no-transaction` 执行方式（`CREATE INDEX CONCURRENTLY`、幂等要求、失败人工重跑）与 `pg_trgm` 扩展权限申请/预创建；§9 补充 `0011_drop_time_defaults` 升级前置条件（新代码显式传时间）与迁移回滚方式（追加反向迁移或备份恢复）；§11 首次部署检查清单新增时间同步检查。 |
 | 2026-10-16 | 0.1.0 | 基于需求 0.13.0 首次建立部署设计；确定多阶段应用镜像（前端嵌入 Go 二进制、含 ffmpeg 与非 root 运行）、独立 PostgreSQL 容器、绑定挂载数据目录、Compose 结构稿、环境变量清单、迁移与初始化流程、HTTPS 与 Cookie 约定、备份恢复与升级回滚、首次部署检查清单。 |

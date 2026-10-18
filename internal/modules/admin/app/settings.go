@@ -20,7 +20,8 @@ func (s *Service) GetSettings(ctx context.Context) (SettingsSnapshot, error) {
 }
 
 // UpdateSettings 部分更新系统设置：数值项、注册开关与全局 AI 开关分别写库并分别审计。
-// 全局 AI 关闭时通过可选 GlobalAIHalter 端口取消待执行 AI 任务并暂停 AI 作业。
+// 注册开关审计在本用例写；全局 AI 开关的审计由注入的 GlobalAIHalter（agent SetGlobal）
+// 在同一事务内写入，本用例不再重复写。
 func (s *Service) UpdateSettings(ctx context.Context, actor model.Viewer, patch SettingsPatch) (SettingsSnapshot, error) {
 	if patch.Empty() {
 		return SettingsSnapshot{}, apperr.Validation("至少需要修改一项设置").
@@ -107,21 +108,14 @@ func (s *Service) UpdateSettings(ctx context.Context, actor model.Viewer, patch 
 			}); err != nil {
 				return wrapInternal(err)
 			}
-			action := contracts.AuditActionGlobalAIStart
-			if !*patch.AIGlobalEnabled {
-				action = contracts.AuditActionGlobalAIStop
-			}
-			if err := s.audit.Write(txCtx, contracts.AuditEntry{
-				AdminID:    actor.ID,
-				Action:     action,
-				TargetType: "system_settings",
-				Detail:     map[string]any{"enabled": *patch.AIGlobalEnabled},
-				At:         now,
-			}); err != nil {
-				return err
-			}
-			if !*patch.AIGlobalEnabled && s.globalAI != nil {
-				if err := s.globalAI.HaltGlobalAI(txCtx, actor.ID, now); err != nil {
+			// 全局 AI 开关的审计由 agent 的 SetGlobal 写入（唯一写入方）：停止时暂停作业，
+			// 启动时只写开关与审计；admin 侧不再重复写审计。未注入端口时退回仅写开关。
+			if s.globalAI != nil {
+				if *patch.AIGlobalEnabled {
+					if err := s.globalAI.EnableGlobalAI(txCtx, actor.ID, now); err != nil {
+						return err
+					}
+				} else if err := s.globalAI.HaltGlobalAI(txCtx, actor.ID, now); err != nil {
 					return err
 				}
 			}

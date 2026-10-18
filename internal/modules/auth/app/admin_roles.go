@@ -53,14 +53,10 @@ func (s *Service) changeAdminRole(
 			return apperr.Forbidden("需要超级管理员权限")
 		}
 
-		var ruleErr error
-		if grant {
-			ruleErr = domain.CanGrantAdminRole(actor, target)
-		} else {
-			ruleErr = domain.CanChangeAdminRole(actor, target)
-		}
-		if ruleErr != nil {
-			return ruleErr
+		// 目标基础保护（AI、自己、其他超级管理员）先行，幂等场景也必须拒绝；
+		// 操作者已在上面按用户行复核，这里复用同一策略函数保持唯一实现。
+		if err := domain.CanChangeAdminRole(actor, target); err != nil {
+			return err
 		}
 
 		desiredRole := domain.RoleUser
@@ -71,8 +67,15 @@ func (s *Service) changeAdminRole(
 		}
 		updated = target
 		if target.Role == desiredRole {
-			// 幂等：已经是期望角色，直接返回当前账号且不写审计。
+			// 幂等：已经是期望角色，直接返回当前账号且不写审计；与旧实现一致，
+			// 该路径不要求目标处于 active（已停用的管理员再次 grant 也返回成功）。
 			return nil
+		}
+		// 仅实际变更角色时做方向性校验：授权要求目标处于 active，撤销不限制状态。
+		if grant {
+			if err := domain.CanGrantAdminRole(actor, target); err != nil {
+				return err
+			}
 		}
 		updated, err = s.users.UpdateRole(txCtx, targetID, desiredRole, at)
 		if err != nil {

@@ -283,28 +283,49 @@ func (r *ReadModel) CountActiveSessions(ctx context.Context, userID int64, at ti
 	return count, err
 }
 
-// UserStats 统计用户的内容与关系；所有子查询均为只读计数。
+// userStatsRestSelect 是用户内容与关系统计中与帖子计数口径无关的 6 项只读计数
+// （评论、粉丝、关注、点赞送出/收到、转发）；供管理后台与个人主页两套口径复用。
+const userStatsRestSelect = `
+	(SELECT COUNT(*) FROM comments WHERE author_id = $1 AND status = 'published'),
+	(SELECT COUNT(*) FROM follows WHERE followee_id = $1 AND is_active),
+	(SELECT COUNT(*) FROM follows WHERE follower_id = $1 AND is_active),
+	(SELECT COUNT(*) FROM likes WHERE user_id = $1 AND is_active),
+	(SELECT COUNT(*) FROM likes l WHERE l.is_active AND (
+		(l.target_type = 'post' AND EXISTS (
+			SELECT 1 FROM posts p WHERE p.id = l.target_id AND p.author_id = $1
+		))
+		OR (l.target_type = 'comment' AND EXISTS (
+			SELECT 1 FROM comments c WHERE c.id = l.target_id AND c.author_id = $1
+		))
+	)),
+	(SELECT COUNT(*) FROM reposts WHERE user_id = $1 AND is_active)`
+
+// 两套用户统计查询只差帖子计数口径：管理后台计「未删除」，公开个人主页只计「已发布」。
+const (
+	sqlUserStats = `SELECT
+			(SELECT COUNT(*) FROM posts WHERE author_id = $1 AND status <> 'deleted'),` +
+		userStatsRestSelect
+	sqlUserProfileStats = `SELECT
+			(SELECT COUNT(*) FROM posts WHERE author_id = $1 AND status = 'published'),` +
+		userStatsRestSelect
+)
+
+// UserStats 统计管理后台用户详情页的内容与关系；帖子按「未删除」口径统计。
 func (r *ReadModel) UserStats(ctx context.Context, userID int64) (UserStats, error) {
 	var stats UserStats
-	err := r.executor(ctx).QueryRow(ctx, `
-		SELECT
-			(SELECT COUNT(*) FROM posts WHERE author_id = $1 AND status <> 'deleted'),
-			(SELECT COUNT(*) FROM comments WHERE author_id = $1 AND status = 'published'),
-			(SELECT COUNT(*) FROM follows WHERE followee_id = $1 AND is_active),
-			(SELECT COUNT(*) FROM follows WHERE follower_id = $1 AND is_active),
-			(SELECT COUNT(*) FROM likes WHERE user_id = $1 AND is_active),
-			(SELECT COUNT(*) FROM likes l WHERE l.is_active AND (
-				(l.target_type = 'post' AND EXISTS (
-					SELECT 1 FROM posts p WHERE p.id = l.target_id AND p.author_id = $1
-				))
-				OR (l.target_type = 'comment' AND EXISTS (
-					SELECT 1 FROM comments c WHERE c.id = l.target_id AND c.author_id = $1
-				))
-			)),
-			(SELECT COUNT(*) FROM reposts WHERE user_id = $1 AND is_active)`,
-		userID,
-	).Scan(&stats.Posts, &stats.Comments, &stats.Followers, &stats.Following,
-		&stats.LikesGiven, &stats.LikesReceived, &stats.Reposts)
+	err := r.executor(ctx).QueryRow(ctx, sqlUserStats, userID).
+		Scan(&stats.Posts, &stats.Comments, &stats.Followers, &stats.Following,
+			&stats.LikesGiven, &stats.LikesReceived, &stats.Reposts)
+	return stats, err
+}
+
+// UserProfileStats 统计公开个人主页的计数：帖子只计已发布（个人主页 post_count 契约），
+// 其余评论/关注/点赞/转发口径与 UserStats 一致。供组合根的个人主页只读适配器使用。
+func (r *ReadModel) UserProfileStats(ctx context.Context, userID int64) (UserStats, error) {
+	var stats UserStats
+	err := r.executor(ctx).QueryRow(ctx, sqlUserProfileStats, userID).
+		Scan(&stats.Posts, &stats.Comments, &stats.Followers, &stats.Following,
+			&stats.LikesGiven, &stats.LikesReceived, &stats.Reposts)
 	return stats, err
 }
 
@@ -689,15 +710,6 @@ func (r *ReadModel) ListTasks(ctx context.Context, f TaskFilter) ([]TaskRow, err
 		items = append(items, item)
 	}
 	return items, rows.Err()
-}
-
-// GetTask 读取单条后台作业快照；不存在返回领域 NotFound。
-func (r *ReadModel) GetTask(ctx context.Context, jobID int64) (TaskRow, error) {
-	item, err := scanTaskRow(r.executor(ctx).QueryRow(ctx, taskSelect+" WHERE id = $1", jobID))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return TaskRow{}, apperr.NotFound("作业不存在")
-	}
-	return item, err
 }
 
 // ===== 审计日志 =====

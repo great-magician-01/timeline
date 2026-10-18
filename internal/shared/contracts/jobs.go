@@ -38,6 +38,9 @@ type JobEnqueue struct {
 	Payload        any
 	RunAt          time.Time
 	MaxAttempts    int
+	// At 是入队写库使用的应用时间（created_at/updated_at）；零值由 jobs 注入时钟兜底。
+	// 在同一业务事务内入队时应传该事务的 now，保证事务内时间一致。
+	At time.Time
 }
 
 // JobSnapshot 是作业的可读快照。消费者：agent（草稿发布状态）、admin（任务列表/处置结果）。
@@ -119,6 +122,13 @@ type JobsQueue interface {
 
 	// CancelJob 把 pending/running/paused 作业置为 canceled，返回最新快照。
 	CancelJob(ctx context.Context, in JobActionInput) (JobSnapshot, error)
+
+	// Reactivate 按幂等键把 canceled/paused 作业重新激活为 pending（重置 attempts 与
+	// last_error）。用于"取消后重新设置同一时间/同一幂等键"的定时发布等场景：
+	// 幂等键不存在或当前状态不允许重激活时返回 (false, nil)，由调用方决定是否继续。
+	// runAt 为新的计划执行时间（零值用 at 兜底），at 为应用时间（零值由实现注入时钟兜底）。
+	// 消费者：content（定时发布重新设置）、agent（任务对账重新投递）。
+	Reactivate(ctx context.Context, idempotencyKey string, runAt, at time.Time) (bool, error)
 
 	// SetJobStatus 由作业处理器显式写作业终态（不经过运行器重试逻辑）。
 	// status 只接受 JobStatusPaused / JobStatusCanceled 等终态；消费者：

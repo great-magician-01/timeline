@@ -22,13 +22,6 @@ func (s *Service) CreatePostForActor(
 	if in.AuthorID <= 0 {
 		return model.Post{}, apperr.Validation("缺少作者账号")
 	}
-	author, err := s.loadUser(ctx, in.AuthorID, "作者账号不存在")
-	if err != nil {
-		return model.Post{}, err
-	}
-	if author.IsSuspended() {
-		return model.Post{}, apperr.Suspended("账号已停用，不能创建内容")
-	}
 	now := in.At
 	if now.IsZero() {
 		now = s.Now()
@@ -40,27 +33,35 @@ func (s *Service) CreatePostForActor(
 	}
 	var scheduledAt *time.Time
 	if in.ScheduledAt != nil {
-		if err := domain.ValidateFutureScheduledAt(*in.ScheduledAt, s.Now()); err != nil {
+		if err := domain.ValidateFutureScheduledAt(*in.ScheduledAt, now); err != nil {
 			return model.Post{}, err
 		}
 		scheduledAt = in.ScheduledAt
 		action = domain.ActionSchedule
-	}
-	content, err := s.prepareContent(ctx, author, contentInput{
-		Format:        in.ContentFormat,
-		Source:        in.ContentSource,
-		Visibility:    in.Visibility,
-		AttachmentIDs: in.AttachmentIDs,
-		QuotedPostID:  in.QuotedPostID,
-	}, true)
-	if err != nil {
-		return model.Post{}, err
 	}
 	postID, err := s.nextID()
 	if err != nil {
 		return model.Post{}, err
 	}
 	err = s.withTx(ctx, func(txCtx context.Context) error {
+		// 作者、附件归属与引用目标校验必须与写入处于同一事务（无外键，完整性由应用层保证）。
+		author, err := s.loadUser(txCtx, in.AuthorID, "作者账号不存在")
+		if err != nil {
+			return err
+		}
+		if author.IsSuspended() {
+			return apperr.Suspended("账号已停用，不能创建内容")
+		}
+		content, err := s.prepareContent(txCtx, author, contentInput{
+			Format:        in.ContentFormat,
+			Source:        in.ContentSource,
+			Visibility:    in.Visibility,
+			AttachmentIDs: in.AttachmentIDs,
+			QuotedPostID:  in.QuotedPostID,
+		}, true)
+		if err != nil {
+			return err
+		}
 		post := model.Post{
 			ID:           postID,
 			AuthorID:     in.AuthorID,
@@ -100,6 +101,10 @@ func (s *Service) PublishPostForActor(
 	ctx context.Context,
 	in contracts.PublishPostForActorInput,
 ) error {
+	now := in.At
+	if now.IsZero() {
+		now = s.Now()
+	}
 	return s.withTx(ctx, func(txCtx context.Context) error {
 		post, err := s.repo.GetPost(txCtx, in.PostID)
 		if err != nil {
@@ -111,7 +116,7 @@ func (s *Service) PublishPostForActor(
 		if !domain.CanPublish(post.Status) {
 			return apperr.Forbidden("当前内容状态不能发布")
 		}
-		return s.publishLocked(txCtx, in.PostID, in.ActorID)
+		return s.publishLocked(txCtx, in.PostID, in.ActorID, now)
 	})
 }
 
@@ -153,7 +158,7 @@ func (s *Service) UpdateDraftForActor(
 				Plain:         plain,
 				Visibility:    post.Visibility,
 				AttachmentIDs: attachments,
-			})
+			}, now)
 			return err
 		})
 	}
@@ -164,7 +169,7 @@ func (s *Service) UpdateDraftForActor(
 // DeletePostAsAdmin 管理员逻辑删除帖子；审计在同一事务内写入。
 func (s *Service) DeletePostAsAdmin(ctx context.Context, in contracts.DeletePostInput) error {
 	viewer := model.Viewer{ID: in.AdminID, IsAdmin: true, Authenticated: true}
-	return s.deletePost(ctx, viewer, in.PostID, true)
+	return s.deletePost(ctx, viewer, in.PostID, true, in.At)
 }
 
 // BumpPostCounter 原子增减帖子计数器并返回最新值；计数不允许为负由条件更新兜底。
@@ -190,11 +195,8 @@ func (s *Service) adjustPostCounter(
 	if err := domain.ValidateCounterDelta(in.Delta); err != nil {
 		return 0, err
 	}
-	at := in.At
-	if at.IsZero() {
-		at = s.Now()
-	}
-	value, err := s.repo.BumpCounter(ctx, in.PostID, in.Counter, in.Delta, at)
+	// 互动计数不改变帖子内容时间，SQL 不写任何时间列；in.At 仅为跨模块契约形状保留。
+	value, err := s.repo.BumpCounter(ctx, in.PostID, in.Counter, in.Delta)
 	if err != nil {
 		return 0, s.wrap(err, "更新帖子计数器失败")
 	}
@@ -302,6 +304,8 @@ func (s *Service) ListCandidatePosts(
 		if len(repoQuery.AuthorIDs) == 0 {
 			return nil, nil
 		}
+	case "global_public":
+		// 全站公开已发布内容：不设置作者/标签过滤（仍排除 AI 自身内容）。
 	default:
 		return nil, nil
 	}
@@ -407,6 +411,20 @@ func (s *Service) AttachmentReferencedByVersion(
 		return false, s.wrap(err, "读取附件版本引用失败")
 	}
 	return referenced, nil
+}
+
+// ActiveDraftAttachmentIDs 返回仍被生效草稿工作区（post_draft_attachments.is_active）
+// 引用的附件 ID；media 模块的附件清理流程用它区分「仅被草稿引用」与「可整体失效」。
+// 媒体模块通过窄接口消费本方法，接口声明在其 app 层，不修改 shared/contracts。
+func (s *Service) ActiveDraftAttachmentIDs(
+	ctx context.Context,
+	attachmentIDs []int64,
+) ([]int64, error) {
+	ids, err := s.repo.ActiveDraftAttachmentIDs(ctx, attachmentIDs)
+	if err != nil {
+		return nil, s.wrap(err, "读取草稿附件引用失败")
+	}
+	return ids, nil
 }
 
 // normalizeScopeTerms 归一化候选范围参数：去空白、去重、最多 20 个。

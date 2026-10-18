@@ -69,10 +69,11 @@ const (
 
 // 候选范围类型（ai_behavior_settings.candidate_scope_type）。
 const (
-	ScopeNone     = "none"
-	ScopeFollowed = "followed"
-	ScopeTags     = "tags"
-	ScopeAuthors  = "authors"
+	ScopeNone         = "none"
+	ScopeGlobalPublic = "global_public"
+	ScopeFollowed     = "followed"
+	ScopeTags         = "tags"
+	ScopeAuthors      = "authors"
 )
 
 // 人工生成任务的模式（存于 ai_tasks.trigger_ref_type，避免新增列）。
@@ -114,28 +115,17 @@ func ValidTrigger(trigger string) bool {
 	}
 }
 
-// ValidCandidateScope 判断候选范围类型是否合法。
+// ValidCandidateScope 判断候选范围配置是否可用；none 表示未配置（禁用主动互动）。
 func ValidCandidateScope(scope string) bool {
 	switch scope {
-	case ScopeNone, ScopeFollowed, ScopeTags, ScopeAuthors:
+	case ScopeGlobalPublic, ScopeFollowed, ScopeTags, ScopeAuthors:
 		return true
 	default:
 		return false
 	}
 }
 
-// TaskClaimable 判断任务状态是否值得尝试领取：pending/failed 直接可领，
-// running 交给租约超时判断（重启恢复路径）。
-func TaskClaimable(status string) bool {
-	switch status {
-	case TaskStatusPending, TaskStatusFailed, TaskStatusRunning:
-		return true
-	default:
-		return false
-	}
-}
-
-// RetryPending 判断失败任务是否还可重试。
+// RetryPending 判断失败任务是否还可重试（作业层与任务层共享同一上限语义）。
 func RetryPending(attempts, maxAttempts int) bool {
 	if maxAttempts <= 0 {
 		maxAttempts = 3

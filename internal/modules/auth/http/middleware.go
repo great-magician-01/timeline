@@ -31,7 +31,8 @@ func sessionStateOf(c *gin.Context) (domain.SessionState, bool) {
 //   - 会话不存在/已吊销/过期/token_version 不符/AI 账号：主动清除会话 Cookie 后按游客继续
 //     （避免公开读反复查询失效会话）；
 //   - 账号停用：按游客继续但保留 Cookie，由 RequireLogin 对 GET 返回 401、写请求 403；
-//   - 解析内部错误：记录日志后按游客继续，公开读不受影响，登录相关接口由 RequireLogin 兜底。
+//   - 解析内部错误：记录 SessionResolveError 后按游客继续，公开读不受影响；登录路由
+//     由 RequireLogin 返回 500 internal_error（与旧 RequireAuth 语义一致）。
 func (h *Handler) ResolveSession(c *gin.Context) {
 	rawToken, err := c.Cookie(SessionCookieName)
 	if err != nil || rawToken == "" {
@@ -42,7 +43,7 @@ func (h *Handler) ResolveSession(c *gin.Context) {
 	result, resolveErr := h.svc.ResolveSession(c.Request.Context(), rawToken)
 	if resolveErr != nil {
 		h.log.Warn("解析登录会话失败，按游客继续", "err", resolveErr, "path", c.Request.URL.Path)
-		setSessionState(c, domain.SessionMissing)
+		setSessionState(c, domain.SessionResolveError)
 		c.Next()
 		return
 	}
@@ -59,7 +60,8 @@ func (h *Handler) ResolveSession(c *gin.Context) {
 	c.Next()
 }
 
-// RequireLogin 要求有效登录身份；未登录/失效返回 401，停用账号 GET/HEAD 401、写请求 403。
+// RequireLogin 要求有效登录身份：未登录/失效返回 401，停用账号 GET/HEAD 401、写请求 403，
+// 会话解析内部错误返回 500 internal_error（不把故障误报为未登录）。
 func (h *Handler) RequireLogin(c *gin.Context) {
 	if viewer, ok := httpx.Viewer(c); ok && viewer.Authenticated {
 		c.Next()
@@ -67,6 +69,9 @@ func (h *Handler) RequireLogin(c *gin.Context) {
 	}
 	state, _ := sessionStateOf(c)
 	switch state {
+	case domain.SessionResolveError:
+		// 内部故障：保留 Cookie，恢复后同一会话仍可继续使用（旧 RequireAuth 语义）。
+		httpx.Error(c, stdhttp.StatusInternalServerError, "internal_error", internalErrorMessage)
 	case domain.SessionSuspended:
 		// GET/HEAD 清 Cookie 并要求重新登录；写请求返回 account_suspended（与旧语义一致）。
 		if isReadMethod(c.Request.Method) {

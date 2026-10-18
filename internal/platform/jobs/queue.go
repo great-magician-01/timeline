@@ -16,6 +16,9 @@ type EnqueueParams struct {
 	Payload        any
 	RunAt          time.Time
 	MaxAttempts    int
+	// At 是本次入队的应用时间（created_at/updated_at）；零值回退注入时钟。
+	// 在业务事务内入队时由调用方传入该事务的 now，保证同一事务时间一致。
+	At time.Time
 }
 
 // Enqueue 写入一条作业；幂等键重复时忽略（返回 nil），保证重试不会重复执行。
@@ -34,7 +37,10 @@ func (r *Runner) Enqueue(ctx context.Context, q Querier, params EnqueueParams) e
 		}
 		payload = encoded
 	}
-	now := r.clk.Now()
+	now := params.At
+	if now.IsZero() {
+		now = r.clk.Now()
+	}
 	runAt := params.RunAt
 	if runAt.IsZero() {
 		runAt = now

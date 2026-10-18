@@ -12,13 +12,16 @@ import (
 )
 
 // registerFrontend 注册前端托管与 SPA 回退；未构建时提供内置占位页。
+//
+// /api 的未知路径：数据库/迁移未就绪时返回 503 service_unavailable（与业务路由的
+// Ready 中间件语义一致，避免启动期把"尚未就绪"误报成"接口不存在"）；就绪后返回 404。
 func (s *Server) registerFrontend() {
 	dist, built := web.Dist()
 	if !built {
 		s.log.Warn("前端产物未构建（web/dist 无 index.html），使用内置占位页")
 		s.engine.NoRoute(func(c *gin.Context) {
 			if isAPIRequest(c.Request.URL.Path) {
-				notFoundAPI(c)
+				s.handleUnknownAPI(c)
 				return
 			}
 			c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(placeholderHTML))
@@ -29,7 +32,7 @@ func (s *Server) registerFrontend() {
 	s.engine.NoRoute(func(c *gin.Context) {
 		p := strings.TrimPrefix(path.Clean("/"+c.Request.URL.Path), "/")
 		if isAPIRequest(p) {
-			notFoundAPI(c)
+			s.handleUnknownAPI(c)
 			return
 		}
 		if f, err := fs.Stat(dist, p); err == nil && !f.IsDir() {
@@ -38,6 +41,17 @@ func (s *Server) registerFrontend() {
 		}
 		serveIndex(c, dist)
 	})
+}
+
+// handleUnknownAPI 处理未注册的 /api 路径：未就绪 503，就绪后 404。
+func (s *Server) handleUnknownAPI(c *gin.Context) {
+	if s.readiness == nil || !s.readiness.Ready() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{
+			"code": "service_unavailable", "message": "服务尚未就绪，请稍后重试",
+		}})
+		return
+	}
+	notFoundAPI(c)
 }
 
 func isAPIRequest(p string) bool {

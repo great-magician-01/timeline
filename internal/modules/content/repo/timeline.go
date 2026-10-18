@@ -102,8 +102,10 @@ func buildPostCandidatesSQL(query TimelineQuery) (string, []any) {
 			"WHERE pt.post_id = p.id AND pt.is_active AND tg.name = "+placeholder(query.TagName)+")")
 	}
 	if query.SearchText != "" {
+		// 必须写成 LOWER(plain_text) LIKE '%' || ... || '%' 才能命中 0014 的
+		// GIN(LOWER(plain_text) gin_trgm_ops) 表达式索引；STRPOS 不走 trigram 索引。
 		conds = append(conds, "EXISTS (SELECT 1 FROM post_search ps WHERE ps.post_id = p.id AND "+
-			"STRPOS(LOWER(ps.plain_text), "+placeholder(query.SearchText)+") > 0)")
+			"LOWER(ps.plain_text) LIKE '%' || LOWER("+placeholder(query.SearchText)+") || '%')")
 	}
 	if !query.AfterTime.IsZero() && query.AfterID > 0 {
 		conds = append(conds, "(p.published_at, p.id) < ("+placeholder(query.AfterTime)+"::timestamptz, "+

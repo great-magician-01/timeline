@@ -221,7 +221,7 @@ curl -s http://localhost:5070/api/v1/auth/config
 
 ```bash
 go test ./...                    # 单元测试（含 internal/architecture 架构守卫）
-go test ./internal/architecture  # 架构守卫：分层/依赖/SQL/时间函数位置静态检查
+go test ./internal/architecture  # 架构守卫：分层/依赖/SQL/时间函数/事务原语/cmd import 白名单静态检查
 go vet ./...                     # 静态检查
 go run ./cmd/server migrate      # 手动执行迁移
 go run ./cmd/mock-llm            # 验收用 OpenAI 兼容 mock（默认 127.0.0.1:8099，非生产）
@@ -278,7 +278,7 @@ Compose 只管理 `app` 一个服务，PostgreSQL 是外部独立实例，不在
 
 ## 📂 项目结构
 
-> **分支说明**：当前 `refactor/target-architecture` 分支已按 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 完成目标架构接管运行路径——`cmd/server` → `internal/app`（组合根）→ `internal/transport/router`（声明式路由）→ `internal/modules/*`；旧 `internal/*` 业务包已退出运行路径，仅保留旧测试/迁移参考，G5 cutover 后删除。新功能只写在 `internal/{app,platform,shared,transport,modules}`。
+> **分支说明**：当前 `refactor/target-architecture` 分支已完成目标架构接管与旧包清理——`cmd/server` → `internal/app`（组合根）→ `internal/transport/router`（声明式路由）→ `internal/modules/*`；旧 `internal/*` 业务包已从仓库删除，集成测试已迁移到 `internal/testkit` + `internal/server`/模块 `http` harness，架构守卫 `go test ./internal/architecture` 覆盖 cmd、testkit 与各层。新功能只写在 `internal/{app,platform,shared,transport,modules}`。
 
 ```text
 timeline/
@@ -288,7 +288,7 @@ timeline/
 ├── 🧩 internal/
 │   ├── app/                 # 组合根：装配 platform/modules、注册路由与后台作业
 │   ├── platform/            # 技术基座：clock、db（连接池/事务）、id、logging、migrate、jobs、audit、settings、storage、ratelimit、apperr、config、websearch、aiclient
-│   ├── shared/              # 共享内核：model、access（纯策略）、contracts（跨模块端口与输入）、page、richtext
+│   ├── shared/              # 共享内核：model、access（纯策略）、contracts（跨模块端口与输入）、page、richtext、format（ID/时间/附件 URL 格式化）、view（跨模块响应 DTO）
 │   ├── transport/           # httpx（JSON/错误/分页/上下文）、middleware、router（Policy + 声明式路由表）
 │   ├── server/              # slim server：Gin 引擎、全局中间件、健康检查、前端托管
 │   ├── modules/             # 业务模块四层：auth/content/social/notice/media/ai/agent/admin × {domain,app,repo,http}
@@ -305,7 +305,7 @@ timeline/
 └── .env.example             # 部署环境变量模板
 ```
 
-> legacy：旧 `internal/auth`、`internal/content`、`internal/social`、`internal/notice`、`internal/media`、`internal/ai`、`internal/agent`、`internal/admin`、`internal/access`、`internal/jobs`、`internal/settings`、`internal/richtext`、`internal/storage`、`internal/api`、`internal/model` 等包仍保留在仓库，但已退出运行路径、只被旧测试/迁移参考（对应新位置见上方目标架构与 `docs/ARCHITECTURE.md`）；G5 cutover 后删除。
+> 旧包迁移对照（旧 `internal/*` 业务包已删除，新树已完全接管；完整清单见 [`AGENTS.md`](AGENTS.md) §3）：`internal/auth|content|social|notice|media|ai|agent|admin` → `internal/modules/<同名域>`；`internal/api` + `internal/access` → `internal/transport/httpx` + `internal/shared/access` + `internal/platform/apperr`；`internal/jobs|settings|storage|db|id|logging|ratelimit|config|migrate|audit` → `internal/platform/*`；`internal/richtext|model` → `internal/shared/*`；旧 `internal/server`（业务服务 + 路由装配）拆分为 slim `internal/server`（引擎/健康检查/静态托管）+ `internal/app` 组合根。
 
 ## 🎨 界面与视觉
 

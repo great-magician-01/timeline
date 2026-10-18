@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -418,4 +419,97 @@ func TestSearchUsers(t *testing.T) {
 	if _, err := svc.SearchUsers(context.Background(), strings.Repeat("x", 101), 0, 20); !apperr.IsKind(err, apperr.KindInvalid) {
 		t.Fatalf("超长关键词应 Invalid，实际: %v", err)
 	}
+}
+
+// TestIdempotentGrantOnSuspendedAdmin 复现旧实现/API.md 的幂等语义：grant 只在
+// “实际变更角色”时要求目标处于 active。目标已是管理员但被停用时再次 grant 必须
+// 返回成功且不写审计，而不是 400 validation_failed。
+func TestIdempotentGrantOnSuspendedAdmin(t *testing.T) {
+	svc, users, _, audit, _ := newTestService(t, true)
+	super := mustCreateUser(t, users, model.User{
+		ID: 1, Username: "root", Role: model.RoleAdmin, IsSuperAdmin: true,
+	})
+	target := mustCreateUser(t, users, model.User{
+		ID: 2, Username: "bob", Role: model.RoleAdmin, Status: model.StatusSuspended,
+	})
+
+	updated, err := svc.SetAdminRole(context.Background(), super.ID, target.ID, true)
+	if err != nil {
+		t.Fatalf("对已停用但已是管理员的账号重复授权应幂等成功（旧实现/API.md），实际: %v", err)
+	}
+	if updated.Role != model.RoleAdmin {
+		t.Fatalf("幂等授权返回角色 = %q，期望 admin", updated.Role)
+	}
+	if users.users[target.ID].Role != model.RoleAdmin {
+		t.Fatal("幂等授权不应改变目标角色")
+	}
+	if len(audit.entries) != 0 {
+		t.Fatalf("幂等授权不应写审计: %+v", audit.entries)
+	}
+
+	// 撤销方向：停用账号不限制状态，实际变更应成功并写一条审计。
+	updated, err = svc.SetAdminRole(context.Background(), super.ID, target.ID, false)
+	if err != nil {
+		t.Fatalf("撤销停用账号的管理员角色应成功: %v", err)
+	}
+	if updated.Role != model.RoleUser || users.users[target.ID].Role != model.RoleUser {
+		t.Fatalf("撤销后角色不符: %+v", updated)
+	}
+	if len(audit.entries) != 1 || audit.entries[0].Action != contracts.AuditActionUserRevokeAdmin {
+		t.Fatalf("撤销审计不符: %+v", audit.entries)
+	}
+}
+
+// TestGrantSuspendedNonAdminStillRejected 保方向性校验不回退：目标不是管理员且
+// 已停用时，grant 仍必须返回 validation_failed 且不写审计。
+func TestGrantSuspendedNonAdminStillRejected(t *testing.T) {
+	svc, users, _, audit, _ := newTestService(t, true)
+	super := mustCreateUser(t, users, model.User{
+		ID: 1, Username: "root", Role: model.RoleAdmin, IsSuperAdmin: true,
+	})
+	target := mustCreateUser(t, users, model.User{
+		ID: 2, Username: "bob", Status: model.StatusSuspended,
+	})
+
+	if _, err := svc.SetAdminRole(context.Background(), super.ID, target.ID, true); !apperr.IsKind(err, apperr.KindValidation) {
+		t.Fatalf("授权已停用的非管理员应 validation_failed，实际: %v", err)
+	}
+	if users.users[target.ID].Role != model.RoleUser {
+		t.Fatal("被拒绝的授权不应改变目标角色")
+	}
+	if len(audit.entries) != 0 {
+		t.Fatalf("被拒绝的授权不应写审计: %+v", audit.entries)
+	}
+}
+
+// TestConfigFallbacksOnReadErrors 覆盖 /auth/config 的故障回退：设置读取失败回退
+// 默认开放注册；初始化状态查询失败回退 bootstrap_required=false；两者都不返回错误
+// （HTTP 200），与旧 settings.LoadOrDefaults 语义一致。
+func TestConfigFallbacksOnReadErrors(t *testing.T) {
+	t.Run("设置读取失败回退开放注册", func(t *testing.T) {
+		svc, _, _, _, _ := newTestService(t, true)
+		svc.settings = fakeSettings{err: errors.New("读取系统设置失败")}
+		config, err := svc.Config(context.Background())
+		if err != nil {
+			t.Fatalf("设置读取失败时 Config 不应返回错误: %v", err)
+		}
+		if !config.RegistrationEnabled {
+			t.Fatal("设置读取失败时应回退默认开放注册")
+		}
+	})
+
+	t.Run("初始化状态查询失败回退 false", func(t *testing.T) {
+		svc, users, _, _, _ := newTestService(t, true)
+		users.countErr = errors.New("查询初始化状态失败")
+		config, err := svc.Config(context.Background())
+		if err != nil {
+			t.Fatalf("初始化状态查询失败时 Config 不应返回错误: %v", err)
+		}
+		if config.BootstrapRequired {
+			t.Fatal("初始化状态查询失败时应回退 bootstrap_required=false")
+		}
+		if !config.RegistrationEnabled {
+			t.Fatal("设置读取正常时应使用配置值（默认开放）")
+		}
+	})
 }

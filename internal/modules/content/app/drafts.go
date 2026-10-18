@@ -50,7 +50,10 @@ func (s *Service) listMyPosts(
 	for _, row := range rows {
 		ids = append(ids, row.Post.ID)
 	}
-	jobs := s.publishJobsByRef(ctx, ids)
+	jobs, err := s.publishJobsByRef(ctx, ids)
+	if err != nil {
+		return DraftPage{}, err
+	}
 	items := make([]DraftItem, 0, len(rows))
 	for _, row := range rows {
 		job := jobs[row.Post.ID]
@@ -88,23 +91,65 @@ func (s *Service) listMyPosts(
 
 // publishJobsByRef 通过 jobs 端口补充每个帖子的最新定时发布作业快照。
 // background_jobs 归 platform/jobs，content 只读该端口，不直接查表。
+// ListByRef 只支持全局 LIMIT，故按小批 ref 查询；若某批结果达到上限（可能被截断），
+// 再对批内未命中的帖子逐帖补查，避免历史作业多的帖子挤占其它帖的最新作业。
 func (s *Service) publishJobsByRef(
 	ctx context.Context,
 	postIDs []int64,
-) map[int64]contracts.JobSnapshot {
+) (map[int64]contracts.JobSnapshot, error) {
 	result := map[int64]contracts.JobSnapshot{}
 	if len(postIDs) == 0 || s.deps.Jobs == nil {
-		return result
+		return result, nil
 	}
-	snapshots, err := s.deps.Jobs.ListByRef(ctx, contracts.JobRefQuery{
-		RefType: domain.RefTypePost,
-		RefIDs:  postIDs,
-		Types:   []string{contracts.JobTypePostPublish},
-		Limit:   len(postIDs) * 4,
-	})
-	if err != nil {
-		return result
+	const (
+		chunkSize     = 4
+		perQueryLimit = 200 // platform/jobs.ListByRef 允许的上限
+	)
+	for start := 0; start < len(postIDs); start += chunkSize {
+		end := start + chunkSize
+		if end > len(postIDs) {
+			end = len(postIDs)
+		}
+		chunk := postIDs[start:end]
+		snapshots, err := s.deps.Jobs.ListByRef(ctx, contracts.JobRefQuery{
+			RefType: domain.RefTypePost,
+			RefIDs:  chunk,
+			Types:   []string{contracts.JobTypePostPublish},
+			Limit:   perQueryLimit,
+		})
+		if err != nil {
+			return nil, s.wrap(err, "读取定时发布作业失败")
+		}
+		collectLatestPublishJobs(snapshots, result)
+		if len(snapshots) < perQueryLimit {
+			continue
+		}
+		// 结果达到上限时可能被截断，对批内仍未命中的帖子逐帖补查最新作业。
+		for _, postID := range chunk {
+			if _, ok := result[postID]; ok {
+				continue
+			}
+			fallback, err := s.deps.Jobs.ListByRef(ctx, contracts.JobRefQuery{
+				RefType: domain.RefTypePost,
+				RefIDs:  []int64{postID},
+				Types:   []string{contracts.JobTypePostPublish},
+				Limit:   perQueryLimit,
+			})
+			if err != nil {
+				return nil, s.wrap(err, "读取定时发布作业失败")
+			}
+			collectLatestPublishJobs(fallback, result)
+		}
 	}
+	return result, nil
+}
+
+// collectLatestPublishJobs 把快照中每个引用对象的最新有效状态写入结果。
+// 只保留 pending/running/failed/paused：已成功或已取消的旧作业不展示状态。
+func collectLatestPublishJobs(
+	snapshots []contracts.JobSnapshot,
+	result map[int64]contracts.JobSnapshot,
+) {
 	for _, snapshot := range snapshots {
 		if snapshot.RefID == nil {
 			continue
@@ -120,5 +165,4 @@ func (s *Service) publishJobsByRef(
 			result[refID] = snapshot
 		}
 	}
-	return result
 }

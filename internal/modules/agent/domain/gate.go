@@ -35,9 +35,23 @@ func ActionAllowed(behavior contracts.BehaviorSettings, action string) bool {
 	}
 }
 
-// ActionAllowedForTrigger 在全局开关之上叠加触发类型限制：
-// 定时原创只允许原创/引用；提及与被动评论只允许回复/点赞/关注等被动动作。
+// ActionAllowedForTrigger 在全局开关之上叠加触发类型限制（docs/WORKFLOWS.md 7.2）：
+//   - 被提及与收到新评论时发表的评论属于“被动回复”，按 allow_passive_reply 判断；
+//   - 主动浏览候选内容时发表的评论属于“主动评论”，按 allow_active_comment 判断；
+//   - 回复（reply）始终按 allow_passive_reply 判断；
+//   - 定时原创只允许原创/引用，主动互动只允许在候选范围内可执行的动作。
 func ActionAllowedForTrigger(behavior contracts.BehaviorSettings, trigger, action string) bool {
+	switch action {
+	case ActionComment:
+		switch trigger {
+		case TriggerMention, TriggerComment:
+			return behavior.AllowPassiveReply
+		default:
+			return behavior.AllowActiveComment
+		}
+	case ActionReply:
+		return behavior.AllowPassiveReply
+	}
 	if !ActionAllowed(behavior, action) {
 		return false
 	}
@@ -53,9 +67,10 @@ func ActionAllowedForTrigger(behavior contracts.BehaviorSettings, trigger, actio
 }
 
 // ProactiveAllowed 判断是否允许主动互动（至少一个主动动作开启）。
+// 主动评论是独立的主动动作，只开启 allow_active_comment 时也必须参与调度。
 func ProactiveAllowed(behavior contracts.BehaviorSettings) bool {
-	return behavior.AllowOriginalPost || behavior.AllowLike || behavior.AllowFollow ||
-		behavior.AllowRepost || behavior.AllowQuote
+	return behavior.AllowOriginalPost || behavior.AllowActiveComment || behavior.AllowLike ||
+		behavior.AllowFollow || behavior.AllowRepost || behavior.AllowQuote
 }
 
 // WithinActiveHours 判断小时是否落在启用时段内（start==end 视为全天生效）。
@@ -86,10 +101,11 @@ func CooldownElapsed(last, now time.Time, cooldownSeconds int) bool {
 	return now.Sub(last) >= time.Duration(cooldownSeconds)*time.Second
 }
 
-// ReplyDepthAllowed 判断父评论深度是否仍允许回复（maxDepth<=0 表示不限制）。
+// ReplyDepthAllowed 判断父评论深度是否仍允许回复（maxDepth<=0 表示该 AI 不参与回复，
+// 与旧实现一致；默认行为策略应配置为正数）。
 func ReplyDepthAllowed(parentDepth, maxDepth int) bool {
 	if maxDepth <= 0 {
-		return true
+		return false
 	}
 	return parentDepth < maxDepth
 }
@@ -125,12 +141,4 @@ func ScheduleMinutes(raw json.RawMessage, key string, fallback int) int {
 	default:
 		return fallback
 	}
-}
-
-// ClassifyCallError 把模型调用错误归类为任务失败类型（用于审计与重试判断）。
-func ClassifyCallError(err error) (status, errorType, message string) {
-	if err == nil {
-		return TaskStatusSucceeded, "", ""
-	}
-	return TaskStatusFailed, ErrorTypeModel, "模型调用失败"
 }

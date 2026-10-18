@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/great-magician-01/timeline/internal/modules/content/domain"
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
@@ -312,4 +313,34 @@ func (r *Repo) DetachAttachmentFromDrafts(ctx context.Context, attachmentID int6
 		return false, err
 	}
 	return tag.RowsAffected() > 0, nil
+}
+
+// sqlActiveDraftAttachmentIDs 读取仍被生效草稿工作区引用的附件 ID；
+// 单独定义便于纯函数测试断言（media 清理流程依赖该查询结果）。
+const sqlActiveDraftAttachmentIDs = `
+	SELECT DISTINCT attachment_id FROM post_draft_attachments
+	WHERE is_active AND attachment_id = ANY($1)
+	ORDER BY attachment_id`
+
+// ActiveDraftAttachmentIDs 返回仍被生效草稿工作区引用的附件 ID（升序、去重）。
+// 入参为空时直接返回空结果，不访问数据库。
+func (r *Repo) ActiveDraftAttachmentIDs(ctx context.Context, attachmentIDs []int64) ([]int64, error) {
+	ids := domain.UniqueIDs(attachmentIDs)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := r.ex(ctx).Query(ctx, sqlActiveDraftAttachmentIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]int64, 0, len(ids))
+	for rows.Next() {
+		var attachmentID int64
+		if err := rows.Scan(&attachmentID); err != nil {
+			return nil, err
+		}
+		result = append(result, attachmentID)
+	}
+	return result, rows.Err()
 }

@@ -24,8 +24,9 @@ type IDGenerator interface {
 	Next() (int64, error)
 }
 
-// ContentPort 是 media 对 content 模块的最小依赖（contracts.ContentService 满足）。
-// 附件可见性继承所属帖子、失效流程的草稿/版本引用检查都走这里，media 不查 posts 表。
+// ContentPort 是 media 对 content 模块的最小依赖（由 content app 结构化实现）：
+// 附件可见性继承所属帖子、失效流程的草稿/版本引用检查、清理任务的草稿引用过滤
+// 都走这里，media 不查 posts / post_draft_attachments 表。
 type ContentPort interface {
 	// GetVisiblePost 按访问者校验帖子可见性；不可见返回领域 NotFound。
 	GetVisiblePost(ctx context.Context, viewer model.Viewer, postID int64) (model.Post, error)
@@ -33,6 +34,9 @@ type ContentPort interface {
 	DetachAttachmentFromDrafts(ctx context.Context, attachmentID int64, at time.Time) (bool, error)
 	// AttachmentReferencedByVersion 判断附件是否仍被任何历史版本引用。
 	AttachmentReferencedByVersion(ctx context.Context, attachmentID int64) (bool, error)
+	// ActiveDraftAttachmentIDs 返回仍被生效草稿关联的附件 ID 子集。
+	// 消费者：media 临时附件清理（替代直接查询 content 拥有的 post_draft_attachments）。
+	ActiveDraftAttachmentIDs(ctx context.Context, attachmentIDs []int64) ([]int64, error)
 }
 
 // Deps 是 media 模块的构造依赖，由组合根（internal/app）注入。
@@ -70,8 +74,11 @@ type Service struct {
 	uploadLimiter *ratelimit.Limiter
 }
 
-// New 组装 media 用例服务。
+// New 组装媒体用例服务；nil Clock 回退系统时钟，保证测试/手工构造不会空指针。
 func New(deps Deps) *Service {
+	if deps.Clock == nil {
+		deps.Clock = clock.System()
+	}
 	defaults := defaultSystemSettings()
 	return &Service{
 		pools:         deps.Pools,
@@ -153,13 +160,12 @@ func (s *Service) UploadLimits(ctx context.Context) (maxRequestBytes, maxUploadB
 	return values.MaxRequestBytes, values.MaxUploadBytes
 }
 
-// 编译期断言：
-//   - Service 实现 contracts.MediaService（content/admin 的消费端口）；
-//   - contracts.ContentService 满足 media 的 ContentPort 窄接口。
-var (
-	_ contracts.MediaService = (*Service)(nil)
-	_ ContentPort            = (contracts.ContentService)(nil)
-)
+// 编译期断言：Service 实现 contracts.MediaService（content/admin 的消费端口）。
+//
+// 说明：ContentPort 含 ActiveDraftAttachmentIDs（由 content 模块新增并通过组合根注入），
+// 因此不再断言 contracts.ContentService 直接满足该窄接口——contracts.ContentService
+// 的接口清单不随 media 的局部需求扩张，保持 media 只依赖自身声明的窄端口。
+var _ contracts.MediaService = (*Service)(nil)
 
 // 保证 domain 常量在编译期被引用，避免误删（同时给读者定位用途定义）。
 var _ = domain.PurposePost

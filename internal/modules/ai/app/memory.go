@@ -393,6 +393,15 @@ func (s *Service) AddMemorySources(ctx context.Context, memoryID int64, sources 
 	at := s.now()
 	records := make([]domain.MemorySource, 0, len(sources))
 	for _, source := range sources {
+		sourceType := strings.TrimSpace(source.SourceType)
+		// ai_memory_sources 只允许 post/comment（0007 CHECK）；无效来源直接忽略，
+		// 避免把“沉淀/动作/手工”等记忆来源类型写进来源关联表导致任务失败。
+		if sourceType != domain.MemorySourceTypePost && sourceType != domain.MemorySourceTypeComment {
+			continue
+		}
+		if source.SourceID <= 0 {
+			continue
+		}
 		id, err := s.newID()
 		if err != nil {
 			return err
@@ -404,15 +413,54 @@ func (s *Service) AddMemorySources(ctx context.Context, memoryID int64, sources 
 		records = append(records, domain.MemorySource{
 			ID:         id,
 			MemoryID:   memoryID,
-			SourceType: strings.TrimSpace(source.SourceType),
+			SourceType: sourceType,
 			SourceID:   source.SourceID,
 			CreatedAt:  sourceAt,
 		})
+	}
+	if len(records) == 0 {
+		return nil
 	}
 	if _, err := s.repo.InsertMemorySources(ctx, records); err != nil {
 		return internalError(err, "写入记忆来源失败")
 	}
 	return nil
+}
+
+// ListMemorySources 读取一批记忆已记录的内容来源（post/comment 去重）。消费者：agent（沉淀）。
+func (s *Service) ListMemorySources(ctx context.Context, memoryIDs []int64) ([]contracts.MemorySourceRef, error) {
+	records, err := s.repo.ListMemorySources(ctx, memoryIDs)
+	if err != nil {
+		return nil, internalError(err, "读取记忆来源失败")
+	}
+	sources := make([]contracts.MemorySourceRef, 0, len(records))
+	for _, source := range records {
+		sources = append(sources, contracts.MemorySourceRef{
+			SourceType: source.SourceType,
+			SourceID:   source.SourceID,
+		})
+	}
+	return sources, nil
+}
+
+// ListActiveMemorySourceRefs 读取某 AI 生效记忆引用的内容来源（来源失效复核使用）。消费者：agent。
+func (s *Service) ListActiveMemorySourceRefs(
+	ctx context.Context,
+	aiID int64,
+	limit int,
+) ([]contracts.MemorySourceRef, error) {
+	records, err := s.repo.ListActiveMemorySourceRefs(ctx, aiID, limit)
+	if err != nil {
+		return nil, internalError(err, "读取记忆来源引用失败")
+	}
+	sources := make([]contracts.MemorySourceRef, 0, len(records))
+	for _, source := range records {
+		sources = append(sources, contracts.MemorySourceRef{
+			SourceType: source.SourceType,
+			SourceID:   source.SourceID,
+		})
+	}
+	return sources, nil
 }
 
 // SupersedeMemories 把一批记忆标记为被新记忆取代。消费者：agent。

@@ -66,7 +66,7 @@ func (s *Service) UpdateWebSearchSettings(ctx context.Context, actor model.Viewe
 		}
 		return s.audit.Write(txCtx, contracts.AuditEntry{
 			AdminID:    actor.ID,
-			Action:     contracts.AuditActionWebSearchSettingsUpdt,
+			Action:     contracts.AuditActionSettingsUpdate,
 			TargetType: "web_search_settings",
 			Detail: map[string]any{
 				"base_url":   next.BaseURL,
