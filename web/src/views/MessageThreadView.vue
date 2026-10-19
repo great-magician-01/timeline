@@ -53,6 +53,9 @@ const peerSuspended = computed(() => Boolean(conversation.value?.peer.is_suspend
 
 let timer: number | null = null
 
+// 请求序号：切换会话后作废在途请求的响应，防止旧会话数据污染新会话视图。
+let loadSeq = 0
+
 function isOwn(message: DMMessage): boolean {
   return message.sender.id === my.value?.id
 }
@@ -68,22 +71,26 @@ async function scrollToBottom(): Promise<void> {
 }
 
 async function markRead(): Promise<void> {
+  const cid = conversationId.value
+  if (!cid) return
   try {
-    await markConversationRead(conversationId.value)
+    await markConversationRead(cid)
     await refreshDMUnreadCount()
   } catch {
     // 已读失败不阻塞阅读；下次进入或轮询会重试
   }
 }
 
-async function loadLatest(): Promise<void> {
+async function loadLatest(seq: number): Promise<void> {
   const page = await listMessages(conversationId.value)
+  if (seq !== loadSeq) return
   messages.value = [...page.items].reverse()
   olderCursor.value = page.next_cursor
   hasMoreOlder.value = page.has_more
 }
 
 async function loadConversation(): Promise<void> {
+  const seq = ++loadSeq
   loading.value = true
   loadError.value = ''
   notFound.value = false
@@ -91,34 +98,39 @@ async function loadConversation(): Promise<void> {
   messages.value = []
   try {
     const data = await getConversation(conversationId.value)
+    if (seq !== loadSeq) return
     conversation.value = data.conversation
-    await loadLatest()
+    await loadLatest(seq)
+    if (seq !== loadSeq) return
     await scrollToBottom()
     void markRead()
   } catch (err) {
+    if (seq !== loadSeq) return
     if (err instanceof ApiError && err.status === 404) notFound.value = true
     else loadError.value = errorMessage(err)
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
 async function loadOlder(): Promise<void> {
   const el = scroller.value
   if (!el || !hasMoreOlder.value || loadingOlder.value || !olderCursor.value) return
+  const seq = loadSeq
   const previousHeight = el.scrollHeight
   const previousTop = el.scrollTop
   loadingOlder.value = true
   actionError.value = ''
   try {
     const page = await listMessages(conversationId.value, { cursor: olderCursor.value })
+    if (seq !== loadSeq) return
     messages.value = [...[...page.items].reverse(), ...messages.value]
     olderCursor.value = page.next_cursor
     hasMoreOlder.value = page.has_more
     await nextTick()
     el.scrollTop = previousTop + (el.scrollHeight - previousHeight)
   } catch (err) {
-    actionError.value = errorMessage(err)
+    if (seq === loadSeq) actionError.value = errorMessage(err)
   } finally {
     loadingOlder.value = false
   }
@@ -126,13 +138,16 @@ async function loadOlder(): Promise<void> {
 
 async function pollNew(): Promise<void> {
   if (document.hidden || loading.value || !conversation.value) return
+  const seq = loadSeq
+  const cid = conversationId.value
   const el = scroller.value
   const nearBottom = el ? isNearBottom(el) : true
   const last = messages.value[messages.value.length - 1]
   try {
     const page = last
-      ? await listNewMessages(conversationId.value, last.id)
-      : await listMessages(conversationId.value)
+      ? await listNewMessages(cid, last.id)
+      : await listMessages(cid)
+    if (seq !== loadSeq || loading.value) return
     const incoming = last ? page.items : [...page.items].reverse()
     const known = new Set(messages.value.map((message) => message.id))
     const fresh = incoming.filter((message) => !known.has(message.id))
@@ -159,13 +174,19 @@ function stopPolling(): void {
 async function submit(): Promise<void> {
   const value = text.value.trim()
   if (!value || sending.value || peerSuspended.value) return
+  const seq = loadSeq
+  const cid = conversationId.value
   sending.value = true
   sendError.value = ''
   try {
-    const result = await sendMessage(conversationId.value, {
+    const result = await sendMessage(cid, {
       content_format: 'richtext',
       content_source: textToParagraphHTML(value),
     })
+    if (seq !== loadSeq) {
+      // 发送期间已切换会话：消息已发出，但不改动新会话的视图与草稿。
+      return
+    }
     if (!messages.value.some((message) => message.id === result.message.id)) {
       messages.value = [...messages.value, result.message]
     }
@@ -173,7 +194,7 @@ async function submit(): Promise<void> {
     await scrollToBottom()
     void refreshDMUnreadCount()
   } catch (err) {
-    sendError.value = errorMessage(err)
+    if (seq === loadSeq) sendError.value = errorMessage(err)
   } finally {
     sending.value = false
   }

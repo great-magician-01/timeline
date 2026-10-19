@@ -2,10 +2,12 @@ package app_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	dmapp "github.com/great-magician-01/timeline/internal/modules/dm/app"
+	dmDomain "github.com/great-magician-01/timeline/internal/modules/dm/domain"
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
 	"github.com/great-magician-01/timeline/internal/platform/clock"
 	"github.com/great-magician-01/timeline/internal/platform/ratelimit"
@@ -212,6 +214,14 @@ func TestSendMessageValidation(t *testing.T) {
 	}
 	if _, err := h.svc.SendMessage(ctx, viewer(1), conv.Row.ID, "richtext", `<p><img src="/x"></p>`); !apperr.IsKind(err, apperr.KindValidation) {
 		t.Fatalf("图片内容应为 Validation，实际 %v", err)
+	}
+	overlong := "<p>" + strings.Repeat("字", dmDomain.MaxMessageRunes+1) + "</p>"
+	if _, err := h.svc.SendMessage(ctx, viewer(1), conv.Row.ID, "richtext", overlong); !apperr.IsKind(err, apperr.KindValidation) {
+		t.Fatalf("超长正文应为 Validation，实际 %v", err)
+	}
+	oversize := "<p>" + strings.Repeat("a", dmDomain.MaxMessageSourceBytes) + "</p>"
+	if _, err := h.svc.SendMessage(ctx, viewer(1), conv.Row.ID, "richtext", oversize); !apperr.IsKind(err, apperr.KindValidation) {
+		t.Fatalf("超过体积上限的来源应为 Validation，实际 %v", err)
 	}
 	if _, err := h.svc.SendMessage(ctx, viewer(3), conv.Row.ID, "richtext", "<p>hi</p>"); !apperr.IsKind(err, apperr.KindNotFound) {
 		t.Fatalf("非成员发送应按不存在处理，实际 %v", err)

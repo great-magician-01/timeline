@@ -215,6 +215,23 @@ func TestDMIntegration(t *testing.T) {
 	testkit.ExpectStatus(t, status, http.StatusBadRequest, raw)
 	updateDMPolicy(t, bob, "all")
 
+	// ── 正文长度：超过上限（2000 字）拒绝，恰好达到上限允许 ──
+	status, _, payload, raw = bob.Call(http.MethodGet, "/api/v1/dm/unread-count", false, nil)
+	testkit.ExpectStatus(t, status, http.StatusOK, raw)
+	unreadBefore, _ := payload["unread_count"].(float64)
+	status, _, _, raw = alice.Call(http.MethodPost, "/api/v1/dm/conversations/"+conversationID+"/messages", true,
+		map[string]any{"content_format": "richtext", "content_source": "<p>" + strings.Repeat("字", 2001) + "</p>"})
+	testkit.ExpectStatus(t, status, http.StatusBadRequest, raw)
+	status, _, _, raw = alice.Call(http.MethodPost, "/api/v1/dm/conversations/"+conversationID+"/messages", true,
+		map[string]any{"content_format": "richtext", "content_source": "<p>" + strings.Repeat("字", 2000) + "</p>"})
+	testkit.ExpectStatus(t, status, http.StatusCreated, raw)
+	// 达到上限的消息真实落库：Bob 未读数应恰好 +1。
+	status, _, payload, raw = bob.Call(http.MethodGet, "/api/v1/dm/unread-count", false, nil)
+	testkit.ExpectStatus(t, status, http.StatusOK, raw)
+	if unread, _ := payload["unread_count"].(float64); unread != unreadBefore+1 {
+		t.Fatalf("达到上限的正文应可发送并计入未读: %s", raw)
+	}
+
 	// ── AI 账号双向不参与私信 ──
 	aiUsername := "dm_ai_" + suffix
 	status, _, payload, raw = admin.Call(http.MethodPost, "/api/v1/admin/providers", true, map[string]any{

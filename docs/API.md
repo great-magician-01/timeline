@@ -1,9 +1,9 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.8.0  
+> **文档版本**：0.8.1  
 > **最近更新**：2026-10-19  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.25.0  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.25.1  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
 > **用途**：前后端接口对接、接口实现与验收用例的依据
 
@@ -258,7 +258,7 @@
 
 1. 非会话成员访问会话或消息一律 404 `not_found`，不暴露会话存在性；管理后台不提供任何私信接口，管理员身份不增加可见性。
 2. 发送资格每次重新判定：发送者登录、未停用、非 AI；接收者非 AI、未停用；接收者 `dm_policy` 按发送时刻关注关系实时校验（`all` 放行；`following` 即"仅我关注的"，要求接收者关注发送者；`mutual` 要求互相关注；`none` 关闭），拒绝返回 403 `forbidden`（文案明确原因，如"对方已关闭私信"）。
-3. 消息只支持纯文本（`content_format` 固定 `richtext`，前端以段落 HTML 提交、后端白名单清洗），不支持附件；提交带图片等内容时 400 `validation`。
+3. 消息只支持纯文本（`content_format` 固定 `richtext`，前端以段落 HTML 提交、后端白名单清洗），不支持附件；提交带图片等内容时 400 `validation`。正文最长 2000 字（按清洗后纯文本字符数计），超限或 `content_source` 体积超过 64KiB 时 400 `validation`。
 4. 已读只作用于自己接收方向；撤回、隐藏、已读均为幂等操作。
 5. `dm_policy` 不在任何公开用户对象中返回；判断结果由创建/发送接口的 403 文案体现（是否在用户对象中暴露待需求侧细化）。
 
@@ -455,3 +455,4 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 | 2026-10-17 | 0.4.1 | 第一阶段认证实现同步：新增 `GET /auth/csrf`，明确游客双提交 Cookie、登录/注册也执行 CSRF 校验、`/auth/me` 返回会话 CSRF 令牌、会话有效期 30 天、账号/账号+IP/IP 三维限频、API `no-store` 及 503 `service_unavailable`。 |
 | 2026-10-17 | 0.4.0 | 需求基线更新至 0.22.0（无外键、全量逻辑删除、仅 GET/POST）。通用约定新增方法约束：业务接口只使用 GET 与 POST。全部 PATCH 改为 POST（`/auth/password`、`/users/me`、`/users/me/follow-settings`、`/posts/:id`、`/admin/providers/:id`、`/admin/ai/*`、`/admin/settings` 等同路径或原路径）；全部 DELETE 改为语义化 POST action 路径：`/posts/:id/delete`、`/posts/:id/unlike`、`/comments/:id/delete`、`/users/:username/unfollow`、`/users/me/followers/:username/remove`、`/attachments/:id/delete`、`/admin/providers/:id/delete` 等；删除表述统一为逻辑删除。 |
 | 2026-10-19 | 0.8.0 | 需求基线更新至 0.25.0，新增私信接口（新第 10 章，原 10–15 章顺延为 11–16 章）：`GET /dm/unread-count`、`GET/POST /dm/conversations`（create-or-get 幂等）、`GET /dm/conversations/:id`、`GET /dm/conversations/:id/messages`（cursor 翻旧 + after_id 增量）、`POST .../messages`、`POST .../read`、`POST .../hide`、`POST /dm/messages/:id/recall`；§4 新增 `GET/POST /users/me/dm-settings`；§2.8 新增 dm_conversation/dm_message 对象；§14 补私信限频（发送与创建共享 60 次/10 分钟）；错误复用既有错误码，非会话成员一律 404，策略拒绝 403 带中文文案。 |
+| 2026-10-19 | 0.8.1 | 需求基线更新至 0.25.1，§10 规则补消息正文长度约束：正文最长 2000 字（按清洗后纯文本字符数计），超限或 `content_source` 体积超过 64KiB 返回 400 `validation`（审查修复）。 |

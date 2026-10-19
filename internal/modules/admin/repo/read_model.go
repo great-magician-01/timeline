@@ -223,15 +223,18 @@ func keywordLikeCondition(column, placeholder string) string {
 
 // ===== 账号 =====
 
+// userColumns 是管理端 users 行投影。users 完整投影的权威定义在
+// auth 的 user_repo.userColumns，本清单必须与其列集和顺序保持一致：
+// 新增/调整列时两处同步修改，否则 model.User 的按位 Scan 会错位。
 const userColumns = `id, username, COALESCE(email, ''), COALESCE(password_hash, ''),
 	nickname, avatar_url, bio, role, is_super_admin, is_ai, status,
-	require_follow_approval, token_version, suspended_at, created_at, updated_at`
+	require_follow_approval, dm_policy, token_version, suspended_at, created_at, updated_at`
 
 func scanUser(row pgx.Row) (model.User, error) {
 	var u model.User
 	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Nickname, &u.AvatarURL,
 		&u.Bio, &u.Role, &u.IsSuperAdmin, &u.IsAI, &u.Status, &u.RequireFollowApproval,
-		&u.TokenVersion, &u.SuspendedAt, &u.CreatedAt, &u.UpdatedAt)
+		&u.DMPolicy, &u.TokenVersion, &u.SuspendedAt, &u.CreatedAt, &u.UpdatedAt)
 	return u, err
 }
 

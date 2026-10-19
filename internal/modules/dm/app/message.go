@@ -45,6 +45,9 @@ func (s *Service) SendMessage(
 		if getErr := s.ensureCanSend(ctx, viewer.ID, recipient); getErr != nil {
 			return getErr
 		}
+		if getErr := domain.ValidateMessageSource(source); getErr != nil {
+			return getErr
+		}
 		safeHTML, plain := richtext.Render(format, source)
 		if getErr := domain.ValidateMessageBody(safeHTML, plain); getErr != nil {
 			return getErr

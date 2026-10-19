@@ -18,6 +18,11 @@ const (
 	PreviewRunes = 50
 	// RecalledPreview 是已撤回消息在会话列表中的预览文案。
 	RecalledPreview = "消息已撤回"
+	// MaxMessageRunes 是私信正文的最大字符数（按清洗后纯文本的 rune 计）。
+	MaxMessageRunes = 2000
+	// MaxMessageSourceBytes 是私信 content_source 的原始体积上限（字节），
+	// 在渲染清洗前快速拒绝超大请求，避免无谓的解析与清洗开销。
+	MaxMessageSourceBytes = 64 << 10
 )
 
 // NormalizePair 把任意方向的两位成员 ID 规范化为 (user_a_id, user_b_id) = (较小, 较大)，
@@ -95,14 +100,26 @@ func CanRecall(msg model.DMMessage, viewer model.Viewer, now time.Time) error {
 	return nil
 }
 
+// ValidateMessageSource 校验清洗前的原始正文体积：超过 MaxMessageSourceBytes 直接拒绝，
+// 不把超大请求交给渲染清洗。
+func ValidateMessageSource(source string) error {
+	if len(source) > MaxMessageSourceBytes {
+		return apperr.Validation("私信内容过长")
+	}
+	return nil
+}
+
 // ValidateMessageBody 校验清洗后的私信正文：附件图片不允许出现在私信中，
-// 纯空白内容拒绝。附件图片检查优先，给出明确文案。
+// 纯空白内容拒绝，正文长度上限 MaxMessageRunes。附件图片检查优先，给出明确文案。
 func ValidateMessageBody(safeHTML, plain string) error {
 	if strings.Contains(safeHTML, "<img") {
 		return apperr.Validation("私信不支持图片，请发送纯文本")
 	}
 	if strings.TrimSpace(plain) == "" {
 		return apperr.Validation("私信内容不能为空")
+	}
+	if utf8.RuneCountInString(plain) > MaxMessageRunes {
+		return apperr.Validation("私信内容过长，最多 2000 字")
 	}
 	return nil
 }

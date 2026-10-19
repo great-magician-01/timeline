@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -161,6 +162,24 @@ func TestValidateMessageBody(t *testing.T) {
 	}
 	if err := domain.ValidateMessageBody(`<p><img src="/api/v1/attachments/1/content"></p>`, "图片"); !apperr.IsKind(err, apperr.KindValidation) {
 		t.Fatalf("含图片应为 Validation，实际 %v", err)
+	}
+
+	atLimit := strings.Repeat("字", domain.MaxMessageRunes)
+	if err := domain.ValidateMessageBody("<p>"+atLimit+"</p>", atLimit); err != nil {
+		t.Fatalf("达到长度上限的正文不应报错: %v", err)
+	}
+	if err := domain.ValidateMessageBody("<p>x</p>", atLimit+"！"); !apperr.IsKind(err, apperr.KindValidation) {
+		t.Fatalf("超长正文应为 Validation，实际 %v", err)
+	}
+}
+
+func TestValidateMessageSource(t *testing.T) {
+	if err := domain.ValidateMessageSource(strings.Repeat("字", 100)); err != nil {
+		t.Fatalf("正常体积不应报错: %v", err)
+	}
+	oversize := strings.Repeat("a", domain.MaxMessageSourceBytes+1)
+	if err := domain.ValidateMessageSource(oversize); !apperr.IsKind(err, apperr.KindValidation) {
+		t.Fatalf("超过体积上限的来源应为 Validation，实际 %v", err)
 	}
 }
 

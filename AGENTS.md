@@ -1,6 +1,6 @@
 # Timeline 项目指南
 
-> **文档版本**：0.2.3  
+> **文档版本**：0.2.4  
 > **最近更新**：2026-10-19  
 > **关联文档**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（后端目标架构权威）、[`docs/README.md`](docs/README.md)（文档索引）
 
@@ -17,7 +17,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 - 账号：用户名/邮箱注册与登录、bcrypt 哈希、HttpOnly 服务端会话、游客与会话 CSRF、三维登录限频、资料与密码修改、关注审批设置、头像上传；公开 `GET /auth/config` 提供注册开关状态与 `bootstrap_required` 初始化状态。空库首个注册用户自动成为唯一超级管理员；超级管理员可授权/撤销管理员，普通管理员不能操作超管账号。
 - 内容：富文本/Markdown 统一安全渲染、帖子、草稿与自动保存冲突、定时发布、编辑历史与版本恢复、附件上传与图片缩略图/视频封面（ffmpeg 可选）、可见性（公开/仅关注者/仅自己）、时间线（全站/关注/个人主页）。
 - 社交：关注与关注审批、移除粉丝、点赞、评论与楼中楼、纯转发与引用、提及、通知中心（轮询未读数、按类型筛选）。
-- 私信：1:1 双人会话（纯文本无附件）、用户级接收策略 `dm_policy`（所有人/仅我关注的/仅互关/关闭，默认所有人）、未读数轮询徽章、会话列表与对话页、2 分钟内撤回、删除会话视图（单侧隐藏）；AI 账号双向不参与，管理后台完全不可见。
+- 私信：1:1 双人会话（纯文本无附件，正文上限 2000 字、来源体积上限 64KiB）、用户级接收策略 `dm_policy`（所有人/仅我关注的/仅互关/关闭，默认所有人）、未读数轮询徽章、会话列表与对话页、2 分钟内撤回、删除会话视图（单侧隐藏）；AI 账号双向不参与，管理后台完全不可见。
 - 发现：`#话题#` 链接化与标签聚合、用户搜索、帖子搜索，全部按访问者权限过滤。
 - AI：OpenAI 兼容接口预设（API Key 加密存储）、AI 身份与行为策略（含发帖/主动互动间隔）、分层记忆（近期/长期、关键词检索、沉淀与失效、来源关联）、自主动作（发帖/评论/点赞/关注/转发/引用，默认全部关闭）、按 AI 开关的受控联网搜索（全局独立密钥、默认关闭、有限工具轮次）、任务与决策审计、模型调用记录（可按任务筛选）、管理员手动生成支持立即发布或定时发布、任务详情展示注入记忆。
 - 管理后台：概览、用户管理（含超级管理员授权/撤销管理员）、内容审核（帖子/评论/附件）、模型预设、AI 配置与记忆、生成与发布、全局任务、调用记录、审计日志、系统设置（注册、全局独立网页搜索 Base URL/API Key、上传/请求大小、存储配额、发帖/上传限频、临时附件保留期、调用记录截断/保留期）与全局 AI 开关。
@@ -299,3 +299,4 @@ cd web && npm run build
 | 2026-10-18 | 0.1.1 | 收尾同步：§1 改为“目标架构已接管运行路径（`cmd/server`→`internal/app`→`transport/router`→`modules/*`），旧包已退出运行路径待删除”；§2 本地配置指向 `internal/platform/config`；§3 目标架构新增 `internal/server`（slim 引擎/健康检查/前端托管）并把 `cmd/server/main.go` 移出 legacy 列表、legacy 列表标注“已退出运行路径、仅旧测试/迁移参考”，删除已改造的 `internal/server` 旧描述；§4 注明 `internal/server` 集成测试为 legacy（迁移到 `internal/testkit` 前保留）。 |
 | 2026-10-18 | 0.1.0 | 按目标架构改造（G8）同步：新增文档版本/日期/关联文档头与本节变更记录；§1 说明 `refactor/target-architecture` 分支新旧包并存策略；§3 新增 `internal/{app,platform,shared,transport,modules}` 目标目录与 legacy 旧包标注；§5 新增「目标架构分层与依赖约定」（handler 只在 `modules/*/http`、SQL 只在 `modules/*/repo`、app/domain 不 import gin/pgx、模块间只走 `shared/contracts`、路由 Policy 在 `transport/router`、组合根在 `internal/app`、时间由应用 Clock 显式传入且 DB 无业务时间默认值、`schema_migrations.applied_at` 唯一白名单）；迁移段落补充迁移器 v2 的 `no-transaction` 指令、`0011` 时间默认值移除与扩展权限；§8 部署边界补充 NTP/时钟同步要求。 |
 | 2026-10-19 | 0.2.3 | 新增私信（`modules/dm`）：§1 功能清单补充 1:1 私信（`dm_policy` 四档接收策略、未读轮询、撤回、单侧隐藏，AI 不参与、后台不可见）与迁移范围 `0001`–`0021`；§3 模块域补 `dm`；§6 测试清单补私信单元测试与 `TestDMIntegration`、验收补 DM-01～12 与 SEC-10/11；同步 `REQUIREMENTS.md` 0.25.0、`PAGES_AND_PERMISSIONS.md` 0.1.21、`WORKFLOWS.md` 0.8.0、`DATA_MODEL.md` 0.10.0、`API.md` 0.8.0、`ACCEPTANCE.md` 0.3.0、`ARCHITECTURE.md` 0.4.0、`docs/README.md` 0.1.11 与 `migrations/README.md`。 |
+| 2026-10-19 | 0.2.4 | §1 私信条目补充正文约束（上限 2000 字、来源体积上限 64KiB，超限 400）；§3 管理端 read-model 与 auth 的 users 投影对齐说明见代码注释；同步 `REQUIREMENTS.md` 0.25.1、`API.md` 0.8.1、`ACCEPTANCE.md` 0.3.1 与 `docs/README.md` 0.1.12（审查修复：admin 投影漂移、私信正文无长度上限、对话页陈旧响应污染）。 |
