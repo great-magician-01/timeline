@@ -85,6 +85,7 @@ func TestResponseDTOJSONKeys(t *testing.T) {
 		{"me", meResponse{CSRFToken: "t"}, []string{"user", "csrf_token"}},
 		{"user", userEnvelope{}, []string{"user"}},
 		{"follow-settings", followSettingsResponse{}, []string{"require_follow_approval"}},
+		{"dm-settings", dmSettingsResponse{}, []string{"dm_policy"}},
 		{"profile", profileResponse{}, []string{
 			"user", "bio", "post_count", "following_count", "follower_count", "follow_state",
 		}},

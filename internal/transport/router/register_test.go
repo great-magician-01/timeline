@@ -12,7 +12,7 @@ import (
 )
 
 // 本文件覆盖 transport/router 的注册与策略中间件链（无数据库、无业务模块）：
-//   - Routes() 声明的 110 条路由必须全部注册到 Gin 引擎；
+//   - Routes() 声明的 121 条路由必须全部注册到 Gin 引擎；
 //   - 每种 Policy 必须挂载固定顺序的中间件链（Ready → ResolveSession → RequireLogin
 //     → RequireAdmin → RequireCSRF → RequireSuperAdmin，GuestWrite 只走 GuestCSRF）；
 //   - 就绪检查与认证/CSRF 失败必须中止后续中间件与业务 handler。
@@ -31,6 +31,8 @@ func (stubHandler) ChangePassword(c *gin.Context)          { c.Header("X-Handler
 func (stubHandler) UpdateProfile(c *gin.Context)           { c.Header("X-Handler", "reached") }
 func (stubHandler) FollowSettings(c *gin.Context)          { c.Header("X-Handler", "reached") }
 func (stubHandler) UpdateFollowSettings(c *gin.Context)    { c.Header("X-Handler", "reached") }
+func (stubHandler) DMSettings(c *gin.Context)              { c.Header("X-Handler", "reached") }
+func (stubHandler) UpdateDMSettings(c *gin.Context)        { c.Header("X-Handler", "reached") }
 func (stubHandler) SearchUsers(c *gin.Context)             { c.Header("X-Handler", "reached") }
 func (stubHandler) GetProfile(c *gin.Context)              { c.Header("X-Handler", "reached") }
 func (stubHandler) GrantAdmin(c *gin.Context)              { c.Header("X-Handler", "reached") }
@@ -82,6 +84,13 @@ func (stubHandler) List(c *gin.Context)                    { c.Header("X-Handler
 func (stubHandler) UnreadCount(c *gin.Context)             { c.Header("X-Handler", "reached") }
 func (stubHandler) MarkAllRead(c *gin.Context)             { c.Header("X-Handler", "reached") }
 func (stubHandler) MarkRead(c *gin.Context)                { c.Header("X-Handler", "reached") }
+func (stubHandler) ListConversations(c *gin.Context)       { c.Header("X-Handler", "reached") }
+func (stubHandler) CreateConversation(c *gin.Context)      { c.Header("X-Handler", "reached") }
+func (stubHandler) ConversationDetail(c *gin.Context)      { c.Header("X-Handler", "reached") }
+func (stubHandler) HideConversation(c *gin.Context)        { c.Header("X-Handler", "reached") }
+func (stubHandler) ListMessages(c *gin.Context)            { c.Header("X-Handler", "reached") }
+func (stubHandler) SendMessage(c *gin.Context)             { c.Header("X-Handler", "reached") }
+func (stubHandler) RecallMessage(c *gin.Context)           { c.Header("X-Handler", "reached") }
 func (stubHandler) Upload(c *gin.Context)                  { c.Header("X-Handler", "reached") }
 func (stubHandler) Content(c *gin.Context)                 { c.Header("X-Handler", "reached") }
 func (stubHandler) Derivative(c *gin.Context)              { c.Header("X-Handler", "reached") }
@@ -218,6 +227,7 @@ func newTestDeps(auth *fakeAuth) Deps {
 		Content: stubHandler{},
 		Social:  stubHandler{},
 		Notice:  stubHandler{},
+		DM:      stubHandler{},
 		Media:   stubHandler{},
 		AI:      stubHandler{},
 		Agent:   stubHandler{},

@@ -248,6 +248,36 @@ export interface Notification {
   created_at: string
 }
 
+// ---------- 私信 ----------
+
+/** 私信接收策略（后端 users.dm_policy） */
+export type DMPolicy = 'all' | 'following' | 'mutual' | 'none'
+
+/** 私信会话（GET /dm/conversations、POST /dm/conversations） */
+export interface DMConversation {
+  id: string
+  peer: UserBrief
+  /** 空会话为 null（不会出现在列表接口，仅详情接口可能出现） */
+  last_message: { id: string; preview: string; created_at: string } | null
+  unread_count: number
+  created_at: string
+  updated_at: string
+}
+
+/** 私信消息（GET /dm/conversations/:id/messages） */
+export interface DMMessage {
+  id: string
+  conversation_id: string
+  sender: UserBrief
+  /** 已撤回消息为空字符串 */
+  content_html: string
+  status: 'published' | 'recalled'
+  read_at: string | null
+  /** 发送者是否仍在撤回时间窗内 */
+  can_recall: boolean
+  created_at: string
+}
+
 // ---------- 管理后台 ----------
 
 export interface AdminPost {

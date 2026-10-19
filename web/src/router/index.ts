@@ -99,6 +99,18 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '通知', requiresAuth: true },
   },
   {
+    path: '/messages',
+    name: 'messages',
+    component: () => import('../views/MessagesView.vue'),
+    meta: { title: '私信', requiresAuth: true },
+  },
+  {
+    path: '/messages/:conversationId',
+    name: 'message-thread',
+    component: () => import('../views/MessageThreadView.vue'),
+    meta: { title: '私信对话', requiresAuth: true },
+  },
+  {
     path: '/login',
     name: 'login',
     component: () => import('../views/LoginView.vue'),

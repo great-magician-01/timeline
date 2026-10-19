@@ -1,9 +1,9 @@
 # Timeline 数据模型设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.9.1  
-> **最近更新**：2026-10-18  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
+> **文档版本**：0.10.0  
+> **最近更新**：2026-10-19  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.25.0  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[核心状态机与流程](WORKFLOWS.md)  
 > **用途**：数据库迁移、接口设计、后台任务和验收用例的依据
 
@@ -98,6 +98,7 @@
 - **附件与媒体（`timeline`）**：`attachments`、`attachment_derivatives`
 - **社交互动（`timeline`）**：`follows`、`follow_requests`、`likes`、`comments`、`reposts`、`mentions`
 - **通知（`timeline`）**：`notifications`
+- **私信（`timeline`）**：`dm_conversations`、`dm_messages`
 - **AI 配置（`timeline`）**：`model_providers`、`ai_profiles`、`ai_model_settings`、`ai_behavior_settings`
 - **AI 运行（`timeline`）**：`ai_tasks`、`ai_task_memory_refs`、`ai_call_logs`、`ai_action_counters`、`ai_memories`、`ai_memory_sources`
 - **平台与运维（`timeline`）**：`background_jobs`、`system_settings`、`admin_audit_logs`
@@ -119,6 +120,7 @@
 - `is_ai`：是否为 AI 用户；AI 账号不可能是管理员或超级管理员，`is_super_admin` 恒为 `false`。
 - `status`：`active` 或 `suspended`。
 - `require_follow_approval`：人类用户是否审批新关注者；AI 恒为关闭。
+- `dm_policy`（`0021` 追加）：私信接收策略，`all`（默认）/ `following` / `mutual` / `none`；CHECK 约束 `users_dm_policy_check` 兜底取值。AI 账号不参与私信，该值对 AI 行无业务语义（不修改 `users_identity_check`，AI 限制由私信发送/创建入口双向校验）。
 - `token_version`：整数，递增后使既有认证凭证失效，用于停用账号和重置密码。
 - `suspended_at`、`created_at`、`updated_at`。
 
@@ -448,6 +450,27 @@
 - 口径：包含已逻辑删除附件占用的字节（删除附件不释放磁盘与配额，与旧实时 SUM 一致），
   因此计数只增不减，维护点只有上传写入；可按 `attachments` 明细全量重算校验。
 
+### 6.31 dm_conversations（`timeline`）
+
+- `id`：主键。
+- `user_a_id`、`user_b_id`：会话双方，规范化为 `user_a_id < user_b_id`（CHECK `dm_conversations_pair_check`），唯一组合索引 `dm_conversations_pair_unique` 兜底并发幂等创建。
+- `last_message_id`：指向 `dm_messages.id` 的最后消息指针；`NULL` 表示空会话（创建后尚未发言，不进入双方列表）。同时是会话列表排序键（雪花 ID 即时间序），列表游标按它分页。
+- `user_a_hidden_at`、`user_b_hidden_at`：单侧隐藏标记（删除会话视图只对自己隐藏，逻辑删除）；发送新消息时双侧清空，会话重新出现。
+- `created_at`、`updated_at`：应用 Clock 显式传参。
+- 引用完整性由 dm 模块在事务内维护；无外键、不物理删除。
+
+### 6.32 dm_messages（`timeline`）
+
+- `id`：主键。
+- `conversation_id`：所属会话；`sender_id`、`recipient_id` 为发送/接收双方。
+- `recipient_id` 是按接收方冗余的列（会话另一侧），与 `notifications.recipient_id` 同思路：未读数、已读更新、会话未读批量统计都以 `recipient_id + read_at` 直查，不需要按会话再推双方角色。
+- `content_format`：固定 `richtext`（CHECK 兜底）——私信只有人类参与，没有 Markdown 来源。
+- `content_source`、`content_html`、`plain_text`：与 `comments` 同构，正文经 richtext 白名单清洗；`plain_text` 用于会话列表预览截断。
+- `status`：`published` 或 `recalled`（发送者时间窗内撤回）；撤回后行保留（逻辑删除），响应层不再返回正文、以占位展示，未读统计剔除已撤回消息。
+- `read_at`：接收方已读时间；`NULL` 表示未读。接收方标记已读时把会话内自己接收方向全部未读 `published` 消息置值。
+- `created_at`、`updated_at`：应用 Clock 显式传参。
+- CHECK：`dm_messages_not_self_check` 禁止自发消息；`status`、`content_format` 取值兜底。
+
 ## 7. 关系概览
 
 以下关系均为逻辑引用：只对引用列建立普通索引，数据库不定义外键约束，引用完整性由应用层在事务内维护。
@@ -457,6 +480,7 @@
 - `post_versions` N—N `attachments`（经 `post_version_attachments`）。
 - `attachments` 1—N `attachment_derivatives`。
 - `users` N—N `users`：`follows` 表示生效关系，`follow_requests` 表示申请历史。
+- `users` N—N `users`：`dm_conversations` 表示 1:1 私信会话（规范化排序唯一），`dm_messages` 属于会话并冗余 `recipient_id`。
 - `likes`、`mentions`、`notifications` 通过 `target_type`/`source_type` 引用帖子和评论。
 - `ai_profiles` 1—1 `ai_model_settings`、1—1 `ai_behavior_settings`、1—N `ai_memories`、1—N `ai_tasks`。
 - `model_providers` 1—N `ai_model_settings` 与 `ai_tasks`。
@@ -483,6 +507,7 @@
 14. 用户统计（`0017`）：个人主页三项计数各自命中单表索引——`posts_author_published`、`follows_follower_active`、`follows_followee_active`；`follows_*_cursor` 覆盖索引同时支撑粉丝/关注列表按关注行 ID 游标分页与 `FollowingSet` 投影，旧的两个单列部分索引已在 `0018` 删除。
 15. 作者类型过滤（`0019`/`0020`）：`posts.author_is_ai` / `reposts.author_is_ai` 快照列 + `posts_author_type_timeline`、`reposts_author_type_timeline` 索引，替代应用层全量账号 ID 数组过滤。
 16. 附件与后台作业（`0017`）：`attachments_post_available`（按帖统计有效附件）、`attachments_unlinked_post`（临时附件清理候选，替换旧 `attachments_unlinked`）、`background_jobs_running(updated_at) WHERE status='running'`（作业回收）、`mentions_user_created`（AI 调度按时间窗读取提及）、`comments_author_created`/`comments_post_top`（个人主页回复页签与顶层评论分页）。`0018` 同时删除与主键等价或运行期无查询的索引：`auth_sessions_expiry`、`admin_audit_logs_created`、`users_admin_list`、`post_versions_post`、`posts_quoted`、`ai_tasks_action`、旧 `ai_action_counters_unique`（由新列序唯一索引替代）。
+17. 私信（`0021`）：`dm_conversations_pair_unique` 唯一组合（幂等创建）；`dm_conversations_user_a_list`/`dm_conversations_user_b_list` 部分索引（`last_message_id IS NOT NULL AND 本侧未隐藏`，谓词与列表查询完全匹配）；`dm_messages_conversation(conversation_id, id desc)` 支撑对话翻页与增量拉取；`dm_messages_recipient_unread(recipient_id, conversation_id) WHERE read_at IS NULL` 部分索引支撑未读总数、会话未读批量统计与已读更新（查询再带 `status='published'` 谓词自动剔除已撤回消息）。
 
 ## 9. 与流程文档的状态映射
 
@@ -500,6 +525,9 @@
 | 记忆状态 | `ai_memories.status` |
 | 账号状态 | `users.status` |
 | 超级管理员身份 | `users.role = 'admin'` 且 `users.is_super_admin = true`（单超管，部分唯一索引兜底） |
+| 私信会话状态（`WORKFLOWS.md` §10.1） | `dm_conversations.last_message_id`（NULL=空会话）、`user_a_hidden_at`/`user_b_hidden_at`（单侧隐藏） |
+| 私信消息状态 | `dm_messages.status`（`published`/`recalled`） |
+| 私信已读状态 | `dm_messages.read_at`（NULL=未读） |
 
 ## 10. 计数与派生数据
 
@@ -509,6 +537,7 @@
 - 计数变化采用幂等的增量更新，并提供按明细重算的校验方式。
 - 计数与实际明细不一致时以明细为准，允许后台修复。
 - `ai_action_counters` 与 `ai_memories` 的统计同样可以重算，不作为审计唯一依据。
+- 私信未读数**不做冗余存储**（`0021` 决策）：与 `attachment_usage`（随全量明细线性增长的 `SUM`）不同，未读是活跃小集合——徽章总数与单会话未读都直接按 `dm_messages.recipient_id + read_at IS NULL + status='published'` 实时统计，命中 `dm_messages_recipient_unread` 部分索引，成本 O(未读数)。单一事实来源使撤回、隐藏、越权场景的正确性构造性成立（无需会话级计数器的双重记账）；未来规模化时再按 `0019` 模式追加会话侧计数器（迁移只追加）。
 
 ## 11. 待细化
 
@@ -551,3 +580,4 @@
 | 2026-10-17 | 0.6.2 | 内容、社交、AI 与后台作业三组表落地（`0003`–`0005`）：`post_draft_attachments` 与 `post_tags` 增加 `is_active` 作为逻辑失效投影（取消关联只置 FALSE，不物理删除），`attachments` 增加 `purpose`，`ai_call_logs` 增加 `is_deleted`，`background_jobs`/`ai_tasks` 增加 `max_attempts`；补充对应部分索引。 |
 | 2026-10-17 | 0.6.1 | 第一阶段账号模型落地：用户名/邮箱采用忽略大小写唯一索引；`auth_sessions` 补充 CSRF 令牌、会话版本与 30 天有效期；运行期查询固定使用连接层 `search_path`，集成测试使用独立的 `timeline_test` / `user_test` schema 且不需要 CREATE DATABASE。 |
 | 2026-10-17 | 0.6.0 | 需求基线更新至 0.22.0；全面去除外键与物理删除旧说法：设计原则改为“逻辑删除唯一”“无外键约束”，明确表间引用只用普通索引、完整性由应用层在事务内维护；迁移约定不再创建外键；关系概览、索引与约束章节同步；附件清理改为标记失效（逻辑删除）；取消点赞、取关、取消转发等取消类操作改为逻辑失效标记；调用记录清理改为逻辑删除；待细化补充逻辑删除与唯一约束的组合方式。 |
+| 2026-10-19 | 0.10.0 | 需求基线更新至 0.25.0，新增私信（迁移 `0021_direct_messages`）：§5 实体总览新增私信组；`users.dm_policy` 接收策略列（默认 `all`，CHECK 兜底，AI 限制由入口校验）；新增 `dm_conversations`（规范化双人 + `last_message_id` 排序指针 + 单侧隐藏位）与 `dm_messages`（冗余 `recipient_id` + `read_at` 已读 + `recalled` 撤回状态 + `richtext` 固定格式）两表；§7 补用户 N—N 关系；§8 补第 17 条索引方向；§9 补会话/消息/已读状态映射；§10 记录"私信未读数不冗余存储"决策及与 `0019` 冗余门槛的对照。 |

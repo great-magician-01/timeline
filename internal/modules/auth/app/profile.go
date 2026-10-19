@@ -7,6 +7,7 @@ import (
 
 	"github.com/great-magician-01/timeline/internal/modules/auth/domain"
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
+	"github.com/great-magician-01/timeline/internal/shared/access"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 	"github.com/great-magician-01/timeline/internal/shared/search"
 )
@@ -71,6 +72,37 @@ func (s *Service) UpdateFollowSettings(ctx context.Context, userID int64, enable
 	updated, err := s.users.UpdateFollowApproval(ctx, userID, enabled, s.now())
 	if err != nil {
 		return false, internal(err, "更新关注审批设置失败")
+	}
+	return updated, nil
+}
+
+// DMSettings 读取私信接收策略（all/following/mutual/none）。
+func (s *Service) DMSettings(ctx context.Context, userID int64) (string, error) {
+	if s.users == nil {
+		return "", apperr.Internal("auth 账号仓储未初始化")
+	}
+	user, err := s.users.ByID(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if user.DMPolicy == "" {
+		return model.DMPolicyAll, nil
+	}
+	return user.DMPolicy, nil
+}
+
+// UpdateDMSettings 校验并更新私信接收策略，返回最新值。
+func (s *Service) UpdateDMSettings(ctx context.Context, userID int64, raw string) (string, error) {
+	if s.users == nil {
+		return "", apperr.Internal("auth 账号仓储未初始化")
+	}
+	policy, err := access.ValidateDMPolicy(raw)
+	if err != nil {
+		return "", err
+	}
+	updated, err := s.users.UpdateDMPolicy(ctx, userID, policy, s.now())
+	if err != nil {
+		return "", internal(err, "更新私信接收设置失败")
 	}
 	return updated, nil
 }

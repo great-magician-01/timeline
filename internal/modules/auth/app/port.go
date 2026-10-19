@@ -18,6 +18,7 @@ type UserRepo interface {
 	UpdateProfile(ctx context.Context, id int64, nickname, bio, avatarURL *string, at time.Time) (model.User, error)
 	UpdateProfileFields(ctx context.Context, id int64, username, nickname, bio *string, at time.Time) (model.User, error)
 	UpdateFollowApproval(ctx context.Context, id int64, enabled bool, at time.Time) (bool, error)
+	UpdateDMPolicy(ctx context.Context, id int64, policy string, at time.Time) (string, error)
 	UpdateRole(ctx context.Context, id int64, role string, at time.Time) (model.User, error)
 	UpdateStatus(ctx context.Context, id int64, status string, suspendedAt *time.Time, tokenVersion int64, at time.Time) (model.User, error)
 	UpdatePassword(ctx context.Context, id int64, passwordHash string, tokenVersion int64, at time.Time) error

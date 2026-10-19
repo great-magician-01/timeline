@@ -77,6 +77,45 @@ func (h *Handler) UpdateFollowSettings(c *gin.Context) {
 	c.JSON(stdhttp.StatusOK, followSettingsResponse{RequireFollowApproval: enabled})
 }
 
+// DMSettings 处理 GET /api/v1/users/me/dm-settings：读取私信接收策略。
+func (h *Handler) DMSettings(c *gin.Context) {
+	viewer, ok := httpx.RequireViewer(c)
+	if !ok {
+		return
+	}
+	policy, err := h.svc.DMSettings(c.Request.Context(), viewer.ID)
+	if err != nil {
+		h.fail(c, "读取私信接收设置失败", err)
+		return
+	}
+	c.JSON(stdhttp.StatusOK, dmSettingsResponse{DMPolicy: policy})
+}
+
+// UpdateDMSettings 处理 POST /api/v1/users/me/dm-settings：更新私信接收策略。
+func (h *Handler) UpdateDMSettings(c *gin.Context) {
+	viewer, ok := httpx.RequireViewer(c)
+	if !ok {
+		return
+	}
+	var in struct {
+		DMPolicy *string `json:"dm_policy"`
+	}
+	if !h.decodeJSON(c, &in) {
+		return
+	}
+	if in.DMPolicy == nil {
+		httpx.ErrorWithDetails(c, stdhttp.StatusBadRequest, "validation_failed", "缺少私信接收设置",
+			map[string]string{"dm_policy": "该字段不能为空"})
+		return
+	}
+	policy, err := h.svc.UpdateDMSettings(c.Request.Context(), viewer.ID, *in.DMPolicy)
+	if err != nil {
+		h.fail(c, "更新私信接收设置失败", err)
+		return
+	}
+	c.JSON(stdhttp.StatusOK, dmSettingsResponse{DMPolicy: policy})
+}
+
 // SearchUsers 处理 GET /api/v1/users/search：只返回公开资料，ID 游标分页。
 func (h *Handler) SearchUsers(c *gin.Context) {
 	keyword := strings.TrimSpace(c.Query("q"))

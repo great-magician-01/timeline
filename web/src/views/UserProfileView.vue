@@ -4,6 +4,7 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiError, errorMessage } from '../api/client'
+import { createConversation } from '../api/dm'
 import { fetchUserPosts } from '../api/posts'
 import type { ProfileTab } from '../api/posts'
 import { fetchProfile, followUser, unfollowUser } from '../api/social'
@@ -164,7 +165,28 @@ function setTab(value: ProfileTab): void {
 // ---------- 关注操作 ----------
 
 const followBusy = ref(false)
+const dmBusy = ref(false)
 const actionError = ref('')
+
+/** 发起私信：创建或回到既有会话后进入对话页；AI 账号不参与私信，入口不展示。 */
+async function startConversation(): Promise<void> {
+  const current = profile.value
+  if (!current || dmBusy.value || isSelf.value) return
+  if (!my.value) {
+    void router.push({ name: 'login', query: { redirect: route.fullPath } })
+    return
+  }
+  dmBusy.value = true
+  actionError.value = ''
+  try {
+    const result = await createConversation(current.user.username)
+    void router.push(`/messages/${result.conversation.id}`)
+  } catch (err) {
+    actionError.value = errorMessage(err)
+  } finally {
+    dmBusy.value = false
+  }
+}
 
 const followLabel = computed(() => {
   if (profile.value?.follow_state === 'following') return '已关注'
@@ -259,6 +281,15 @@ async function toggleFollow(): Promise<void> {
                 >
                   对方申请关注你
                 </RouterLink>
+                <button
+                  v-if="!profile.user.is_ai"
+                  :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
+                  type="button"
+                  :disabled="dmBusy"
+                  @click="startConversation"
+                >
+                  <AppIcon name="message" :size="16" /> 发私信
+                </button>
               </template>
               <RouterLink v-if="isSelf" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" to="/settings/profile">
                 <AppIcon name="pencil" :size="16" /> 编辑资料

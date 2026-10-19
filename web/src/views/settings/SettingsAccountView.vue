@@ -3,7 +3,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { changePassword } from '../../api/auth'
 import { errorMessage, fieldErrors } from '../../api/client'
-import { getFollowSettings, updateFollowSettings } from '../../api/users'
+import { getDMSettings, getFollowSettings, updateDMSettings, updateFollowSettings } from '../../api/users'
+import type { DMPolicy } from '../../api/types'
 import AlertNote from '../../components/AlertNote.vue'
 import AppIcon from '../../components/AppIcon.vue'
 import FormField from '../../components/FormField.vue'
@@ -58,6 +59,56 @@ async function onApprovalChange(event: Event): Promise<void> {
     followError.value = errorMessage(error)
   } finally {
     followSaving.value = false
+  }
+}
+
+// ---------- 私信接收策略 ----------
+const dmLoading = ref(true)
+const dmError = ref('')
+const dmSaved = ref(false)
+const dmSaving = ref(false)
+const dmPolicy = ref<DMPolicy>('all')
+
+const DM_OPTIONS: { value: DMPolicy; label: string; description: string }[] = [
+  { value: 'all', label: '所有人', description: '任何登录用户都可以给你发私信（默认）' },
+  { value: 'following', label: '仅我关注的人', description: '只有你关注的人可以给你发私信' },
+  { value: 'mutual', label: '仅互相关注的人', description: '只有互相关注的用户可以给你发私信' },
+  { value: 'none', label: '关闭私信', description: '任何人都不能给你发新的私信，既有会话只读保留' },
+]
+
+async function loadDMSettings(): Promise<void> {
+  dmLoading.value = true
+  dmError.value = ''
+  try {
+    const data = await getDMSettings()
+    dmPolicy.value = data.dm_policy
+  } catch (error) {
+    dmError.value = errorMessage(error)
+  } finally {
+    dmLoading.value = false
+  }
+}
+
+async function onDMChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const next = input.value as DMPolicy
+  dmError.value = ''
+  dmSaved.value = false
+  dmSaving.value = true
+  try {
+    const data = await updateDMSettings(next)
+    dmPolicy.value = data.dm_policy
+    dmSaved.value = true
+  } catch (error) {
+    // 回滚到保存前的策略：取消本次选中并恢复原选项，避免出现无选中项。
+    input.checked = false
+    const previous = document.querySelector<HTMLInputElement>(
+      `input[name="dm_policy"][value="${dmPolicy.value}"]`,
+    )
+    if (previous) previous.checked = true
+    dmError.value = errorMessage(error)
+  } finally {
+    dmSaving.value = false
   }
 }
 
@@ -118,7 +169,10 @@ async function onLogout(): Promise<void> {
   }
 }
 
-onMounted(() => void loadFollowSettings())
+onMounted(() => {
+  void loadFollowSettings()
+  void loadDMSettings()
+})
 </script>
 
 <template>
@@ -211,6 +265,40 @@ onMounted(() => void loadFollowSettings())
 
       <AlertNote v-if="followSaved" kind="success" class="mt-3!">关注审批设置已更新。</AlertNote>
       <AlertNote v-if="followError" kind="error" class="mt-3!">{{ followError }}</AlertNote>
+    </template>
+  </section>
+
+  <section :class="[ui.card, ui.cardPad]">
+    <h2 :class="[ui.pageTitle]">私信接收</h2>
+    <p :class="[ui.pageDesc]">控制谁可以给你发私信；对方调整策略后，新的发送立即按最新策略校验。</p>
+
+    <p v-if="dmLoading" :class="[ui.loadingRow]"><span :class="[ui.spinner]" aria-hidden="true"></span> 载入中…</p>
+
+    <template v-else>
+      <div class="mt-[10px] grid gap-2" role="radiogroup" aria-label="私信接收策略">
+        <label
+          v-for="option in DM_OPTIONS"
+          :key="option.value"
+          class="flex items-start gap-2.5 rounded-[10px] border border-solid border-border px-3 py-2"
+        >
+          <input
+            type="radio"
+            name="dm_policy"
+            :value="option.value"
+            :checked="dmPolicy === option.value"
+            :disabled="dmSaving || suspended"
+            class="mt-1"
+            @change="onDMChange"
+          />
+          <span class="flex flex-col leading-[1.5]">
+            <span class="text-[14px] font-semibold">{{ option.label }}</span>
+            <span class="text-[12.5px] text-ink-3">{{ option.description }}</span>
+          </span>
+        </label>
+      </div>
+
+      <AlertNote v-if="dmSaved" kind="success" class="mt-3!">私信接收设置已更新。</AlertNote>
+      <AlertNote v-if="dmError" kind="error" class="mt-3!">{{ dmError }}</AlertNote>
     </template>
   </section>
 

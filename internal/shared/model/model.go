@@ -66,6 +66,20 @@ const (
 	FollowStateIncomingPending = "incoming_pending"
 )
 
+// 私信接收策略（与 users.dm_policy 的 CHECK 约束一致）。
+const (
+	DMPolicyAll       = "all"
+	DMPolicyFollowing = "following"
+	DMPolicyMutual    = "mutual"
+	DMPolicyNone      = "none"
+)
+
+// 私信消息状态（与 dm_messages.status 的 CHECK 约束一致）。
+const (
+	DMMessageStatusPublished = "published"
+	DMMessageStatusRecalled  = "recalled"
+)
+
 // 通知类型（与 notices.type 的 CHECK 约束一致）。
 const (
 	NoticeTypePostLike      = "post_like"
@@ -107,6 +121,7 @@ type User struct {
 	IsAI                  bool
 	Status                string
 	RequireFollowApproval bool
+	DMPolicy              string
 	TokenVersion          int64
 	SuspendedAt           *time.Time
 	CreatedAt             time.Time
@@ -284,3 +299,63 @@ type Notification struct {
 	IdempotencyKey string
 	CreatedAt      time.Time
 }
+
+// DMConversation 对应 timeline.dm_conversations。双方按 UserAID < UserBID 规范化；
+// LastMessageID 为空表示空会话，同时兼作列表排序键。
+type DMConversation struct {
+	ID            int64
+	UserAID       int64
+	UserBID       int64
+	LastMessageID *int64
+	UserAHiddenAt *time.Time
+	UserBHiddenAt *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// PeerIDFor 返回会话中 userID 的对方 ID；非会话成员返回 false。
+func (c DMConversation) PeerIDFor(userID int64) (int64, bool) {
+	switch userID {
+	case c.UserAID:
+		return c.UserBID, true
+	case c.UserBID:
+		return c.UserAID, true
+	default:
+		return 0, false
+	}
+}
+
+// HiddenFor 表示 userID 已删除自己的会话视图。
+func (c DMConversation) HiddenFor(userID int64) bool {
+	switch userID {
+	case c.UserAID:
+		return c.UserAHiddenAt != nil
+	case c.UserBID:
+		return c.UserBHiddenAt != nil
+	default:
+		return false
+	}
+}
+
+// DMMessage 对应 timeline.dm_messages。RecipientID 为会话另一侧，
+// ReadAt 为空表示接收方未读；撤回只置 Status，正文列保留。
+type DMMessage struct {
+	ID             int64
+	ConversationID int64
+	SenderID       int64
+	RecipientID    int64
+	ContentFormat  string
+	ContentSource  string
+	ContentHTML    string
+	PlainText      string
+	Status         string
+	ReadAt         *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// Recalled 表示消息已被发送者撤回。
+func (m DMMessage) Recalled() bool { return m.Status == DMMessageStatusRecalled }
+
+// Read 表示接收方已读。
+func (m DMMessage) Read() bool { return m.ReadAt != nil }

@@ -1,9 +1,9 @@
 # Timeline 项目文档索引
 
 > **文档状态**：持续更新  
-> **文档版本**：0.1.10  
-> **最近更新**：2026-10-18  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.2  
+> **文档版本**：0.1.11  
+> **最近更新**：2026-10-19  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.25.0  
 > **用途**：文档入口、版本索引与当前实现状态
 
 所有需求与设计决策以本目录文档为准，聊天记录不作为最终依据。各文档版本与更新日期见各自文件头部，变更历史见各自文末。
@@ -31,18 +31,18 @@
 
 （版本号以各文档头部为准；更新任何文档时同步此列表。）
 
-- 需求基线版本：`REQUIREMENTS.md` 0.24.2（全局约束：数据库无外键、全量逻辑删除、业务接口仅 GET/POST；默认保护阈值已确定；AI 联网搜索使用全局独立加密密钥；账号角色仍为 `user`/`admin`，新增 `is_super_admin` 标记：空库首个注册用户自动成为唯一超级管理员，超管可授权/撤销管理员，普通管理员不能操作超管账号；业务时间由应用生成显式传参、数据库不提供业务时间默认值；ERROR 级别日志自动附加完整调用栈（text 记录行后多行缩进、json `stack` 字段），HTTP 请求与后台作业/周期任务 panic 被恢复并记录完整栈）
-- 页面与权限：0.1.18（§8 明确授权实现位置为「路由 Policy + shared/access 纯策略 + app 端口」，权限矩阵与行为不变）
-- 状态机与流程：0.7.1（补充「一次事务一个 now」与「时间比较在应用侧、事务边界归 app」）
-- 后端架构：0.3.1（目标架构重构完成并清理旧包：`cmd/server` → `internal/app` 组合根 → `transport/router` 声明式路由 → `modules/*` 八域四层；旧 `internal/*` 业务包已删除、集成测试迁移到 `internal/testkit`；架构守卫覆盖新树、`cmd/`、`internal/server` 与 `internal/testkit` 例外，并新增 DB 原语/遗留符号规则；迁移 0011–0020 与本次审查行为修复已同步；SQL 最简原则改造新增 `shared/search` 纯函数辅助包；ERROR 日志自动附加完整调用栈、HTTP 请求 panic 由 `transport/middleware.Recovery` 记录完整栈并返回统一 500）
-- 数据模型：0.9.0（`users.is_super_admin`、单超管与超管保护；§4.4 时间权威在应用侧、数据库不再提供业务时间默认值；迁移 0011–0016 含 43 个时间默认值移除、`users.avatar_attachment_id` 与头像回填、时间线/任务/附件索引、`pg_trgm` 搜索索引、删除未使用与不匹配索引；迁移 0017–0020 新增查询索引批次、删除冗余索引、`posts/reposts.author_is_ai` 快照列、`attachment_usage` 配额冗余表；个人主页统计收敛为 3 项单表计数）
-- 接口设计：0.7.4（修复 §2.6 错误码表被实现说明段落截断的格式缺陷；补充就绪前 `/api/*` 503 边界；接口契约不变）
-- Docker 部署：0.4.4（text 日志改为对齐可读格式；§10 日志说明补 ERROR 完整调用栈与 panic 恢复：text 记录后多行缩进 / json `stack` 字段、客户端断开按 WARN 无栈、panic 返回统一 500 `internal_error`；保留 INVALID 索引处置、`pg_trgm` schema 要求、`0016`–`0020` 升级说明、`check-time-defaults.sql` 用法与 NTP/`0011` 前置条件）
-- 验收用例：0.2.7（ENV-10 补齐 ERROR 调用栈与 panic 恢复预期；保留 ENV-03 时间核对与 §2.5 结构改造后回归项：路由/CSRF/事务/时间/架构守卫）
-- 设计令牌：0.1.9（需求基线 0.22.1，令牌与组件规范无实质变更）
+- 需求基线版本：`REQUIREMENTS.md` 0.25.0（全局约束：数据库无外键、全量逻辑删除、业务接口仅 GET/POST；默认保护阈值已确定；AI 联网搜索使用全局独立加密密钥；账号角色仍为 `user`/`admin`，新增 `is_super_admin` 标记：空库首个注册用户自动成为唯一超级管理员，超管可授权/撤销管理员，普通管理员不能操作超管账号；业务时间由应用生成显式传参、数据库不提供业务时间默认值；ERROR 级别日志自动附加完整调用栈（text 记录行后多行缩进、json `stack` 字段），HTTP 请求与后台作业/周期任务 panic 被恢复并记录完整栈；新增私信：1:1 双人会话、`dm_policy` 四档接收策略默认所有人、纯文本无附件、AI 双向不参与、管理后台不可见、轮询更新、2 分钟撤回、单侧隐藏）
+- 页面与权限：0.1.21（新增私信导航、U-11/U-12 页面、权限矩阵五行与授权核对点第 16 条）
+- 状态机与流程：0.8.0（新增「10. 私信会话与消息」；原 10–13 章顺延）
+- 后端架构：0.4.0（新增 `modules/dm` 九域四层；数据所有权补 `dm_conversations`/`dm_messages` 与 `users.dm_policy`；迁移状态到 `0021_direct_messages`；目标架构重构与清理旧包、架构守卫、SQL 最简原则改造与 ERROR 日志自动调用栈等既有说明保持）
+- 数据模型：0.10.0（新增 `dm_conversations`/`dm_messages` 与 `users.dm_policy`；私信未读数不冗余存储的决策；既有 `users.is_super_admin`、时间权威在应用侧、迁移 0011–0020 等说明保持）
+- 接口设计：0.8.0（新增第 10 章私信接口与 `GET/POST /users/me/dm-settings`、dm 对象形态、私信限频；原 10–15 章顺延为 11–16 章）
+- Docker 部署：0.4.5（§9 新增 `0021_direct_messages` 升级说明；§10 日志模块标签补 `[dm]`；保留 ERROR 调用栈、INVALID 索引处置、`pg_trgm` schema 要求、`check-time-defaults.sql` 用法与 NTP/`0011` 前置条件）
+- 验收用例：0.3.0（新增私信 DM-01～12 与 SEC-10/11；原 11–18 章顺延为 12–19；保留 ENV-10 调用栈、ENV-03 时间核对与 §2.5 结构改造回归项）
+- 设计令牌：0.2.1（需求基线 0.25.0；§10 动态内容审计补私信未读与对话数据来源，令牌与组件规范无实质变更）
 - 已产出实现文件：`.env.example`（部署配置模板）、`Dockerfile`、`docker-compose.yml`、`deploy/scripts/`、`.github/workflows/ci.yml`、`demo/`（主页样式演示五版 + 总览 + 图标候选 + `logo.svg`，E 版为选定方向）
-- 编码实现：V1 全部功能范围已落地（账号、内容与附件、社交互动、发现、AI 配置与自主社交、AI 联网搜索、管理后台、后台作业、前端全部页面），本轮新增超级管理员：空库首注册自动成为唯一超管、超管授权/撤销管理员、普通管理员不能操作超管账号。`migrations/` 按文件名顺序追加执行，开发库已应用现有迁移。默认 Go 测试、`go vet`、`npm run build` 与隔离 schema 集成测试（账号、内容、CSRF 路由覆盖、全局 AI 开关、AI 管理）已通过；本轮新增的 `TestBootstrapIntegration`（空库首注册/并发唯一超管/空库忽略注册开关）、`TestAdminGrantIntegration`（授权/撤销/超管保护/审计/幂等）与 `TestRequireSuperAdminRoleMatrix` 单测已在开发库隔离 schema 实际运行通过。
-- 后端结构改造（`refactor/target-architecture` 分支）：已按 `docs/ARCHITECTURE.md` 完成——`cmd/server` 只保留进程生命周期，业务装配在 `internal/app` 组合根，路由由 `transport/router` 声明式注册，八个模块按 `domain/app/repo/http` 四层实现；`platform/*`、`shared/*`（model/access/contracts/page/richtext/format/view/search）、迁移器 v2、架构守卫 `internal/architecture`（覆盖新树、`cmd/`、`internal/server`，`internal/testkit` 为显式测试基础设施例外）与 `ARCHITECTURE.md` 已建立，`migrations/0011–0020` 已追加；旧 `internal/*` 业务包已从仓库删除，集成测试迁移到 `internal/testkit` + `internal/server`/模块 `http` harness。本次后端审查修复已落地并补默认测试，覆盖 AI 候选范围/目标作者二次授权、任务自动重试与 reconcile、记忆沉淀与来源失效、联网搜索有限工具轮次、发帖限频兜底、作业重激活与人工重试、审计单写、资料统计口径、自评论排除、附件清理两步流程、登录标识索引写法、架构守卫扩展与 `0016`–`0020` 迁移等。
+- 编码实现：V1 全部功能范围已落地（账号、内容与附件、社交互动、发现、AI 配置与自主社交、AI 联网搜索、管理后台、后台作业、前端全部页面），并新增私信：1:1 会话、`dm_policy` 四档接收策略、未读轮询徽章、会话列表/对话页、2 分钟撤回、单侧隐藏；AI 双向不参与、管理后台不可见。`migrations/` 按文件名顺序追加执行，开发库已应用现有迁移（至 `0021`）。默认 Go 测试、`go vet`、`npm run build` 与隔离 schema 集成测试（账号、内容、CSRF 路由覆盖、全局 AI 开关、AI 管理、私信 `TestDMIntegration`）已通过；`TestBootstrapIntegration`、`TestAdminGrantIntegration` 与 `TestRequireSuperAdminRoleMatrix` 单测继续通过。
+- 后端结构改造（`refactor/target-architecture` 分支）：已按 `docs/ARCHITECTURE.md` 完成——`cmd/server` 只保留进程生命周期，业务装配在 `internal/app` 组合根，路由由 `transport/router` 声明式注册，九个模块按 `domain/app/repo/http` 四层实现；`platform/*`、`shared/*`（model/access/contracts/page/richtext/format/view/search）、迁移器 v2、架构守卫 `internal/architecture`（覆盖新树、`cmd/`、`internal/server`，`internal/testkit` 为显式测试基础设施例外）与 `ARCHITECTURE.md` 已建立，`migrations/0011–0021` 已追加；旧 `internal/*` 业务包已从仓库删除，集成测试迁移到 `internal/testkit` + `internal/server`/模块 `http` harness。后端审查修复项、SQL 最简原则改造与私信模块均已落地并补默认测试与集成测试。
 - 未完成：`docs/ACCEPTANCE.md` 中 P0 清单的完整人工验收（含本轮新增的初始化与角色授权用例）。开发机已用临时 PostgreSQL 实例完成 Docker 镜像构建、容器启动、健康检查/前端托管/基础 API 冒烟，以及一次备份/恢复演练（含附件属主修正）；部署机仍应按 `docs/DEPLOYMENT.md` 第 11 章复演。
 
 ## 2026-10-17 部署与文档修复范围
@@ -73,3 +73,4 @@
 | 2026-10-18 | 0.1.4 | 同步代码审查修复：搜索密钥可用状态、Base URL 明文说明、候选范围二次授权、搜索失败重试分类与 mock 搜索模式；更新各文档版本索引。 |
 | 2026-10-17 | 0.1.3 | 同步 AI 联网搜索：需求基线 0.23.0，页面权限 0.1.15、流程 0.6.0、数据模型 0.7.0、接口 0.7.0、部署 0.3.7、验收 0.2.3；全局搜索密钥独立于模型预设并加密保存，按 AI 默认关闭。 |
 | 2026-10-17 | 0.1.1 | 同步本轮部署与文档修复：更新需求基线 0.22.1、页面权限 0.1.14、部署 0.3.6、验收 0.2.1；开发机完成 Docker 构建/容器运行与备份恢复基础验证，未完成清单收敛为完整 P0 人工验收；新增本轮修复范围说明。 |
+| 2026-10-19 | 0.1.11 | 新增私信需求与全套设计：需求基线 0.25.0；页面权限 0.1.21、流程 0.8.0、后端架构 0.4.0（`modules/dm` 九域）、数据模型 0.10.0（`dm_conversations`/`dm_messages`/`users.dm_policy`）、接口 0.8.0（第 10 章私信接口）、验收 0.3.0（DM 组 + SEC-10/11）、`AGENTS.md` 0.2.3 与 `migrations/README.md`（`0021_direct_messages`）同步。决策：1:1 纯文本无附件、`dm_policy` 四档默认所有人、AI 双向不参与、管理后台不可见、轮询更新、2 分钟撤回、单侧隐藏恢复、发送与创建共享 60 次/10 分钟限频。 |

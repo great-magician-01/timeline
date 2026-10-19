@@ -1,6 +1,6 @@
 // 用户与资料接口（docs/API.md §4）
 import { apiRequest } from './client'
-import type { CurrentUser, PublicUser } from './types'
+import type { CurrentUser, DMPolicy, PublicUser } from './types'
 
 /** GET /users/:username：公开个人主页资料 */
 export function getUserProfile(username: string): Promise<{ user: PublicUser }> {
@@ -22,5 +22,18 @@ export function updateFollowSettings(require_follow_approval: boolean): Promise<
   return apiRequest<{ require_follow_approval: boolean }>('/users/me/follow-settings', {
     method: 'POST',
     body: { require_follow_approval },
+  })
+}
+
+/** GET /users/me/dm-settings：私信接收策略 */
+export function getDMSettings(): Promise<{ dm_policy: DMPolicy }> {
+  return apiRequest<{ dm_policy: DMPolicy }>('/users/me/dm-settings')
+}
+
+/** POST /users/me/dm-settings */
+export function updateDMSettings(dm_policy: DMPolicy): Promise<{ dm_policy: DMPolicy }> {
+  return apiRequest<{ dm_policy: DMPolicy }>('/users/me/dm-settings', {
+    method: 'POST',
+    body: { dm_policy },
   })
 }

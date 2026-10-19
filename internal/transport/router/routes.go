@@ -15,8 +15,8 @@ type Route struct {
 	Handler func(Deps) gin.HandlerFunc
 }
 
-// Routes 返回全部业务路由（110 条，基线 b6fed97；新增业务接口时同步维护并更新
-// routes_test.go 的数量断言）。
+// Routes 返回全部业务路由（121 条，基线 b6fed97 + 私信 11 条；新增业务接口时同步
+// 维护并更新 routes_test.go 的数量断言）。
 func Routes() []Route {
 	return []Route{
 		// ---------- 公开 / 可选会话 ----------
@@ -30,18 +30,24 @@ func Routes() []Route {
 		// ---------- 已登录只读 ----------
 		{http.MethodGet, "/auth/me", Login, func(d Deps) gin.HandlerFunc { return d.Auth.Me }},
 		{http.MethodGet, "/users/me/follow-settings", Login, func(d Deps) gin.HandlerFunc { return d.Auth.FollowSettings }},
+		{http.MethodGet, "/users/me/dm-settings", Login, func(d Deps) gin.HandlerFunc { return d.Auth.DMSettings }},
 		{http.MethodGet, "/follow-requests", Login, func(d Deps) gin.HandlerFunc { return d.Social.ListFollowRequests }},
 		{http.MethodGet, "/me/drafts", Login, func(d Deps) gin.HandlerFunc { return d.Content.ListMyDrafts }},
 		{http.MethodGet, "/me/scheduled", Login, func(d Deps) gin.HandlerFunc { return d.Content.ListMyScheduled }},
 		{http.MethodGet, "/timeline/following", Login, func(d Deps) gin.HandlerFunc { return d.Content.FollowingTimeline }},
 		{http.MethodGet, "/notifications", Login, func(d Deps) gin.HandlerFunc { return d.Notice.List }},
 		{http.MethodGet, "/notifications/unread-count", Login, func(d Deps) gin.HandlerFunc { return d.Notice.UnreadCount }},
+		{http.MethodGet, "/dm/unread-count", Login, func(d Deps) gin.HandlerFunc { return d.DM.UnreadCount }},
+		{http.MethodGet, "/dm/conversations", Login, func(d Deps) gin.HandlerFunc { return d.DM.ListConversations }},
+		{http.MethodGet, "/dm/conversations/:id", Login, func(d Deps) gin.HandlerFunc { return d.DM.ConversationDetail }},
+		{http.MethodGet, "/dm/conversations/:id/messages", Login, func(d Deps) gin.HandlerFunc { return d.DM.ListMessages }},
 
 		// ---------- 已登录写（登录 + CSRF） ----------
 		{http.MethodPost, "/auth/logout", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Auth.Logout }},
 		{http.MethodPost, "/auth/password", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Auth.ChangePassword }},
 		{http.MethodPost, "/users/me", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Auth.UpdateProfile }},
 		{http.MethodPost, "/users/me/follow-settings", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Auth.UpdateFollowSettings }},
+		{http.MethodPost, "/users/me/dm-settings", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Auth.UpdateDMSettings }},
 		{http.MethodPost, "/users/:username/follow", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.Follow }},
 		{http.MethodPost, "/users/:username/unfollow", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.Unfollow }},
 		{http.MethodPost, "/users/me/followers/:username/remove", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.RemoveFollower }},
@@ -65,6 +71,11 @@ func Routes() []Route {
 		{http.MethodPost, "/comments/:id/delete", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.DeleteComment }},
 		{http.MethodPost, "/notifications/read-all", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Notice.MarkAllRead }},
 		{http.MethodPost, "/notifications/:id/read", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Notice.MarkRead }},
+		{http.MethodPost, "/dm/conversations", HumanWrite, func(d Deps) gin.HandlerFunc { return d.DM.CreateConversation }},
+		{http.MethodPost, "/dm/conversations/:id/messages", HumanWrite, func(d Deps) gin.HandlerFunc { return d.DM.SendMessage }},
+		{http.MethodPost, "/dm/conversations/:id/read", HumanWrite, func(d Deps) gin.HandlerFunc { return d.DM.MarkRead }},
+		{http.MethodPost, "/dm/conversations/:id/hide", HumanWrite, func(d Deps) gin.HandlerFunc { return d.DM.HideConversation }},
+		{http.MethodPost, "/dm/messages/:id/recall", HumanWrite, func(d Deps) gin.HandlerFunc { return d.DM.RecallMessage }},
 		{http.MethodPost, "/attachments", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.Upload }},
 		{http.MethodPost, "/attachments/:id/delete", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.Delete }},
 

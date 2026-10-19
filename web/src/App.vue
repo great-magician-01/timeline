@@ -7,6 +7,7 @@ import UserAvatar from './components/UserAvatar.vue'
 import type { IconName } from './components/icons'
 import { useTheme } from './composables/theme'
 import { authState } from './stores/auth'
+import { messageState, startMessagePolling, stopMessagePolling } from './stores/messages'
 import { notificationState, startNotificationPolling, stopNotificationPolling } from './stores/notifications'
 import { registrationOpen } from './stores/site'
 
@@ -19,16 +20,31 @@ interface NavEntry {
 const { theme, toggleTheme } = useTheme()
 const route = useRoute()
 
-// 未读通知轮询只对登录用户开启
+// 通知与私信未读轮询只对登录用户开启（两个独立接口、独立徽章）
 watch(
   () => authState.user?.id,
   (id) => {
-    if (id) startNotificationPolling()
-    else stopNotificationPolling()
+    if (id) {
+      startNotificationPolling()
+      startMessagePolling()
+    } else {
+      stopNotificationPolling()
+      stopMessagePolling()
+    }
   },
   { immediate: true },
 )
-onUnmounted(stopNotificationPolling)
+onUnmounted(() => {
+  stopNotificationPolling()
+  stopMessagePolling()
+})
+
+/** 主导航未读徽章：通知与私信各自独立 */
+function navBadge(to: string): number {
+  if (to === '/notifications') return notificationState.unread
+  if (to === '/messages') return messageState.unread
+  return 0
+}
 
 const user = computed(() => authState.user)
 const isAdmin = computed(() => user.value?.role === 'admin')
@@ -45,6 +61,7 @@ const mainNav = computed<NavEntry[]>(() => {
     items.push(
       { label: '发布', to: '/compose', icon: 'pencil' },
       { label: '通知', to: '/notifications', icon: 'bell' },
+      { label: '私信', to: '/messages', icon: 'message' },
       { label: '关注申请', to: '/follow-requests', icon: 'user-plus' },
       { label: '草稿', to: '/drafts', icon: 'file-text' },
       { label: '定时发布', to: '/scheduled', icon: 'calendar' },
@@ -87,6 +104,7 @@ const tabNav = computed<NavEntry[]>(() => {
     { label: '搜索', to: '/search', icon: 'search' },
     { label: '发布', to: '/compose', icon: 'pencil' },
     { label: '通知', to: '/notifications', icon: 'bell' },
+    { label: '私信', to: '/messages', icon: 'message' },
   ]
   if (isAdmin.value) items.push({ label: '管理', to: '/admin/overview', icon: 'shield' })
   return items
@@ -131,9 +149,9 @@ function isActive(to: string): boolean {
             <AppIcon :name="item.icon" :size="21" />
             <span>{{ item.label }}</span>
             <span
-              v-if="item.to === '/notifications' && notificationState.unread > 0"
+              v-if="navBadge(item.to) > 0"
               class="ml-auto min-w-[20px] rounded-[999px] bg-primary px-[6px] text-center text-[11.5px] font-bold leading-[20px] text-on-media"
-              >{{ notificationState.unread > 99 ? '99+' : notificationState.unread }}</span
+              >{{ navBadge(item.to) > 99 ? '99+' : navBadge(item.to) }}</span
             >
           </RouterLink>
 
@@ -225,7 +243,14 @@ function isActive(to: string): boolean {
           isActive(item.to) ? 'text-primary! font-bold' : '',
         ]"
       >
-        <AppIcon :name="item.icon" :size="22" />
+        <span class="relative">
+          <AppIcon :name="item.icon" :size="22" />
+          <span
+            v-if="item.to === '/messages' && messageState.unread > 0"
+            class="absolute -right-1 -top-0.5 size-2 rounded-full bg-primary"
+            aria-hidden="true"
+          ></span>
+        </span>
         <span>{{ item.label }}</span>
       </RouterLink>
     </nav>

@@ -1,9 +1,9 @@
 # Timeline Docker 单机部署
 
 > **文档状态**：部署基线，与当前实现同步  
-> **文档版本**：0.4.4  
-> **最近更新**：2026-10-18  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.2  
+> **文档版本**：0.4.5  
+> **最近更新**：2026-10-19  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.25.0  
 > **关联文档**：[接口设计](API.md)、[数据模型设计](DATA_MODEL.md)、[验收用例](ACCEPTANCE.md)  
 > **用途**：部署脚本与 Compose 实现、运维操作和验收用例的依据
 
@@ -296,12 +296,13 @@ backups/20261017-030000/
 7. **时间默认值移除（`0011_drop_time_defaults`）**：该迁移移除 43 个业务时间列的 `DEFAULT now()`，必须在“所有写路径显式传时间”的新版本应用代码已上线后执行（迁移随同一新版本启动）；旧二进制若仍依赖数据库默认值，在本迁移后写入会因 `NOT NULL` 失败。回滚时应优先回滚到同样显式传时间的版本，而不是更早版本。
 8. **0016_review_fixes（本次审查修复）**：普通事务迁移。① 当 `avatar_url` 恰为 `/api/v1/attachments/<id>/content` 时用正则提取 ID，回填 `"user".users.avatar_attachment_id`（仅当该列为 `NULL`，可重复执行，不更新 `updated_at`）；② 删除 `timeline.ai_tasks_daily` 索引（与运行期查询形态不匹配，属纯写放大），保留 `0013` 的 `ai_call_logs_retention_id`。该迁移不修改时间默认值、不改变表字段语义，旧版本二进制仍可运行（新增列/索引回填对旧代码向后兼容）；回填量取决于历史头像用户数，升级前仍建议按第 8 章先做完整备份。
 9. **0017–0020（SQL 最简原则改造）**：`0017`/`0018`/`0020` 为 no-transaction + `CONCURRENTLY` 的索引增删（`0018` 依赖 `0017` 的新索引先建后删，两文件必须按序执行）；并发建/删索引会短暂占用 IO，建议低峰执行，失败按第 6 章核对 INVALID 索引后幂等重跑。`0019` 为普通事务：新增 `posts/reposts.author_is_ai` 快照列并回填、新建 `attachment_usage` 配额冗余表并从附件明细回填（均只处理未处理行、可重复执行、不改业务时间列）。新列/新表对旧二进制向后兼容（旧代码不读该列/表）；但若回滚到 `0019` 之前的旧二进制并继续运行，期间的上传不会累加 `attachment_usage`，恢复新版本前应按附件明细重算该表（`SELECT uploader_id, SUM(size_bytes) FROM timeline.attachments GROUP BY uploader_id` 覆盖写回），否则配额计数会偏小。回填量取决于历史帖子/转发数与上传者数量，升级前按第 8 章完整备份。
-10. **迁移回滚方式**：仓库迁移只追加、不提供 down 脚本。需要回滚结构时，追加反向迁移（恢复列/索引/默认值）或从升级前完整备份恢复；`no-transaction` 迁移失败不会自动回滚，按第 6 章人工核对后重跑即可（幂等语句可安全重试）。
+10. **0021_direct_messages（私信）**：普通事务迁移。新增 `"user".users.dm_policy`（`NOT NULL DEFAULT 'all'`，PostgreSQL 快速默认，不重写全表）与 `timeline.dm_conversations`、`timeline.dm_messages` 两表及配套索引；无数据回填、无 `CONCURRENTLY`。新列/新表对旧二进制向后兼容（旧代码不读取），回滚旧镜像通常不需要回滚数据库结构；升级前仍按第 8 章完整备份。
+11. **迁移回滚方式**：仓库迁移只追加、不提供 down 脚本。需要回滚结构时，追加反向迁移（恢复列/索引/默认值）或从升级前完整备份恢复；`no-transaction` 迁移失败不会自动回滚，按第 6 章人工核对后重跑即可（幂等语句可安全重试）。
 
 ## 10. 日志、健康与排障
 
 1. 日志有两个通道：标准输出用 `docker compose logs` 查看（配置轮转上限避免写满）；文件日志在 `deploy/data/logs/<yyyyMMdd>/` 下按天留档，可直接按日期目录排查与清理。两通道使用同一格式与级别，格式由 `LOG_FORMAT` 选择：
-   - `text`（默认）：单行对齐文本，结构为「北京时间毫秒 级别 [模块] 消息 key=value ...」；模块标签包括 `[main]`、`[app]`、`[server]`、`[http]`、`[db]`、`[migrate]`、`[jobs]`、`[auth]`、`[content]`、`[social]`、`[notice]`、`[media]`、`[ai]`、`[agent]`、`[admin]`；访问日志压缩为 `GET /api/v1/timeline 200 12ms ip=... request_id=...`，错误字段 `err` 固定放行尾。示例：`2026-10-18 18:46:35.456 INFO  [http]    GET /api/v1/timeline 200 12ms ip=10.0.0.5 request_id=9f2c8a1b... user_id=1001`；ERROR 级别日志在记录行之后按行缩进两个空格、原样输出完整多行调用栈（`stack` 不内联，是唯一允许多行的字段）。
+   - `text`（默认）：单行对齐文本，结构为「北京时间毫秒 级别 [模块] 消息 key=value ...」；模块标签包括 `[main]`、`[app]`、`[server]`、`[http]`、`[db]`、`[migrate]`、`[jobs]`、`[auth]`、`[content]`、`[social]`、`[notice]`、`[dm]`、`[media]`、`[ai]`、`[agent]`、`[admin]`；访问日志压缩为 `GET /api/v1/timeline 200 12ms ip=... request_id=...`，错误字段 `err` 固定放行尾。示例：`2026-10-18 18:46:35.456 INFO  [http]    GET /api/v1/timeline 200 12ms ip=10.0.0.5 request_id=9f2c8a1b... user_id=1001`；ERROR 级别日志在记录行之后按行缩进两个空格、原样输出完整多行调用栈（`stack` 不内联，是唯一允许多行的字段）。
    - `json`：每行一个 JSON 对象，字段与 `text` 一致（访问日志保留 `method/path/status/latency_ms` 等结构化字段），适合接入日志采集与检索；ERROR 级别日志新增 `stack` 字符串字段，多行栈在单行 JSON 内以 `\n` 转义输出。
    - 有报错时必须带完整调用栈：`ERROR` 及以上级别由初始化后的 logger 自动附加（调用方已显式传入 `stack` 时原样保留、不重复采集），`WARN`/`INFO` 与访问日志不附加，避免高频日志膨胀。HTTP 请求处理 panic 由 `transport/middleware.Recovery` 恢复并记录 ERROR（`method/path/request_id/ip/panic/stack`，栈为含 goroutine 头的 `debug.Stack()` 完整栈），响应未写出时返回统一 500 JSON `internal_error`、不向客户端泄露 panic 细节，已写出不覆盖；客户端断开（EPIPE/ECONNRESET/`http.ErrAbortHandler`）按 `WARN` 记录摘要、不打印栈、不写响应。后台作业与周期任务 panic 同样记录完整栈。
 2. 健康检查：本部署只对 `app` 容器做健康检查（`/healthz`）；数据库连通性通过 `/readyz` 体现，数据库实例自身的可用性监控由实例管理方负责。
@@ -366,3 +367,4 @@ backups/20261017-030000/
 | 2026-10-17 | 0.3.6 | 构建阶段支持 `GOPROXY` 构建参数（受限网络可用镜像代理），并在 Compose 与 `.env.example` 暴露；恢复脚本在非 root 时可用一次性容器修正附件属主。 |
 | 2026-10-17 | 0.3.5 | 与实现同步：Dockerfile 预创建并授权 `/data/uploads`、`/data/logs`，新增 `APP_VERSION` 版本注入；Compose 增加 `build.args`、`env_file`、`TRUSTED_PROXIES` 与 `json-file` 日志轮转，示例与真实文件一致；新增 `prepare.sh`；备份参数化 `PG_CLIENT_IMAGE`、增加 `encryption-key.txt` 与产物校验；恢复增加目标库版本检查、确认提示、附件属主/权限恢复与旧目录保留（避免直接 `rm -rf`）；固定端口 5070、确定默认保护阈值与备份保留建议；需求基线更新至 0.22.1。 |
 | 2026-10-16 | 0.3.2 | 端口统一为 5070（宿主机映射与容器内监听一致）；构建镜像锁定 `golang:1.25-alpine`；compose 与环境变量表新增 `LOG_FORMAT`；数据库不可达时保持运行并以 `/readyz` 反映状态；检查清单补充 schema 授权命令。 |
+| 2026-10-19 | 0.4.5 | 需求基线更新至 0.25.0（私信）：§9 升级说明新增 `0021_direct_messages`（新增 `users.dm_policy` 快速默认列与私信会话/消息两表，无回填、无 `CONCURRENTLY`、对旧二进制向后兼容）；§10 日志模块标签补 `[dm]`；部署结构、端口、环境变量与备份流程不变。 |

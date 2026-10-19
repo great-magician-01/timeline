@@ -20,6 +20,9 @@ import (
 	authrepo "github.com/great-magician-01/timeline/internal/modules/auth/repo"
 	contentapp "github.com/great-magician-01/timeline/internal/modules/content/app"
 	contenthttp "github.com/great-magician-01/timeline/internal/modules/content/http"
+	dmapp "github.com/great-magician-01/timeline/internal/modules/dm/app"
+	dmhttp "github.com/great-magician-01/timeline/internal/modules/dm/http"
+	dmrepo "github.com/great-magician-01/timeline/internal/modules/dm/repo"
 	mediaapp "github.com/great-magician-01/timeline/internal/modules/media/app"
 	mediahttp "github.com/great-magician-01/timeline/internal/modules/media/http"
 	noticeapp "github.com/great-magician-01/timeline/internal/modules/notice/app"
@@ -48,6 +51,7 @@ const (
 	logModuleContent = "content"
 	logModuleSocial  = "social"
 	logModuleNotice  = "notice"
+	logModuleDM      = "dm"
 	logModuleMedia   = "media"
 	logModuleAI      = "ai"
 	logModuleAgent   = "agent"
@@ -170,6 +174,18 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Mentions:  noticerepo.NewMentionRepo(pool),
 	})
 
+	// ── dm ──
+	// 私信只依赖 auth（账号/策略）与 social（关注关系），无构造环，直接注入。
+	dmApp := dmapp.New(dmapp.Deps{
+		Clock:         clk,
+		IDs:           ids,
+		Tx:            tx,
+		Users:         authApp,
+		Relations:     socialApp,
+		Conversations: dmrepo.NewConversationRepo(pool),
+		Messages:      dmrepo.NewMessageRepo(pool),
+	})
+
 	// ── media ──
 	mediaApp := mediaapp.New(mediaapp.Deps{
 		Pools:    readiness,
@@ -255,6 +271,7 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Content: contenthttp.New(contentApp),
 		Social:  socialhttp.New(socialApp, moduleLog(logModuleSocial)),
 		Notice:  noticehttp.New(noticeApp, moduleLog(logModuleNotice)),
+		DM:      dmhttp.New(dmApp, moduleLog(logModuleDM)),
 		Media:   mediahttp.New(mediaApp),
 		AI:      aihttp.New(aiApp),
 		Agent:   agenthttp.New(agentApp, moduleLog(logModuleAgent)),

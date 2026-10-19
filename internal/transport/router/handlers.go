@@ -20,6 +20,7 @@ type Deps struct {
 	Content ContentHandlers
 	Social  SocialHandlers
 	Notice  NoticeHandlers
+	DM      DMHandlers
 	Media   MediaHandlers
 	AI      AIHandlers
 	Agent   AgentHandlers
@@ -39,6 +40,8 @@ type AuthHandlers interface {
 	UpdateProfile(c *gin.Context)
 	FollowSettings(c *gin.Context)
 	UpdateFollowSettings(c *gin.Context)
+	DMSettings(c *gin.Context)
+	UpdateDMSettings(c *gin.Context)
 	SearchUsers(c *gin.Context)
 	GetProfile(c *gin.Context)
 	GrantAdmin(c *gin.Context)
@@ -103,6 +106,19 @@ type NoticeHandlers interface {
 	UnreadCount(c *gin.Context)
 	MarkAllRead(c *gin.Context)
 	MarkRead(c *gin.Context)
+}
+
+// DMHandlers 覆盖 1:1 私信会话、消息、已读与撤回。
+type DMHandlers interface {
+	ListConversations(c *gin.Context)
+	CreateConversation(c *gin.Context)
+	ConversationDetail(c *gin.Context)
+	MarkRead(c *gin.Context)
+	HideConversation(c *gin.Context)
+	UnreadCount(c *gin.Context)
+	ListMessages(c *gin.Context)
+	SendMessage(c *gin.Context)
+	RecallMessage(c *gin.Context)
 }
 
 // MediaHandlers 覆盖附件上传、鉴权读取、衍生文件与删除。

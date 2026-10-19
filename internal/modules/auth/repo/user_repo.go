@@ -22,7 +22,7 @@ import (
 // userColumns 是 users 表的完整行投影，字段顺序与 scanUser 一致。
 const userColumns = `id, username, COALESCE(email, ''), COALESCE(password_hash, ''),
 	nickname, avatar_url, bio, role, is_super_admin, is_ai, status, require_follow_approval,
-	token_version, suspended_at, created_at, updated_at`
+	dm_policy, token_version, suspended_at, created_at, updated_at`
 
 // rowScanner 抽象 pgx.Row 与 pgx.Rows 的 Scan，便于复用同一列投影。
 type rowScanner interface {
@@ -125,6 +125,19 @@ func (r *UserRepo) UpdateFollowApproval(ctx context.Context, id int64, enabled b
 		RETURNING require_follow_approval`, id, enabled, at).Scan(&updated)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, apperr.NotFound("用户不存在")
+	}
+	return updated, err
+}
+
+// UpdateDMPolicy 更新私信接收策略并返回最新值；AI 账号不可修改。
+func (r *UserRepo) UpdateDMPolicy(ctx context.Context, id int64, policy string, at time.Time) (string, error) {
+	var updated string
+	err := r.exec(ctx).QueryRow(ctx, `
+		UPDATE users SET dm_policy = $2, updated_at = $3
+		WHERE id = $1 AND NOT is_ai
+		RETURNING dm_policy`, id, policy, at).Scan(&updated)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", apperr.NotFound("用户不存在")
 	}
 	return updated, err
 }
@@ -358,7 +371,7 @@ func scanUser(row rowScanner) (model.User, error) {
 	err := row.Scan(
 		&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Nickname, &u.AvatarURL,
 		&u.Bio, &u.Role, &u.IsSuperAdmin, &u.IsAI, &u.Status, &u.RequireFollowApproval,
-		&u.TokenVersion, &u.SuspendedAt, &u.CreatedAt, &u.UpdatedAt,
+		&u.DMPolicy, &u.TokenVersion, &u.SuspendedAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	return u, err
 }

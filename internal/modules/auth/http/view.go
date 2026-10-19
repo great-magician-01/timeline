@@ -50,6 +50,11 @@ type followSettingsResponse struct {
 	RequireFollowApproval bool `json:"require_follow_approval"`
 }
 
+// dmSettingsResponse 是私信接收策略响应（all/following/mutual/none）。
+type dmSettingsResponse struct {
+	DMPolicy string `json:"dm_policy"`
+}
+
 // profileResponse 是个人主页响应（字段与旧 API 保持一致）。
 type profileResponse struct {
 	User           userResponse `json:"user"`

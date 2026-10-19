@@ -173,3 +173,36 @@ func Test0020AuthorTypeIndexesContract(t *testing.T) {
 		}
 	}
 }
+
+// Test0021DirectMessagesContract 校验私信迁移：普通事务、无时间函数/物理删除，
+// 接收策略列、规范化会话表、消息表与关键索引存在，且未读数依赖的部分索引带正确谓词。
+func Test0021DirectMessagesContract(t *testing.T) {
+	const name = "0021_direct_messages.sql"
+	if testNoTransactionDirective(t, name) {
+		t.Fatalf("%s 是普通事务迁移，不应声明 no-transaction", name)
+	}
+	sql := testMigrationSQL(t, name)
+	assertNoTimeFunctions(t, name, sql)
+	assertNoPhysicalDelete(t, name, sql)
+	for _, want := range []string{
+		`ALTER TABLE "user".users ADD COLUMN dm_policy TEXT NOT NULL DEFAULT 'all'`,
+		"users_dm_policy_check",
+		"dm_policy IN ('all', 'following', 'mutual', 'none')",
+		"CREATE TABLE timeline.dm_conversations",
+		"dm_conversations_pair_check CHECK (user_a_id < user_b_id)",
+		"CREATE UNIQUE INDEX dm_conversations_pair_unique",
+		"CREATE INDEX dm_conversations_user_a_list",
+		"WHERE last_message_id IS NOT NULL AND user_a_hidden_at IS NULL",
+		"CREATE INDEX dm_conversations_user_b_list",
+		"WHERE last_message_id IS NOT NULL AND user_b_hidden_at IS NULL",
+		"CREATE TABLE timeline.dm_messages",
+		"dm_messages_status_check CHECK (status IN ('published', 'recalled'))",
+		"dm_messages_not_self_check CHECK (sender_id <> recipient_id)",
+		"CREATE INDEX dm_messages_conversation ON timeline.dm_messages (conversation_id, id DESC)",
+		"CREATE INDEX dm_messages_recipient_unread ON timeline.dm_messages (recipient_id, conversation_id) WHERE read_at IS NULL",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("%s 缺少 %q", name, want)
+		}
+	}
+}

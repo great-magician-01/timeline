@@ -1,6 +1,6 @@
 # 数据库迁移
 
-> **最近更新**：2026-10-18（随 `0017`–`0020` SQL 最简原则改造同步）
+> **最近更新**：2026-10-19（新增 `0021_direct_messages`）
 > 权威设计见 [`docs/DATA_MODEL.md`](../docs/DATA_MODEL.md) 与 [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §9；部署侧执行/回滚见 [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md) 第 6、9 章。
 
 ## 约定
@@ -29,6 +29,7 @@
 | `0018_drop_redundant_indexes` | no-transaction：删除被 `0017` 覆盖或运行期无查询/与主键等价的索引（`auth_sessions_expiry`、`admin_audit_logs_created`、`users_admin_list`、`post_versions_post`、`posts_quoted`、`ai_tasks_action`、旧 `ai_action_counters_unique`、旧 follows/attachments 被替换索引）；保留 `comments_author`（管理端按作者筛选评论不带 status 条件，新部分索引不能替代），只删索引不删数据 |
 | `0019_author_is_ai_and_attachment_usage` | 普通事务（含经评审回填）：新增 `posts/reposts.author_is_ai` 快照列并回填 `"user".users.is_ai`；新增 `timeline.attachment_usage` 配额冗余计数表并从 `attachments` 明细按上传者回填（含已逻辑删除行、可重复执行、不改业务时间列） |
 | `0020_author_is_ai_indexes` | no-transaction：`posts`/`reposts` 作者类型时间线并发索引（`author_is_ai + 发布时间倒序` 部分索引） |
+| `0021_direct_messages` | 普通事务：`"user".users.dm_policy`（默认 `all`，CHECK 四值）+ `timeline.dm_conversations`（规范化双人唯一、最后消息指针、单侧隐藏位）与 `timeline.dm_messages`（冗余接收方、已读时间、撤回状态）+ 配套索引；无回填、无 `CONCURRENTLY` |
 
 ## 新增迁移的评审规则
 

@@ -171,6 +171,17 @@ func (f *fakeUsers) UpdateFollowApproval(_ context.Context, id int64, enabled bo
 	return enabled, nil
 }
 
+func (f *fakeUsers) UpdateDMPolicy(_ context.Context, id int64, policy string, at time.Time) (string, error) {
+	user, ok := f.users[id]
+	if !ok {
+		return "", apperr.NotFound("用户不存在")
+	}
+	user.DMPolicy = policy
+	user.UpdatedAt = at
+	f.users[id] = user
+	return policy, nil
+}
+
 func (f *fakeUsers) UpdateRole(_ context.Context, id int64, role string, at time.Time) (model.User, error) {
 	if f.updateRoleErr != nil {
 		return model.User{}, f.updateRoleErr
@@ -536,6 +547,8 @@ func (h *harness) engine() *gin.Engine {
 	engine.POST("/api/v1/users/me", h.handler.RequireLogin, h.handler.RequireCSRF, h.handler.UpdateProfile)
 	engine.GET("/api/v1/users/me/follow-settings", h.handler.RequireLogin, h.handler.FollowSettings)
 	engine.POST("/api/v1/users/me/follow-settings", h.handler.RequireLogin, h.handler.RequireCSRF, h.handler.UpdateFollowSettings)
+	engine.GET("/api/v1/users/me/dm-settings", h.handler.RequireLogin, h.handler.DMSettings)
+	engine.POST("/api/v1/users/me/dm-settings", h.handler.RequireLogin, h.handler.RequireCSRF, h.handler.UpdateDMSettings)
 	engine.GET("/api/v1/users/search", h.handler.SearchUsers)
 	engine.GET("/api/v1/users/:username", h.handler.GetProfile)
 	engine.POST("/api/v1/admin/users/:id/grant-admin",

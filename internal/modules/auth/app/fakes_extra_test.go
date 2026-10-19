@@ -107,6 +107,10 @@ func (r *stubUserRepo) UpdateFollowApproval(ctx context.Context, id int64, enabl
 	return r.fakeUserRepo.UpdateFollowApproval(ctx, id, enabled, at)
 }
 
+func (r *stubUserRepo) UpdateDMPolicy(ctx context.Context, id int64, policy string, at time.Time) (string, error) {
+	return r.fakeUserRepo.UpdateDMPolicy(ctx, id, policy, at)
+}
+
 func (r *stubUserRepo) UpdateRole(ctx context.Context, id int64, role string, at time.Time) (model.User, error) {
 	if r.updateRoleErr != nil {
 		return model.User{}, r.updateRoleErr

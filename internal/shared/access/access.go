@@ -144,6 +144,21 @@ func ClassifyFollowState(following, pending, incomingPending bool) string {
 	}
 }
 
+// ===== 私信接收策略 =====
+
+// ValidateDMPolicy 校验用户提交的私信接收策略；空串按默认 all 处理。
+// 取值与 users.dm_policy 的 CHECK 约束一致（需求 §10.7）。
+func ValidateDMPolicy(raw string) (string, error) {
+	switch raw {
+	case "":
+		return model.DMPolicyAll, nil
+	case model.DMPolicyAll, model.DMPolicyFollowing, model.DMPolicyMutual, model.DMPolicyNone:
+		return raw, nil
+	default:
+		return "", apperr.Validation("私信接收策略无效")
+	}
+}
+
 // ===== 管理员与超管保护 =====
 
 // CanManageAdmins 表示访问者可以授予/撤销管理员角色：仅超级管理员本人。

@@ -121,6 +121,17 @@ func (r *fakeUserRepo) UpdateFollowApproval(_ context.Context, id int64, enabled
 	return enabled, nil
 }
 
+func (r *fakeUserRepo) UpdateDMPolicy(_ context.Context, id int64, policy string, at time.Time) (string, error) {
+	u, ok := r.users[id]
+	if !ok || u.IsAI {
+		return "", apperr.NotFound("用户不存在")
+	}
+	u.DMPolicy = policy
+	u.UpdatedAt = at
+	r.users[id] = u
+	return policy, nil
+}
+
 func (r *fakeUserRepo) UpdateRole(_ context.Context, id int64, role string, at time.Time) (model.User, error) {
 	u, ok := r.users[id]
 	if !ok {

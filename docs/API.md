@@ -1,9 +1,9 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.7.5  
-> **最近更新**：2026-10-18  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.24.1  
+> **文档版本**：0.8.0  
+> **最近更新**：2026-10-19  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.25.0  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
 > **用途**：前后端接口对接、接口实现与验收用例的依据
 
@@ -111,8 +111,10 @@
 - **comment**：`id`、`author`、`content_html`（已删除评论为空）、`status`（`published`/`deleted`）、`parent_comment_id`、`root_comment_id`、`reply_count`、`like_count`、`liked_by_me`、`created_at`。
 - **attachment**：`id`、`kind`、`original_filename`、`media_type`、`size_bytes`、`width`、`height`、`duration_ms`、`derivatives`（`thumbnail`/`video_cover` 状态）、`content_url`、`thumbnail_url`（可选）。
 - **notification**：`id`、`type`、`actor`（user_brief）、`target_type`、`target_id`、`preview`（原文安全摘要，不可见时为 null）、`is_read`、`created_at`。
+- **dm_conversation**（第 10 章）：`id`、`peer`（user_brief）、`last_message`（`{id, preview, created_at}`，空会话为 null）、`unread_count`（本会话自己的未读数）、`created_at`、`updated_at`。
+- **dm_message**（第 10 章）：`id`、`conversation_id`、`sender`（user_brief）、`content_html`（已撤回为空字符串）、`status`（`published`/`recalled`）、`read_at`（可空）、`can_recall`（发送者是否仍在撤回时间窗内）、`created_at`。
 
-附件地址均为需鉴权的接口路径（第 10 章），不使用绕过权限的公开静态地址。
+附件地址均为需鉴权的接口路径（第 11 章），不使用绕过权限的公开静态地址。
 
 ## 3. 认证接口
 
@@ -148,6 +150,8 @@
 | GET | `/api/v1/users/search` | `q` 关键词搜索用户 | 所有人 |
 | GET | `/api/v1/users/me/follow-settings` | 查询是否开启关注审批 | 登录用户 |
 | POST | `/api/v1/users/me/follow-settings` | `require_follow_approval` 开关 | 登录用户 |
+| GET | `/api/v1/users/me/dm-settings` | 查询私信接收策略 `dm_policy`（`all`/`following`/`mutual`/`none`） | 登录用户 |
+| POST | `/api/v1/users/me/dm-settings` | 修改私信接收策略：`dm_policy` 必填，非法值 400；返回 `{"dm_policy": "..."}` | 登录用户 |
 
 ## 5. 关注与关注申请接口
 
@@ -236,7 +240,29 @@
 
 通知中的 `preview` 在目标内容不可见或已删除时为 null，前端显示占位。
 
-## 10. 附件接口
+## 10. 私信接口
+
+| 方法 | 路径 | 说明 | 权限 |
+| --- | --- | --- | --- |
+| GET | `/api/v1/dm/unread-count` | 私信未读总数（前端轮询，独立于通知未读数） | 登录用户 |
+| GET | `/api/v1/dm/conversations` | 我的会话列表（未隐藏且有消息），按最后消息时间倒序，游标分页；项含对方 user_brief、最后消息预览、本会话未读数 | 会话双方 |
+| POST | `/api/v1/dm/conversations` | 创建或返回既有会话：`username`；幂等，同一对用户恒返回同一会话；接收策略不允许时 403 | 登录用户 |
+| GET | `/api/v1/dm/conversations/:id` | 会话详情：对方 user_brief、最后消息、本会话未读数 | 会话成员 |
+| GET | `/api/v1/dm/conversations/:id/messages` | 消息列表：`cursor`（翻更早消息，默认最新一页）或 `after_id`（增量拉取该 ID 之后的新消息），游标分页 | 会话成员 |
+| POST | `/api/v1/dm/conversations/:id/messages` | 发送消息：`content_format`（固定 `richtext`）、`content_source`（纯文本段落 HTML，后端清洗）；201 返回 `{"message": dm_message}` | 会话成员且策略允许 |
+| POST | `/api/v1/dm/conversations/:id/read` | 把会话内自己接收方向全部未读消息置为已读；幂等，返回 `{"updated": n}` | 会话成员 |
+| POST | `/api/v1/dm/conversations/:id/hide` | 删除会话视图：仅对自己一侧隐藏（对方无感知），同时把该会话自己的未读消息标记已读；对方再发消息时会话重新出现；204 | 会话成员 |
+| POST | `/api/v1/dm/messages/:id/recall` | 撤回自己的消息（默认 2 分钟内）；撤回后双方视图显示"已撤回"占位、正文不再返回；幂等；返回 `{"message": dm_message}` | 发送者本人 |
+
+私信规则：
+
+1. 非会话成员访问会话或消息一律 404 `not_found`，不暴露会话存在性；管理后台不提供任何私信接口，管理员身份不增加可见性。
+2. 发送资格每次重新判定：发送者登录、未停用、非 AI；接收者非 AI、未停用；接收者 `dm_policy` 按发送时刻关注关系实时校验（`all` 放行；`following` 即"仅我关注的"，要求接收者关注发送者；`mutual` 要求互相关注；`none` 关闭），拒绝返回 403 `forbidden`（文案明确原因，如"对方已关闭私信"）。
+3. 消息只支持纯文本（`content_format` 固定 `richtext`，前端以段落 HTML 提交、后端白名单清洗），不支持附件；提交带图片等内容时 400 `validation`。
+4. 已读只作用于自己接收方向；撤回、隐藏、已读均为幂等操作。
+5. `dm_policy` 不在任何公开用户对象中返回；判断结果由创建/发送接口的 403 文案体现（是否在用户对象中暴露待需求侧细化）。
+
+## 11. 附件接口
 
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
@@ -247,7 +273,7 @@
 
 上传校验大小、类型和实际内容；超限返回 413/415，超过存储配额返回 413 `content_too_large`。单文件/请求上限、存储配额与上传限频均可由管理后台系统设置即时调整；429 响应带 `Retry-After`。头像类附件上传成功后自动写回当前用户头像。
 
-## 11. 系统接口
+## 12. 系统接口
 
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
@@ -258,17 +284,17 @@
 2. SPA 路由回退不得覆盖这两个路径，部署配置（`DEPLOYMENT.md`）依赖它们做容器健康检查。
 3. 是否额外提供包含版本号的接口（如 `/version`）在实现时确定。
 
-## 12. 管理后台接口
+## 13. 管理后台接口
 
 全部要求管理员权限，越权返回 403，涉及处置的写操作写入审计日志。
 
-### 12.0 概览
+### 13.0 概览
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/v1/admin/overview` | 账号、内容、AI 与后台作业的聚合统计（管理概览页数据源） |
 
-### 12.1 用户管理
+### 13.1 用户管理
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -282,7 +308,7 @@
 
 超级管理员保护：`suspend`、`unsuspend`、`reset-password` 在目标账号 `is_super_admin=true` 且操作者不是超级管理员时返回 403 `forbidden`（文案“不能操作超级管理员账号”）；当前只有一个超级管理员，因此实际等价于“普通管理员不能处置超管账号，超管本人可以操作自己”。
 
-#### 12.1.1 授予/撤销管理员（仅超级管理员）
+#### 13.1.1 授予/撤销管理员（仅超级管理员）
 
 两条接口都是 POST action 路径，无请求体，`:id` 为雪花 ID 字符串，响应为 `200 {"user": private_user}`（`user.role` 为变更后角色）。
 
@@ -300,7 +326,7 @@
 10. 角色变更即时生效、不吊销目标会话：被授权者下一次请求即可访问管理接口，被撤销者下一次请求返回 403。
 11. 并发：事务内对目标用户行加锁并复核操作者仍为超级管理员；不提供“授予超级管理员/转让超管”接口，超级管理员身份只由空库首次注册产生，数据库部分唯一索引兜底。
 
-### 12.2 内容审核
+### 13.2 内容审核
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -312,7 +338,7 @@
 | GET | `/api/v1/admin/attachments` | 附件审核列表：`uploader_id`、`post_id`、`purpose`、`status`、`q`、游标分页 |
 | POST | `/api/v1/admin/attachments/:id/delete` | 逻辑删除附件并审计；仍被历史版本引用时仅解除草稿关联 |
 
-### 12.3 模型接口预设
+### 13.3 模型接口预设
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -322,7 +348,7 @@
 | POST | `/api/v1/admin/providers/:id/delete` | 逻辑删除；有 AI 关联时返回 409 `duplicate` 或业务错误，先停用 |
 | POST | `/api/v1/admin/providers/:id/test` | 连接测试，返回连通性与延迟 |
 
-### 12.4 AI 管理
+### 13.4 AI 管理
 
 AI 任务的重试与取消使用独立路径（`ai_tasks` 与后台作业是两套记录）：
 
@@ -343,7 +369,7 @@ AI 任务的重试与取消使用独立路径（`ai_tasks` 与后台作业是两
 | POST | `/api/v1/admin/ai/:id/enable` | 启用单个 AI |
 | POST | `/api/v1/admin/ai/:id/disable` | 停用单个 AI；未开始任务取消 |
 
-### 12.5 AI 记忆
+### 13.5 AI 记忆
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -353,7 +379,7 @@ AI 任务的重试与取消使用独立路径（`ai_tasks` 与后台作业是两
 | POST | `/api/v1/admin/ai/:id/memories/:memory_id/delete` | 逻辑删除单条记忆 |
 | POST | `/api/v1/admin/ai/:id/memories/clear` | 清空：`type=recent\|long_term`，两类互不影响 |
 
-### 12.6 AI 生成与发布
+### 13.6 AI 生成与发布
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -365,7 +391,7 @@ AI 任务的重试与取消使用独立路径（`ai_tasks` 与后台作业是两
 
 生成接口异步执行，结果通过任务接口查询；成功生成草稿后出现在草稿列表。
 
-### 12.7 任务、审计与设置
+### 13.7 任务、审计与设置
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -389,11 +415,13 @@ AI 任务的重试与取消使用独立路径（`ai_tasks` 与后台作业是两
 
 AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的只读 `web_search` 工具权限，不是社区动作，不参与动作白名单、限频或主动调度。所用模型需支持 OpenAI 兼容 function calling；模型端点拒绝工具时任务按 `rejected/api_4xx` 处理。
 
-## 13. 限频要求（服务端）
+## 14. 限频要求（服务端）
 
 至少覆盖：登录尝试、注册、发帖、评论、上传、点赞/关注类高频写接口、AI 相关接口调用。触发后返回 429 并带 `Retry-After`；AI 动作的频率、冷却与每日上限在任务执行层强制，与用户接口限频相互独立。
 
-## 14. 待细化
+发送私信与创建会话共享限频（当前 60 次/10 分钟，同一发送者维度），约束批量群发与空会话滥建；已读、撤回、隐藏为幂等管理动作不限频。
+
+## 15. 待细化
 
 - OpenAPI 规范或代码注解生成方式。
 - 列表接口中超长正文采用摘要加展开接口的优化方案。
@@ -403,7 +431,7 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 - 未来实时通知（SSE/WebSocket）的接口预留。
 - 管理后台字段级完整 Schema。
 
-## 15. 变更记录
+## 16. 变更记录
 
 | 日期 | 版本 | 变更内容 |
 | --- | --- | --- |
@@ -426,3 +454,4 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 | 2026-10-16 | 0.3.0 | 新增 AI 调用记录接口（列表 + 详情，支持按 AI/预设/状态/错误类型/时间筛选）；同时修正管理后台子节编号（11.x → 12.x）。 |
 | 2026-10-17 | 0.4.1 | 第一阶段认证实现同步：新增 `GET /auth/csrf`，明确游客双提交 Cookie、登录/注册也执行 CSRF 校验、`/auth/me` 返回会话 CSRF 令牌、会话有效期 30 天、账号/账号+IP/IP 三维限频、API `no-store` 及 503 `service_unavailable`。 |
 | 2026-10-17 | 0.4.0 | 需求基线更新至 0.22.0（无外键、全量逻辑删除、仅 GET/POST）。通用约定新增方法约束：业务接口只使用 GET 与 POST。全部 PATCH 改为 POST（`/auth/password`、`/users/me`、`/users/me/follow-settings`、`/posts/:id`、`/admin/providers/:id`、`/admin/ai/*`、`/admin/settings` 等同路径或原路径）；全部 DELETE 改为语义化 POST action 路径：`/posts/:id/delete`、`/posts/:id/unlike`、`/comments/:id/delete`、`/users/:username/unfollow`、`/users/me/followers/:username/remove`、`/attachments/:id/delete`、`/admin/providers/:id/delete` 等；删除表述统一为逻辑删除。 |
+| 2026-10-19 | 0.8.0 | 需求基线更新至 0.25.0，新增私信接口（新第 10 章，原 10–15 章顺延为 11–16 章）：`GET /dm/unread-count`、`GET/POST /dm/conversations`（create-or-get 幂等）、`GET /dm/conversations/:id`、`GET /dm/conversations/:id/messages`（cursor 翻旧 + after_id 增量）、`POST .../messages`、`POST .../read`、`POST .../hide`、`POST /dm/messages/:id/recall`；§4 新增 `GET/POST /users/me/dm-settings`；§2.8 新增 dm_conversation/dm_message 对象；§14 补私信限频（发送与创建共享 60 次/10 分钟）；错误复用既有错误码，非会话成员一律 404，策略拒绝 403 带中文文案。 |

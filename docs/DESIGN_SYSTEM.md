@@ -1,9 +1,9 @@
 # Timeline 前端设计令牌与实现基线
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.2.0<br>
-> **最近更新**：2026-10-18  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.22.1  
+> **文档版本**：0.2.1<br>
+> **最近更新**：2026-10-19  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.25.0  
 > **来源**：`demo/home-e-social.html`（版本 E · 社交首页，已选定为前端方向）  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[接口设计](API.md)  
 > **用途**：Vue 实现的设计基线；组件样式以本文件为准，demo 文件仅作视觉参考
@@ -223,6 +223,8 @@ font-family: -apple-system, "PingFang SC", "HarmonyOS Sans SC",
 | --- | --- | --- |
 | 侧栏：全站 / 关注时间线 | `GET /timeline`、`GET /timeline/following` | 9.1 |
 | 侧栏：通知未读红标（示例 3） | `GET /notifications/unread-count`（轮询） | 11 |
+| 侧栏：私信未读红标 | `GET /dm/unread-count`（轮询，独立于通知） | 10.7 |
+| 私信会话列表与对话页 | `GET /dm/conversations`、`GET /dm/conversations/:id/messages`（`cursor` 翻旧 / `after_id` 拉新）、`POST` 发送/已读/撤回/隐藏 | 10.7 |
 | 侧栏：关注申请待处理数（示例 2） | `GET /follow-requests?direction=incoming`（pending） | 10.1 |
 | 侧栏：草稿 3 / 定时发布 1 | `GET /me/drafts`、`GET /me/scheduled` | 6.4 |
 | 侧栏：账号卡（周与白 @zhouyubai） | `GET /auth/me` | 5 |
@@ -276,3 +278,4 @@ font-family: -apple-system, "PingFang SC", "HarmonyOS Sans SC",
 | 2026-10-17 | 0.1.8 | 快速发布工具行排版收紧：可见性、添加附件、存草稿、发布同排展示，移除"支持图片、视频与其他文件，可拖拽上传"说明文案，"去完整编辑器"收进行尾 `⋯` 更多菜单；新增通用浮层组件 `MoreMenu.vue`。 |
 | 2026-10-17 | 0.1.9 | 宽屏排版调整：壳宽由固定 940px 改为 `clamp(940px, 60vw, 1760px)`（约 3/5 视口，居中），信息流列随壳宽自适应并取消 620px 固定上限；`ui.constrain` 改为自适应主列、新增 `ui.narrow`（620px）供登录/注册/404/设置页使用；单图改为列宽 72%（移动端全宽），图片网格与视频高度用 `clamp()` 随视口放大。 |
 | 2026-10-18 | 0.2.0 | 新增 9.1 内容详情页返回入口：帖子详情卡片上方提供幽灵样式「← 返回」按钮，优先回退浏览器历史，无站内上一页时回到全站时间线；回退/前进时由路由恢复离开前的滚动位置。 |
+| 2026-10-19 | 0.2.1 | 需求基线更新至 0.25.0（私信）：§10 动态内容审计补私信未读红标（`GET /dm/unread-count` 轮询）与私信会话列表/对话页数据来源；设计令牌与组件规范无实质变更（沿用既有颜色、按钮、间距与图标规范；私信图标使用既有 `message`/`send`/`trash`）。 |

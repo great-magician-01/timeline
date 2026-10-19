@@ -20,6 +20,7 @@
 //	content  → AuthService/UserReader、MediaService、SocialService/RelationReader、NoticeService、JobsQueue、AuditWriter、SettingsReader
 //	social   → ContentService、AuthService/UserReader、NoticeService、AuditWriter
 //	notice   → ContentService、SocialService、AuthService/UserReader
+//	dm       → AuthService/UserReader、SocialService/RelationReader（私信不向其它模块发布能力）
 //	media    → AuthService/UserReader+UserWriter、ContentService、JobsQueue、AuditWriter、SettingsReader
 //	ai       → AuthService/UserReader、SettingsReader、AuditWriter
 //	auth     → SettingsReader、AuditWriter
