@@ -95,6 +95,10 @@ export interface PostBrief {
   like_count: number
   comment_count: number
   repost_count: number
+  /** 非空表示帖子被作者置顶（个人主页顶部展示） */
+  pinned_at?: string
+  /** 当前访问者可置顶/取消置顶（作者本人且已发布） */
+  can_pin?: boolean
   repost_of?: PostBrief
   quoted_post?: QuotedPost
   attachments: Attachment[]

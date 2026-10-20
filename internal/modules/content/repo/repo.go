@@ -55,7 +55,7 @@ type scanner interface {
 // postColumns 是 posts 的完整列清单（只在本包使用，不向业务层导出）。
 const postColumns = `id, author_id, status, visibility, current_version_id, quoted_post_id,
 	scheduled_at, published_at, deleted_at, like_count, comment_count, repost_count,
-	created_at, updated_at`
+	created_at, updated_at, pinned_at, pinned_sort`
 
 func scanPost(row scanner) (model.Post, error) {
 	var post model.Post
@@ -63,6 +63,7 @@ func scanPost(row scanner) (model.Post, error) {
 		&post.ID, &post.AuthorID, &post.Status, &post.Visibility, &post.CurrentVersionID,
 		&post.QuotedPostID, &post.ScheduledAt, &post.PublishedAt, &post.DeletedAt,
 		&post.LikeCount, &post.CommentCount, &post.RepostCount, &post.CreatedAt, &post.UpdatedAt,
+		&post.PinnedAt, &post.PinnedSort,
 	)
 	return post, err
 }

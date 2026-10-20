@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 帖子“更多”操作菜单：编辑 / 历史版本 / 删除，首页卡片与帖子详情共用。
+// 帖子“更多”操作菜单：编辑 / 历史版本 / 置顶 / 删除，首页卡片与帖子详情共用。
 // 前端只按后端返回的 can_* 字段决定入口是否展示，实际授权仍由各个接口执行。
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
@@ -14,18 +14,26 @@ const props = defineProps<{
   canViewHistory?: boolean
   /** 作者可删除 */
   canDelete?: boolean
+  /** 作者可置顶/取消置顶（仅已发布帖子；置顶入口只在个人主页展示） */
+  canPin?: boolean
+  /** 当前是否处于置顶状态 */
+  pinned?: boolean
 }>()
 
 const emit = defineEmits<{
   (event: 'removed', id: string): void
   (event: 'error', message: string): void
+  (event: 'pin-changed', payload: { id: string; pinned: boolean }): void
 }>()
 
 /** 没有任何可用操作时整个菜单不渲染 */
-const hasActions = computed(() => Boolean(props.canEdit || props.canViewHistory || props.canDelete))
+const hasActions = computed(() =>
+  Boolean(props.canEdit || props.canViewHistory || props.canDelete || props.canPin),
+)
 
 const menuOpen = ref(false)
 const deleting = ref(false)
+const pinning = ref(false)
 const menuRoot = ref<HTMLElement | null>(null)
 const menuTrigger = ref<HTMLButtonElement | null>(null)
 
@@ -75,6 +83,21 @@ async function removePost(): Promise<void> {
     deleting.value = false
   }
 }
+
+/** 置顶/取消置顶：成功后通知父组件刷新置顶区块与卡片状态 */
+async function togglePin(): Promise<void> {
+  if (!props.canPin || pinning.value) return
+  pinning.value = true
+  try {
+    await apiRequest(`/posts/${props.postId}/${props.pinned ? 'unpin' : 'pin'}`, { method: 'POST' })
+    menuOpen.value = false
+    emit('pin-changed', { id: props.postId, pinned: !props.pinned })
+  } catch (err) {
+    emit('error', errorMessage(err))
+  } finally {
+    pinning.value = false
+  }
+}
 </script>
 
 <template>
@@ -107,6 +130,15 @@ async function removePost(): Promise<void> {
       >
         <AppIcon name="clock" :size="15" /> 历史版本
       </RouterLink>
+      <button
+        v-if="canPin"
+        type="button"
+        :class="menuItemClass"
+        :disabled="pinning"
+        @click="togglePin"
+      >
+        <AppIcon name="pin" :size="15" /> {{ pinned ? '取消置顶' : '置顶到主页' }}
+      </button>
       <button
         v-if="canDelete"
         type="button"

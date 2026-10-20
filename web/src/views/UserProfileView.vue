@@ -5,7 +5,7 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiError, errorMessage } from '../api/client'
 import { createConversation } from '../api/dm'
-import { fetchUserPosts } from '../api/posts'
+import { fetchUserPosts, reorderPinnedPosts } from '../api/posts'
 import type { ProfileTab } from '../api/posts'
 import { fetchProfile, followUser, unfollowUser } from '../api/social'
 import type { ProfileSummary } from '../api/social'
@@ -42,6 +42,10 @@ const TABS: { value: ProfileTab; label: string }[] = [
 ]
 const tab = ref<ProfileTab>('posts')
 
+/** 置顶帖（个人主页顶部区块，按展示顺序排列，最多 3 条） */
+const pinnedPosts = ref<PostBrief[]>([])
+const reordering = ref(false)
+
 const {
   items,
   loading: listLoading,
@@ -52,10 +56,51 @@ const {
   reload: reloadList,
   loadMore,
 } = useCursorList<PostBrief | TimelineCommentItem, { username: string; tab: ProfileTab }>({
-  fetch: (params) => fetchUserPosts(params.username, params.tab, { cursor: params.cursor }),
+  fetch: async (params) => {
+    // 首页请求先清空旧置顶，避免切换作者/加载失败时残留上一批数据。
+    if (!params.cursor) pinnedPosts.value = []
+    const page = await fetchUserPosts(params.username, params.tab, { cursor: params.cursor })
+    // 置顶帖只在 posts 页签第一页返回；翻页与其它页签一律清空展示。
+    pinnedPosts.value = !params.cursor && params.tab === 'posts' ? (page.pinned_posts ?? []) : []
+    return page
+  },
   params: () => ({ username: username.value, tab: tab.value }),
   immediate: false,
 })
+
+const isPostTab = computed(() => tab.value === 'posts')
+
+/** 置顶状态变化（卡片菜单置顶/取消置顶成功）：整体刷新置顶区块与普通流 */
+function onPinChanged(): void {
+  void reloadList()
+}
+
+/** 置顶帖被删除：同步移出置顶区块并刷新普通流 */
+function onPinnedRemoved(id: string): void {
+  pinnedPosts.value = pinnedPosts.value.filter((item) => item.id !== id)
+  removeItem(id)
+  void reloadList()
+}
+
+/** 上移/下移置顶帖：本地交换后按完整顺序提交，成功后以服务端返回为准 */
+async function movePinned(index: number, offset: -1 | 1): Promise<void> {
+  const target = index + offset
+  if (reordering.value || target < 0 || target >= pinnedPosts.value.length) return
+  const next = [...pinnedPosts.value]
+  const [moved] = next.splice(index, 1)
+  next.splice(target, 0, moved)
+  pinnedPosts.value = next
+  reordering.value = true
+  try {
+    const result = await reorderPinnedPosts(next.map((item) => item.id))
+    pinnedPosts.value = result.pinned_posts
+  } catch (err) {
+    actionError.value = errorMessage(err)
+    void reloadList()
+  } finally {
+    reordering.value = false
+  }
+}
 
 /** 回复标签页返回评论条目，用判别联合区分渲染分支 */
 type ProfileRow =
@@ -344,19 +389,56 @@ async function toggleFollow(): Promise<void> {
           <span :class="[ui.spinner]" aria-hidden="true"></span> 加载中…
         </p>
 
-        <template v-else-if="listError && rows.length === 0">
+        <template v-else-if="listError && rows.length === 0 && pinnedPosts.length === 0">
           <AlertNote kind="error">{{ listError }}</AlertNote>
           <button :class="[ui.button, ui.buttonSecondary, ui.buttonSmall, 'self-start']" type="button" @click="reloadList">重试</button>
         </template>
 
         <EmptyState
-          v-else-if="listLoaded && rows.length === 0"
+          v-else-if="listLoaded && rows.length === 0 && pinnedPosts.length === 0"
           icon="home"
           :title="emptyTitle"
           :description="emptyDescription"
         />
 
         <template v-else>
+          <section
+            v-if="isPostTab && pinnedPosts.length > 0"
+            :class="[ui.card, 'grid gap-2 px-[22px] py-3']"
+            aria-label="置顶帖子"
+          >
+            <p class="m-0 flex items-center gap-1.5 text-[12.5px] font-semibold text-ink-3">
+              <AppIcon name="pin" :size="14" /> 置顶帖子
+            </p>
+            <div v-for="(item, index) in pinnedPosts" :key="item.id" class="grid gap-1.5">
+              <PostCard
+                :post="item"
+                @removed="onPinnedRemoved"
+                @repost-change="onRepostChange"
+                @post-created="onPostCreated"
+                @pin-changed="onPinChanged"
+              />
+              <div v-if="isSelf && pinnedPosts.length > 1" class="flex justify-end gap-2">
+                <button
+                  type="button"
+                  :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
+                  :disabled="reordering || index === 0"
+                  @click="movePinned(index, -1)"
+                >
+                  上移
+                </button>
+                <button
+                  type="button"
+                  :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
+                  :disabled="reordering || index === pinnedPosts.length - 1"
+                  @click="movePinned(index, 1)"
+                >
+                  下移
+                </button>
+              </div>
+            </div>
+          </section>
+
           <template v-for="row in rows" :key="row.item.id">
             <PostCard
               v-if="row.type === 'post'"
@@ -364,6 +446,7 @@ async function toggleFollow(): Promise<void> {
               @removed="removeItem"
               @repost-change="onRepostChange"
               @post-created="onPostCreated"
+              @pin-changed="onPinChanged"
             />
             <div
               v-else

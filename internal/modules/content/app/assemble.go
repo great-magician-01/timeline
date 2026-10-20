@@ -331,6 +331,11 @@ func (d *briefData) brief(post model.Post, opts briefOptions) PostBrief {
 		reposted := *opts.repostedAt
 		out.RepostedAt = &reposted
 	}
+	// 置顶状态属于帖子本身：仅顶层帖子项携带，转发外层与嵌套引用不携带。
+	if kind == domain.KindPost && !opts.nested && post.PinnedAt != nil {
+		pinned := *post.PinnedAt
+		out.PinnedAt = &pinned
+	}
 	if !opts.nested {
 		out.QuotedPost = d.quoted[post.ID]
 	}
@@ -358,6 +363,7 @@ func (s *Service) loadDetail(
 		CanDelete:      post.SelfPosted(viewer),
 		CanViewHistory: true,
 	}
+	detail.CanPin = post.SelfPosted(viewer) && domain.CanPin(post.Status)
 	if post.Status == model.PostStatusPublished {
 		if version, ok := data.versions[post.ID]; ok {
 			detail.ContentFormat = version.ContentFormat

@@ -125,11 +125,13 @@ func (r *Repo) SetCurrentVersionAndVisibility(
 	return err
 }
 
-// SoftDelete 逻辑删除帖子：状态 deleted + deleted_at，并清空定时时间。
+// SoftDelete 逻辑删除帖子：状态 deleted + deleted_at，并清空定时时间与置顶状态
+// （CHECK 约束 posts_pinned_check 要求置顶只存在于已发布帖子上）。
 func (r *Repo) SoftDelete(ctx context.Context, postID int64, at time.Time) error {
 	_, err := r.ex(ctx).Exec(ctx, `
 		UPDATE posts
-		SET status = $2, deleted_at = $3, scheduled_at = NULL, updated_at = $3
+		SET status = $2, deleted_at = $3, scheduled_at = NULL,
+		    pinned_at = NULL, pinned_sort = NULL, updated_at = $3
 		WHERE id = $1`,
 		postID, model.PostStatusDeleted, at)
 	return err

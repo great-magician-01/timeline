@@ -31,6 +31,8 @@ type timelineParams struct {
 	filter         string
 	tagID          int64
 	searchText     string
+	// excludePinned 排除作者已置顶帖（个人主页 posts 页签专用，见 TimelineQuery）。
+	excludePinned bool
 }
 
 // timelineCandidate 是时间线候选：候选行 + 已加载的帖子行（含纯转发原帖）。
@@ -114,16 +116,29 @@ func (s *Service) UserTimeline(
 		return s.userTimelineReplies(ctx, viewer, author.ID, cursor, limit)
 	}
 	params := timelineParams{
-		includePosts: true,
-		authorID:     author.ID,
-		filter:       domain.FilterAll,
+		includePosts:  true,
+		authorID:      author.ID,
+		filter:        domain.FilterAll,
+		excludePinned: normalizedTab == domain.TabPosts,
 	}
 	if normalizedTab == domain.TabReposts {
 		// 纯转发与引用转发合并按时间倒序展示。
 		params.includeReposts = true
 		params.quotedOnly = true
 	}
-	return s.listTimeline(ctx, viewer, params, cursor, limit)
+	page, err := s.listTimeline(ctx, viewer, params, cursor, limit)
+	if err != nil {
+		return TimelinePage{}, err
+	}
+	// 置顶帖只在 posts 页签第一页返回：普通流已排除置顶帖，这里单独按展示顺序组装。
+	if normalizedTab == domain.TabPosts && !cursor.Valid() {
+		pinned, err := s.pinnedBriefs(ctx, viewer, author.ID)
+		if err != nil {
+			return TimelinePage{}, err
+		}
+		page.PinnedPosts = pinned
+	}
+	return page, nil
 }
 
 // TagTimeline 返回标签聚合：只包含当前访问者有权查看的已发布帖子。
@@ -313,6 +328,7 @@ func (s *Service) fetchTimelineCandidates(
 		AuthorID:      params.authorID,
 		TagID:         params.tagID,
 		SearchText:    params.searchText,
+		ExcludePinned: params.excludePinned,
 		AfterTime:     after.Time,
 		AfterID:       after.ID,
 		Limit:         batchLimit,
@@ -374,6 +390,40 @@ func (s *Service) fetchTimelineCandidates(
 	return candidates, nil
 }
 
+// pinnedBriefs 读取作者当前置顶帖（按展示顺序），复核访问者可见性后组装为列表项。
+// 访客不可见的置顶帖（如仅关注者可见）直接跳过，不做存在性提示。
+func (s *Service) pinnedBriefs(
+	ctx context.Context,
+	viewer model.Viewer,
+	authorID int64,
+) ([]PostBrief, error) {
+	posts, err := s.repo.PinnedPostsByAuthor(ctx, authorID)
+	if err != nil {
+		return nil, s.wrap(err, "读取置顶帖失败")
+	}
+	if len(posts) == 0 {
+		return []PostBrief{}, nil
+	}
+	following, err := s.followingSet(ctx, viewer)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]timelineCandidate, 0, len(posts))
+	for _, post := range posts {
+		if !access.CanViewPostWithFollowing(viewer, post, following) {
+			continue
+		}
+		items = append(items, timelineCandidate{
+			row:  repo.CandidateRow{Kind: domain.KindPost, ItemID: post.ID, PostID: post.ID},
+			post: post,
+		})
+	}
+	if len(items) == 0 {
+		return []PostBrief{}, nil
+	}
+	return s.assembleTimeline(ctx, viewer, following, items)
+}
+
 // assembleTimeline 把候选批量组装成时间线列表项。
 func (s *Service) assembleTimeline(
 	ctx context.Context,
@@ -420,7 +470,9 @@ func (s *Service) assembleTimeline(
 			out = append(out, outer)
 			continue
 		}
-		out = append(out, data.brief(post, briefOptions{kind: domain.KindPost, authorID: post.AuthorID}))
+		brief := data.brief(post, briefOptions{kind: domain.KindPost, authorID: post.AuthorID})
+		brief.CanPin = post.SelfPosted(viewer) && domain.CanPin(post.Status)
+		out = append(out, brief)
 	}
 	return out, nil
 }

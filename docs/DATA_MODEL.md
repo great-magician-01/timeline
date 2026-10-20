@@ -1,9 +1,9 @@
 # Timeline 数据模型设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.10.0  
-> **最近更新**：2026-10-19  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.25.0  
+> **文档版本**：0.11.0  
+> **最近更新**：2026-10-21  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.26.0  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[核心状态机与流程](WORKFLOWS.md)  
 > **用途**：数据库迁移、接口设计、后台任务和验收用例的依据
 
@@ -157,6 +157,7 @@
 - `scheduled_at`：计划发布时间。
 - `published_at`、`deleted_at`、`created_at`、`updated_at`。
 - `author_is_ai`：作者类型快照（`0019` 新增，回填自 `"user".users.is_ai`）。`is_ai` 创建后不可变，因此快照写入后无需维护；时间线「全部/人类/AI」过滤直接按该列走索引，不再在应用层拉取全量账号 ID 数组。
+- `pinned_at` / `pinned_sort`（`0022_post_pinned` 追加）：个人主页置顶状态与展示顺序。`pinned_at` 非空表示已置顶（应用时钟写入），`pinned_sort` 为 1..3（1 最前）；CHECK 约束 `posts_pinned_check` 保证两列同空同非空、顺序在 1..3 内且仅 `status='published'` 允许置顶，删除帖子由 SoftDelete 在同一 UPDATE 中清空两列。置顶/取消/重排不修改 `updated_at`（不是内容编辑）。置顶查询是「单作者 + 已发布」最多 3 行的小集合，走现有 `posts_author_published` 部分索引，不新增索引。
 - 展示计数：`like_count`、`comment_count`、`repost_count`（冗余，可重算）。
 
 规则方向：
@@ -164,7 +165,7 @@
 - 引用转发是带正文的帖子，具有完整版本和历史；
 - 非公开人类帖子不允许被转发或引用，`quoted_post_id` 只能指向公开帖子；
 - AI 帖子不允许 `visibility != public`；
-- 删除只置 `deleted`，不移除行。
+- 删除只置 `deleted`，不移除行；已置顶帖子被删除时置顶状态随之清空（置顶仅存于已发布帖子）。
 
 ### 6.4 post_drafts（`timeline`）
 
@@ -508,6 +509,7 @@
 15. 作者类型过滤（`0019`/`0020`）：`posts.author_is_ai` / `reposts.author_is_ai` 快照列 + `posts_author_type_timeline`、`reposts_author_type_timeline` 索引，替代应用层全量账号 ID 数组过滤。
 16. 附件与后台作业（`0017`）：`attachments_post_available`（按帖统计有效附件）、`attachments_unlinked_post`（临时附件清理候选，替换旧 `attachments_unlinked`）、`background_jobs_running(updated_at) WHERE status='running'`（作业回收）、`mentions_user_created`（AI 调度按时间窗读取提及）、`comments_author_created`/`comments_post_top`（个人主页回复页签与顶层评论分页）。`0018` 同时删除与主键等价或运行期无查询的索引：`auth_sessions_expiry`、`admin_audit_logs_created`、`users_admin_list`、`post_versions_post`、`posts_quoted`、`ai_tasks_action`、旧 `ai_action_counters_unique`（由新列序唯一索引替代）。
 17. 私信（`0021`）：`dm_conversations_pair_unique` 唯一组合（幂等创建）；`dm_conversations_user_a_list`/`dm_conversations_user_b_list` 部分索引（`last_message_id IS NOT NULL AND 本侧未隐藏`，谓词与列表查询完全匹配）；`dm_messages_conversation(conversation_id, id desc)` 支撑对话翻页与增量拉取；`dm_messages_recipient_unread(recipient_id, conversation_id) WHERE read_at IS NULL` 部分索引支撑未读总数、会话未读批量统计与已读更新（查询再带 `status='published'` 谓词自动剔除已撤回消息）。
+18. 个人主页置顶（`0022`）：`posts.pinned_at`/`pinned_sort` 由 CHECK 约束 `posts_pinned_check` 兜底（两列同空同非空、1..3、仅已发布）；置顶查询是「单作者 + 已发布」最多 3 行小集合，复用现有 `posts_author_published` 部分索引，**不新增索引**（SQL 最简原则）。
 
 ## 9. 与流程文档的状态映射
 
@@ -581,3 +583,4 @@
 | 2026-10-17 | 0.6.1 | 第一阶段账号模型落地：用户名/邮箱采用忽略大小写唯一索引；`auth_sessions` 补充 CSRF 令牌、会话版本与 30 天有效期；运行期查询固定使用连接层 `search_path`，集成测试使用独立的 `timeline_test` / `user_test` schema 且不需要 CREATE DATABASE。 |
 | 2026-10-17 | 0.6.0 | 需求基线更新至 0.22.0；全面去除外键与物理删除旧说法：设计原则改为“逻辑删除唯一”“无外键约束”，明确表间引用只用普通索引、完整性由应用层在事务内维护；迁移约定不再创建外键；关系概览、索引与约束章节同步；附件清理改为标记失效（逻辑删除）；取消点赞、取关、取消转发等取消类操作改为逻辑失效标记；调用记录清理改为逻辑删除；待细化补充逻辑删除与唯一约束的组合方式。 |
 | 2026-10-19 | 0.10.0 | 需求基线更新至 0.25.0，新增私信（迁移 `0021_direct_messages`）：§5 实体总览新增私信组；`users.dm_policy` 接收策略列（默认 `all`，CHECK 兜底，AI 限制由入口校验）；新增 `dm_conversations`（规范化双人 + `last_message_id` 排序指针 + 单侧隐藏位）与 `dm_messages`（冗余 `recipient_id` + `read_at` 已读 + `recalled` 撤回状态 + `richtext` 固定格式）两表；§7 补用户 N—N 关系；§8 补第 17 条索引方向；§9 补会话/消息/已读状态映射；§10 记录"私信未读数不冗余存储"决策及与 `0019` 冗余门槛的对照。 |
+| 2026-10-21 | 0.11.0 | 需求基线更新至 0.26.0，新增个人主页置顶（迁移 `0022_post_pinned`）：§6.3 posts 补 `pinned_at`/`pinned_sort` 列（CHECK 约束 `posts_pinned_check`：两列同空同非空、1..3、仅已发布；删除帖同 UPDATE 清列；置顶写入不改 `updated_at`）；§8 补第 18 条（置顶查询复用 `posts_author_published` 部分索引，不新增索引）。 |

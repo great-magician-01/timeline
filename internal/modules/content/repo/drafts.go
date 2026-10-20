@@ -250,12 +250,14 @@ func (r *Repo) ListMyPosts(
 }
 
 // scanPostWith 扫描「posts 全列 + 额外列」，避免每个查询重复列清单。
+// 列清单必须与 postColumns 保持一致（含 0022 的 pinned_at/pinned_sort）。
 func scanPostWith(row scanner, extra ...any) (model.Post, error) {
 	var post model.Post
 	dest := []any{
 		&post.ID, &post.AuthorID, &post.Status, &post.Visibility, &post.CurrentVersionID,
 		&post.QuotedPostID, &post.ScheduledAt, &post.PublishedAt, &post.DeletedAt,
 		&post.LikeCount, &post.CommentCount, &post.RepostCount, &post.CreatedAt, &post.UpdatedAt,
+		&post.PinnedAt, &post.PinnedSort,
 	}
 	dest = append(dest, extra...)
 	return post, row.Scan(dest...)

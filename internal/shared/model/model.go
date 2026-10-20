@@ -219,7 +219,14 @@ type Post struct {
 	RepostCount      int
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	// PinnedAt/PinnedSort 是个人主页置顶状态（0022）：PinnedAt 非空表示已置顶，
+	// PinnedSort 是展示顺序（1 = 最前，1..3）；两列同空同非空由 CHECK 约束保证。
+	PinnedAt   *time.Time
+	PinnedSort *int
 }
+
+// IsPinned 判断帖子当前是否处于置顶状态。
+func (p Post) IsPinned() bool { return p.PinnedAt != nil }
 
 // SelfPosted 判断访问者是否为该帖作者。
 func (p Post) SelfPosted(viewer Viewer) bool {

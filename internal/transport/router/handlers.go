@@ -55,7 +55,7 @@ type AuthHandlers interface {
 	GuestCSRF(c *gin.Context)
 }
 
-// ContentHandlers 覆盖帖子/草稿/版本/时间线/标签/搜索。
+// ContentHandlers 覆盖帖子/草稿/版本/时间线/标签/搜索与置顶。
 type ContentHandlers interface {
 	UserTimeline(c *gin.Context)
 	GetPost(c *gin.Context)
@@ -65,6 +65,9 @@ type ContentHandlers interface {
 	SchedulePost(c *gin.Context)
 	CancelSchedule(c *gin.Context)
 	DeletePost(c *gin.Context)
+	PinPost(c *gin.Context)
+	UnpinPost(c *gin.Context)
+	ReorderPinnedPosts(c *gin.Context)
 	ListVersions(c *gin.Context)
 	GetVersion(c *gin.Context)
 	RestoreVersion(c *gin.Context)

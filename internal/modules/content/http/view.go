@@ -31,10 +31,13 @@ type postBriefResponse struct {
 	LikeCount    int                       `json:"like_count"`
 	CommentCount int                       `json:"comment_count"`
 	RepostCount  int                       `json:"repost_count"`
-	RepostOf     *postBriefResponse        `json:"repost_of,omitempty"`
-	QuotedPost   *quotedPostResponse       `json:"quoted_post,omitempty"`
-	Attachments  []view.AttachmentResponse `json:"attachments"`
-	ViewerState  viewerStateResponse       `json:"viewer_state"`
+	// PinnedAt 非空表示帖子被作者置顶（个人主页顶部展示）；仅顶层帖子项返回。
+	PinnedAt    *string                   `json:"pinned_at,omitempty"`
+	CanPin      bool                      `json:"can_pin"`
+	RepostOf    *postBriefResponse        `json:"repost_of,omitempty"`
+	QuotedPost  *quotedPostResponse       `json:"quoted_post,omitempty"`
+	Attachments []view.AttachmentResponse `json:"attachments"`
+	ViewerState viewerStateResponse       `json:"viewer_state"`
 }
 
 // postDetailResponse 是帖子详情 DTO：在列表项基础上补充作者操作与历史访问信息。
@@ -122,6 +125,8 @@ func briefResponseFor(brief app.PostBrief) postBriefResponse {
 		LikeCount:    brief.LikeCount,
 		CommentCount: brief.CommentCount,
 		RepostCount:  brief.RepostCount,
+		PinnedAt:     format.FormatTimePtr(brief.PinnedAt),
+		CanPin:       brief.CanPin,
 		Attachments:  attachmentResponsesFor(brief.Attachments),
 		ViewerState: viewerStateResponse{
 			Liked:    brief.ViewerState.Liked,

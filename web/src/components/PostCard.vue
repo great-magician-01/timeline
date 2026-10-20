@@ -33,6 +33,8 @@ const emit = defineEmits<{
   (event: 'repost-change', payload: { reposted: boolean; postId: string; item?: PostBrief }): void
   /** 引用转发发布成功：父列表可把新帖即时插入顶部 */
   (event: 'post-created', post: PostBrief): void
+  /** 置顶状态变化（置顶/取消置顶成功）：父列表整体刷新置顶区块与普通流 */
+  (event: 'pin-changed', payload: { id: string; pinned: boolean }): void
 }>()
 
 const router = useRouter()
@@ -107,6 +109,9 @@ function clearNotice(): void {
 /** 转发项：作者是转发者，正文与互动计数属于被转发的原帖 */
 const target = computed<PostBrief>(() => (props.post.kind === 'repost' && props.post.repost_of ? props.post.repost_of : props.post))
 const isOwner = computed(() => Boolean(my.value && my.value.id === target.value.author.id))
+/** 置顶入口仅顶层帖子卡片（转发卡片指向原帖，不提供置顶） */
+const canPin = computed(() => props.actions && props.post.kind === 'post' && Boolean(target.value.can_pin))
+const isPinned = computed(() => Boolean(target.value.pinned_at))
 /** 停用账号的内容只读：隐藏点赞、评论、转发等互动入口（docs/PAGES_AND_PERMISSIONS.md E-03） */
 const authorSuspended = computed(() => target.value.author.is_suspended)
 const canInteract = computed(() => Boolean(my.value) && !my.value?.is_ai && !authorSuspended.value)
@@ -202,6 +207,12 @@ function handleRemoved(): void {
   emit('removed', props.post.id)
 }
 
+/** 置顶状态变化成功：向上通知父列表刷新置顶区块与普通流 */
+function handlePinChanged(payload: { id: string; pinned: boolean }): void {
+  showNotice(payload.pinned ? '已置顶到个人主页。' : '已取消置顶。', 'success', true)
+  emit('pin-changed', payload)
+}
+
 function handleMenuError(message: string): void {
   showNotice(message, 'warning')
 }
@@ -256,6 +267,13 @@ const richContentClass =
         <span v-if="post.kind === 'repost'" class="inline-flex items-center gap-[3px]">
           <AppIcon name="repeat" :size="14" /> 转发了
         </span>
+        <span
+          v-if="isPinned && post.kind === 'post'"
+          :class="[ui.badge, ui.badgeMuted]"
+          title="作者已将该帖置顶到个人主页"
+        >
+          <AppIcon name="pin" :size="12" /> 置顶
+        </span>
         <RouterLink :to="`/posts/${target.id}`" :title="timeTitle(target.published_at)" class="text-ink-3">
           {{ relativeTime(post.kind === 'repost' ? post.reposted_at : target.published_at) }}
         </RouterLink>
@@ -270,8 +288,11 @@ const richContentClass =
         :can-edit="isOwner"
         :can-view-history="isOwner"
         :can-delete="isOwner"
+        :can-pin="canPin"
+        :pinned="isPinned"
         @removed="handleRemoved"
         @error="handleMenuError"
+        @pin-changed="handlePinChanged"
       />
     </header>
 

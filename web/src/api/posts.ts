@@ -52,6 +52,21 @@ export function deletePost(id: string): Promise<void> {
   return apiRequest(`/posts/${id}/delete`, { method: 'POST' })
 }
 
+/** 置顶自己的已发布帖子到个人主页（最多 3 条） */
+export function pinPost(id: string): Promise<{ post: PostDetail }> {
+  return apiRequest(`/posts/${id}/pin`, { method: 'POST' })
+}
+
+/** 取消置顶 */
+export function unpinPost(id: string): Promise<{ post: PostDetail }> {
+  return apiRequest(`/posts/${id}/unpin`, { method: 'POST' })
+}
+
+/** 调整置顶顺序：post_ids 必须给出当前全部置顶帖的完整有序列表（首项最前） */
+export function reorderPinnedPosts(postIds: string[]): Promise<{ pinned_posts: PostBrief[] }> {
+  return apiRequest('/posts/pinned/reorder', { method: 'POST', body: { post_ids: postIds } })
+}
+
 export function listVersions(id: string, params: PageParams = {}): Promise<CursorPage<PostVersionSummary>> {
   return apiRequest(`/posts/${id}/versions`, { query: { ...params } })
 }
@@ -86,11 +101,16 @@ export function fetchFollowingTimeline(params: PageParams = {}): Promise<CursorP
 /** 个人主页时间线：帖子 / 回复 / 转发 */
 export type ProfileTab = 'posts' | 'replies' | 'reposts'
 
+/** 个人主页响应：posts 页签第一页额外返回按展示顺序排列的置顶帖（普通流已排除） */
+export interface ProfilePostPage extends CursorPage<PostBrief | TimelineCommentItem> {
+  pinned_posts?: PostBrief[]
+}
+
 export function fetchUserPosts(
   username: string,
   tab: ProfileTab,
   params: PageParams = {},
-): Promise<CursorPage<PostBrief | TimelineCommentItem>> {
+): Promise<ProfilePostPage> {
   return apiRequest(`/users/${username}/posts`, { query: { tab, ...params } })
 }
 

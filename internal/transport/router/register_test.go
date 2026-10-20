@@ -12,7 +12,7 @@ import (
 )
 
 // 本文件覆盖 transport/router 的注册与策略中间件链（无数据库、无业务模块）：
-//   - Routes() 声明的 121 条路由必须全部注册到 Gin 引擎；
+//   - Routes() 声明的 124 条路由必须全部注册到 Gin 引擎；
 //   - 每种 Policy 必须挂载固定顺序的中间件链（Ready → ResolveSession → RequireLogin
 //     → RequireAdmin → RequireCSRF → RequireSuperAdmin，GuestWrite 只走 GuestCSRF）；
 //   - 就绪检查与认证/CSRF 失败必须中止后续中间件与业务 handler。
@@ -51,6 +51,9 @@ func (stubHandler) PublishPost(c *gin.Context)             { c.Header("X-Handler
 func (stubHandler) SchedulePost(c *gin.Context)            { c.Header("X-Handler", "reached") }
 func (stubHandler) CancelSchedule(c *gin.Context)          { c.Header("X-Handler", "reached") }
 func (stubHandler) DeletePost(c *gin.Context)              { c.Header("X-Handler", "reached") }
+func (stubHandler) PinPost(c *gin.Context)                 { c.Header("X-Handler", "reached") }
+func (stubHandler) UnpinPost(c *gin.Context)               { c.Header("X-Handler", "reached") }
+func (stubHandler) ReorderPinnedPosts(c *gin.Context)      { c.Header("X-Handler", "reached") }
 func (stubHandler) ListVersions(c *gin.Context)            { c.Header("X-Handler", "reached") }
 func (stubHandler) GetVersion(c *gin.Context)              { c.Header("X-Handler", "reached") }
 func (stubHandler) RestoreVersion(c *gin.Context)          { c.Header("X-Handler", "reached") }

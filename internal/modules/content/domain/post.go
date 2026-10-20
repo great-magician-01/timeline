@@ -25,6 +25,14 @@ func CanCancelSchedule(status string) bool {
 	return status == model.PostStatusDraft || status == model.PostStatusScheduled
 }
 
+// MaxPinnedPerAuthor 是每位作者个人主页置顶帖上限（0022，与数据库 CHECK 约束一致）。
+const MaxPinnedPerAuthor = 3
+
+// CanPin 判断当前状态是否允许置顶/取消置顶（仅已发布帖子；删除帖按不存在处理）。
+func CanPin(status string) bool {
+	return status == model.PostStatusPublished
+}
+
 // Editable 判断内容是否还有可编辑的草稿工作区（未发布且未删除）。
 func Editable(status string) bool {
 	return status == model.PostStatusDraft || status == model.PostStatusScheduled
@@ -132,4 +140,54 @@ func ValidateCounterDelta(delta int) error {
 		return apperr.Validation("计数器增减幅度不能为 0")
 	}
 	return nil
+}
+
+// ValidatePinnedReorder 校验置顶排序请求：列表非空、不超过上限、ID 有效且无重复
+// （纯函数，便于单元测试；与当前置顶集合的一致性比对在 app 层完成）。
+func ValidatePinnedReorder(ids []int64) error {
+	if len(ids) == 0 {
+		return apperr.Validation("请提供置顶帖列表").
+			WithDetails(map[string]any{"post_ids": "置顶帖列表不能为空"})
+	}
+	if len(ids) > MaxPinnedPerAuthor {
+		return apperr.Validation("置顶帖数量超出上限").
+			WithDetails(map[string]any{"post_ids": "最多置顶 3 条帖子"})
+	}
+	seen := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return apperr.Validation("帖子 ID 无效").
+				WithDetails(map[string]any{"post_ids": "帖子 ID 必须为正整数"})
+		}
+		if seen[id] {
+			return apperr.Validation("置顶帖列表存在重复").
+				WithDetails(map[string]any{"post_ids": "帖子 ID 不能重复"})
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
+// SameIDSet 判断两个 ID 列表作为多重集合是否完全一致（元素相同、次数相同），
+// 不比较顺序。用于校验置顶排序请求覆盖了当前全部置顶帖且未混入其他帖子。
+func SameIDSet(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[int64]int, len(a)+len(b))
+	for _, id := range a {
+		counts[id]++
+	}
+	for _, id := range b {
+		counts[id]--
+		if counts[id] < 0 {
+			return false
+		}
+	}
+	for _, n := range counts {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
 }

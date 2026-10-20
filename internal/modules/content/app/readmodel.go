@@ -39,10 +39,15 @@ type PostBrief struct {
 	LikeCount    int
 	CommentCount int
 	RepostCount  int
-	RepostOf     *PostBrief
-	QuotedPost   *QuotedPost
-	Attachments  []AttachmentView
-	ViewerState  ViewerState
+	// PinnedAt 非空表示帖子当前被作者置顶（个人主页顶部展示，顺序由 pinned_sort 决定）；
+	// 仅顶层帖子项携带，转发外层与嵌套引用不携带。CanPin 表示当前访问者可置顶该帖
+	// （作者本人且已发布），用于前端展示置顶操作入口。
+	PinnedAt    *time.Time
+	CanPin      bool
+	RepostOf    *PostBrief
+	QuotedPost  *QuotedPost
+	Attachments []AttachmentView
+	ViewerState ViewerState
 }
 
 // PostDetail 是帖子详情：在列表项基础上补充作者操作与历史访问信息。
@@ -120,12 +125,15 @@ type TagSuggestion struct {
 // TimelinePage 是列表页结果：Posts 与 Replies 二选一，Next 为下一页时间游标。
 // Kind 取 domain.TabPosts（posts/reposts 页签）或 domain.TabReplies（回复页签），
 // 供 http 层显式区分页签；Replies 页签即使为空也始终返回非 nil 切片。
+// PinnedPosts 仅个人主页 posts 页签第一页返回：按展示顺序排列的置顶帖，
+// 普通流（Posts）已排除这些帖子，避免同一帖重复出现。
 type TimelinePage struct {
-	Kind    string
-	Posts   []PostBrief
-	Replies []CommentTimelineItem
-	Next    page.TimeCursor
-	HasMore bool
+	Kind        string
+	Posts       []PostBrief
+	PinnedPosts []PostBrief
+	Replies     []CommentTimelineItem
+	Next        page.TimeCursor
+	HasMore     bool
 }
 
 // VersionPage 是历史版本分页结果（ID 游标）。

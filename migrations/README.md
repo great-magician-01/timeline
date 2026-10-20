@@ -1,6 +1,6 @@
 # 数据库迁移
 
-> **最近更新**：2026-10-19（新增 `0021_direct_messages`）
+> **最近更新**：2026-10-21（新增 `0022_post_pinned`）
 > 权威设计见 [`docs/DATA_MODEL.md`](../docs/DATA_MODEL.md) 与 [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §9；部署侧执行/回滚见 [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md) 第 6、9 章。
 
 ## 约定
@@ -30,6 +30,7 @@
 | `0019_author_is_ai_and_attachment_usage` | 普通事务（含经评审回填）：新增 `posts/reposts.author_is_ai` 快照列并回填 `"user".users.is_ai`；新增 `timeline.attachment_usage` 配额冗余计数表并从 `attachments` 明细按上传者回填（含已逻辑删除行、可重复执行、不改业务时间列） |
 | `0020_author_is_ai_indexes` | no-transaction：`posts`/`reposts` 作者类型时间线并发索引（`author_is_ai + 发布时间倒序` 部分索引） |
 | `0021_direct_messages` | 普通事务：`"user".users.dm_policy`（默认 `all`，CHECK 四值）+ `timeline.dm_conversations`（规范化双人唯一、最后消息指针、单侧隐藏位）与 `timeline.dm_messages`（冗余接收方、已读时间、撤回状态）+ 配套索引；无回填、无 `CONCURRENTLY` |
+| `0022_post_pinned` | 普通事务：`timeline.posts` 新增 `pinned_at`/`pinned_sort` 个人主页置顶列与 `posts_pinned_check` CHECK 约束（两列同空同非空、顺序 1..3、仅 `status='published'` 允许置顶）；无回填、无新索引（置顶查询复用 `posts_author_published`），置顶写入不修改 `updated_at`，删除帖子由应用在同一 UPDATE 中清空两列 |
 
 ## 新增迁移的评审规则
 

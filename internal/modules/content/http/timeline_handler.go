@@ -66,6 +66,8 @@ func (h *Handler) UserTimeline(c *gin.Context) {
 }
 
 // respondTimeline 组装时间线类响应：回复页签输出 replies，其余输出 posts。
+// 个人主页 posts 页签第一页额外返回 pinned_posts（按展示顺序的置顶帖，
+// 普通流已排除），其余时间线不返回该字段。
 func (h *Handler) respondTimeline(c *gin.Context, page app.TimelinePage) {
 	if page.Kind == domain.TabReplies {
 		c.JSON(http.StatusOK, timeListResponse(
@@ -73,5 +75,9 @@ func (h *Handler) respondTimeline(c *gin.Context, page app.TimelinePage) {
 		))
 		return
 	}
-	c.JSON(http.StatusOK, timeListResponse(briefResponsesFor(page.Posts), page.Next, page.HasMore))
+	resp := timeListResponse(briefResponsesFor(page.Posts), page.Next, page.HasMore)
+	if len(page.PinnedPosts) > 0 {
+		resp["pinned_posts"] = briefResponsesFor(page.PinnedPosts)
+	}
+	c.JSON(http.StatusOK, resp)
 }

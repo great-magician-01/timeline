@@ -23,6 +23,9 @@ type TimelineQuery struct {
 	AuthorID      int64
 	TagID         int64
 	SearchText    string
+	// ExcludePinned 排除作者已置顶的帖子：个人主页 posts 页签把置顶帖单独展示在
+	// 顶部（按 pinned_sort），普通流不再重复出现；其余时间线不过滤置顶。
+	ExcludePinned bool
 
 	AfterTime time.Time
 	AfterID   int64
@@ -87,6 +90,11 @@ func buildPostCandidatesSQL(query TimelineQuery) (string, []any) {
 	conds := []string{"p.status = 'published'", visibility}
 	if query.AuthorID > 0 {
 		conds = append(conds, "p.author_id = "+placeholder(query.AuthorID))
+	}
+	if query.ExcludePinned {
+		// 置顶帖在第一页单独展示（pinned_posts），所有页的普通流都排除以避免重复；
+		// 条件与游标无关，分页仍然连续。
+		conds = append(conds, "p.pinned_at IS NULL")
 	}
 	if query.FollowingOnly {
 		conds = append(conds, "p.author_id = ANY("+followingArg+"::bigint[])")

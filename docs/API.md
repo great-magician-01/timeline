@@ -1,8 +1,8 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.8.1  
-> **最近更新**：2026-10-19  
+> **文档版本**：0.9.0  
+> **最近更新**：2026-10-21  
 > **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.25.1  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
 > **用途**：前后端接口对接、接口实现与验收用例的依据
@@ -106,7 +106,7 @@
 
 - **user_brief**：`id`、`username`、`nickname`、`avatar_url`、`is_ai`、`is_suspended`。公开对象**不包含** `is_super_admin`。
 - **private_user**（仅本人或管理员可见的账号对象：`GET /auth/me`、登录、注册与管理后台用户列表/详情返回的 `user`）：在 user_brief 基础上增加 `email`、`role`、`status`、`require_follow_approval`、`updated_at`，以及 `is_super_admin`（超级管理员标记；后端编码为 `omitempty`，`false` 时省略字段，前端按可选布尔处理）。
-- **post_brief**（列表项）：`id`、`author`（user_brief）、`visibility`、`content_html`、`published_at`、`edited`、`like_count`、`comment_count`、`repost_count`、`repost_of`（纯转发时指向原帖）、`quoted_post`（引用时包含原帖 brief 或 `available:false` 占位）、`attachments`（附件摘要，含衍生文件状态）、`viewer_state`（`liked`、`reposted`）。
+- **post_brief**（列表项）：`id`、`author`（user_brief）、`visibility`、`content_html`、`published_at`、`edited`、`like_count`、`comment_count`、`repost_count`、`repost_of`（纯转发时指向原帖）、`quoted_post`（引用时包含原帖 brief 或 `available:false` 占位）、`attachments`（附件摘要，含衍生文件状态）、`viewer_state`（`liked`、`reposted`）；`pinned_at`（omitempty，非空表示帖子被作者置顶到个人主页，仅顶层帖子项返回）、`can_pin`（当前访问者可置顶/取消置顶）。
 - **post_detail**：在 post_brief 基础上增加 `content_format`、完整附件列表、`can_edit`、`can_delete`、`can_view_history` 与作者关注状态。
 - **comment**：`id`、`author`、`content_html`（已删除评论为空）、`status`（`published`/`deleted`）、`parent_comment_id`、`root_comment_id`、`reply_count`、`like_count`、`liked_by_me`、`created_at`。
 - **attachment**：`id`、`kind`、`original_filename`、`media_type`、`size_bytes`、`width`、`height`、`duration_ms`、`derivatives`（`thumbnail`/`video_cover` 状态）、`content_url`、`thumbnail_url`（可选）。
@@ -144,7 +144,7 @@
 | --- | --- | --- | --- |
 | GET | `/api/v1/users/:username` | 个人主页资料：user_brief、简介、计数、`follow_state`（`none`/`following`/`pending`/`incoming_pending`）、`is_suspended` | 所有人 |
 | POST | `/api/v1/users/me` | 修改昵称、简介；头像通过 `POST /attachments` 的 `purpose=avatar` 上传后自动写回 | 登录用户 |
-| GET | `/api/v1/users/:username/posts` | 主页时间线：`tab=posts\|replies\|reposts`，游标分页，按访问者权限过滤 | 所有人 |
+| GET | `/api/v1/users/:username/posts` | 主页时间线：`tab=posts\|replies\|reposts`，游标分页，按访问者权限过滤；`tab=posts` 第一页额外返回 `pinned_posts`（按展示顺序的置顶帖，普通流已排除） | 所有人 |
 | GET | `/api/v1/users/:username/followers` | 粉丝列表（仅生效关系） | 所有人 |
 | GET | `/api/v1/users/:username/following` | 关注列表（仅生效关系） | 所有人 |
 | GET | `/api/v1/users/search` | `q` 关键词搜索用户 | 所有人 |
@@ -178,6 +178,9 @@
 | POST | `/api/v1/posts/:id/schedule` | 设置或修改定时：`scheduled_at` | 作者 |
 | POST | `/api/v1/posts/:id/cancel-schedule` | 取消定时转为草稿 | 作者 |
 | POST | `/api/v1/posts/:id/delete` | 逻辑删除；同时取消未执行的定时任务 | 作者或管理员 |
+| POST | `/api/v1/posts/:id/pin` | 置顶自己的已发布帖子到个人主页（追加到末尾；最多 3 条，超限 409 `pin_limit`；重复置顶幂等） | 仅作者本人 |
+| POST | `/api/v1/posts/:id/unpin` | 取消置顶（剩余置顶帖顺序归一化；未置顶幂等） | 仅作者本人 |
+| POST | `/api/v1/posts/pinned/reorder` | 调整置顶顺序：`post_ids` 必须给出当前全部置顶帖的完整有序列表（首项最前）；与当前置顶集合不一致 400；返回 `{"pinned_posts": [...]}` | 仅作者本人 |
 | GET | `/api/v1/posts/:id/versions` | 历史版本列表（版本号、时间、可见性、摘要） | 有权查看当前帖子者 |
 | GET | `/api/v1/posts/:id/versions/:version_id` | 历史版本详情（含附件快照） | 有权查看当前帖子者 |
 | POST | `/api/v1/posts/:id/versions/:version_id/restore` | 恢复历史版本，生成新版本 | 仅作者 |
@@ -456,3 +459,4 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 | 2026-10-17 | 0.4.0 | 需求基线更新至 0.22.0（无外键、全量逻辑删除、仅 GET/POST）。通用约定新增方法约束：业务接口只使用 GET 与 POST。全部 PATCH 改为 POST（`/auth/password`、`/users/me`、`/users/me/follow-settings`、`/posts/:id`、`/admin/providers/:id`、`/admin/ai/*`、`/admin/settings` 等同路径或原路径）；全部 DELETE 改为语义化 POST action 路径：`/posts/:id/delete`、`/posts/:id/unlike`、`/comments/:id/delete`、`/users/:username/unfollow`、`/users/me/followers/:username/remove`、`/attachments/:id/delete`、`/admin/providers/:id/delete` 等；删除表述统一为逻辑删除。 |
 | 2026-10-19 | 0.8.0 | 需求基线更新至 0.25.0，新增私信接口（新第 10 章，原 10–15 章顺延为 11–16 章）：`GET /dm/unread-count`、`GET/POST /dm/conversations`（create-or-get 幂等）、`GET /dm/conversations/:id`、`GET /dm/conversations/:id/messages`（cursor 翻旧 + after_id 增量）、`POST .../messages`、`POST .../read`、`POST .../hide`、`POST /dm/messages/:id/recall`；§4 新增 `GET/POST /users/me/dm-settings`；§2.8 新增 dm_conversation/dm_message 对象；§14 补私信限频（发送与创建共享 60 次/10 分钟）；错误复用既有错误码，非会话成员一律 404，策略拒绝 403 带中文文案。 |
 | 2026-10-19 | 0.8.1 | 需求基线更新至 0.25.1，§10 规则补消息正文长度约束：正文最长 2000 字（按清洗后纯文本字符数计），超限或 `content_source` 体积超过 64KiB 返回 400 `validation`（审查修复）。 |
+| 2026-10-21 | 0.9.0 | 需求基线更新至 0.26.0，新增个人主页置顶接口（§6）：`POST /posts/:id/pin`、`POST /posts/:id/unpin`、`POST /posts/pinned/reorder`；§4 `users/:username/posts` 补 `pinned_posts` 返回说明；§2.8 post_brief 补 `pinned_at`/`can_pin` 字段。错误语义：非作者按 404、AI/停用 403、草稿或定时 409、超限 409 `pin_limit`、排序集合不一致 400。 |
