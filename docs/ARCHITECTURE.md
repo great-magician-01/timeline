@@ -1,9 +1,9 @@
 # Timeline 后端目标架构
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.4.0  
-> **最近更新**：2026-10-19  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.25.0  
+> **文档版本**：0.4.2  
+> **最近更新**：2026-10-21  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.27.0  
 > **关联文档**：[`DATA_MODEL.md`](DATA_MODEL.md)、[`WORKFLOWS.md`](WORKFLOWS.md)、[`API.md`](API.md)、[`DEPLOYMENT.md`](DEPLOYMENT.md)  
 > **用途**：后端分层、依赖边界、数据所有权与架构守卫的权威说明；改造过程细节见仓库根目录 `CODE_QUALITY_REFACTOR_PLAN.md`（过程文档，非长期权威）
 
@@ -100,7 +100,7 @@ cmd/server ──▶ internal/app
 | --- | --- |
 | `modules/auth` | `"user".users`、`"user".auth_sessions` |
 | `modules/content` | `posts`、`post_drafts`、`post_versions`、`post_version_attachments`、`post_draft_attachments`、`tags`、`post_tags`、`post_search` |
-| `modules/social` | `follows`、`follow_requests`、`likes`、`comments`、`reposts` |
+| `modules/social` | `follows`、`follow_requests`、`likes`、`comments`、`reposts`、`bookmarks`、`bookmark_folders` |
 | `modules/notice` | `notifications`、`mentions` |
 | `modules/dm` | `dm_conversations`、`dm_messages` |
 | `modules/media` | `attachments`、`attachment_derivatives` |
@@ -117,7 +117,7 @@ cmd/server ──▶ internal/app
 ## 5. 端口与 contracts
 
 - 消费者在 `modules/<x>/app/port.go` 定义窄接口（如 `content/app` 的 `PostReader`、`social/app` 的 `Notifier`、`auth/app` 的 `UserWriter`）；生产者由组合根传入，不反向 import。
-- 跨模块命令/查询/结果结构放 `shared/contracts`（如 `ActorPostInput`、`CommentInput`、`NotificationInput`、`AuditEntry`、`JobEnqueue`、`SystemSettings`）。
+- 跨模块命令/查询/结果结构放 `shared/contracts`（如 `ActorPostInput`、`CommentInput`、`NotificationInput`、`AuditEntry`、`JobEnqueue`、`SystemSettings`）；跨模块读取端口同样内嵌在发布接口里（如 `SocialService` 内嵌 `RelationReader` 与 `BookmarkReader`，content 经后者读取收藏 refs、social 持有收藏表）。
 - 平台端口同样以接口注入：`platform/jobs.Runner`（入队/领取）、`platform/audit.Writer`、`platform/settings.Reader/Writer`、`platform/clock.Clock`。
 - 模块间**禁止**直接 `SELECT/UPDATE` 对方表；`admin/repo/read_model.go` 是只读例外，且可见性/权限条件由 app 传入。
 
@@ -182,7 +182,7 @@ cmd/server ──▶ internal/app
 
 ## 9. 迁移状态
 
-- 迁移文件按文件名追加执行，记录于 `timeline.schema_migrations`；仓库当前包含 `0001`–`0021` 迁移文件（是否已应用以部署记录为准）。
+- 迁移文件按文件名追加执行，记录于 `timeline.schema_migrations`；仓库当前包含 `0001`–`0023` 迁移文件（是否已应用以部署记录为准）。
 - 迁移器 v2（`platform/migrate`）支持首行 `-- timeline:no-transaction`：该文件语句不包事务，用于 `CREATE INDEX CONCURRENTLY`；此类迁移必须幂等（`IF NOT EXISTS`），失败后按顺序人工核对重跑，迁移器不自动回滚。`CONCURRENTLY` 失败留下的 INVALID 索引处置见 `DEPLOYMENT.md` 第 6 章。
 - `0011_drop_time_defaults`：移除 43 个业务时间列的 `DEFAULT now()`，`schema_migrations.applied_at` 为唯一白名单；必须在应用侧“所有写路径显式传时间”上线后执行。
 - `0012_add_avatar_attachment_id`：只加 `users.avatar_attachment_id` 与索引，不回填；回填完成前清理 SQL 不得依赖该列非空。
@@ -195,7 +195,9 @@ cmd/server ──▶ internal/app
 - `0019_author_is_ai_and_attachment_usage`（普通事务）：新增 `posts/reposts.author_is_ai` 快照列并回填 `users.is_ai`；新增 `attachment_usage` 配额冗余计数表并从 `attachments` 明细回填。这是“迁移默认不回填业务数据”的评审例外，依据与幂等条件见文件头注释与 `DATA_MODEL.md` §4.5。
 - `0020_author_is_ai_indexes`（no-transaction + `CONCURRENTLY`）：作者类型时间线索引（`posts`、`reposts`）。
 - `0021_direct_messages`（普通事务）：新增 `"user".users.dm_policy`（默认 `all`，CHECK 兜底）与 `timeline.dm_conversations`、`timeline.dm_messages` 及配套索引；无回填（新列默认值生效，AI 限制由 dm 入口校验）、无 `CONCURRENTLY`。
-- **执行顺序**：先切换迁移器 v2（支持 no-transaction），再应用 `0013`/`0014`；旧的事务式迁移器执行 `CREATE INDEX CONCURRENTLY` 会失败。单个升级窗口内按文件名顺序执行到 `0021`，失败时按 `DEPLOYMENT.md` 第 6、9 章人工核对。
+- `0022_post_pinned`（普通事务）：`posts` 新增 `pinned_at`/`pinned_sort` 与 CHECK 约束；无回填、无新索引（复用 `posts_author_published`）。
+- `0023_bookmarks`（普通事务）：新增 `timeline.bookmark_folders`（收藏夹，`deleted_at` 逻辑删除）与 `timeline.bookmarks`（`is_active` 失效 + `folder_id NULL` 默认收藏）及配套部分索引；`(user_id, post_id)` 唯一索引非部分以支撑 upsert 复活；无回填、无 `CONCURRENTLY`。
+- **执行顺序**：先切换迁移器 v2（支持 no-transaction），再应用 `0013`/`0014`；旧的事务式迁移器执行 `CREATE INDEX CONCURRENTLY` 会失败。单个升级窗口内按文件名顺序执行到 `0023`，失败时按 `DEPLOYMENT.md` 第 6、9 章人工核对。
 
 ## 10. 当前改造进度（refactor 分支）
 
@@ -226,3 +228,4 @@ cmd/server ──▶ internal/app
 | 2026-10-18 | 0.1.1 | 版本/基线同步（不改变架构结构）：需求基线更新至 `REQUIREMENTS.md` 0.24.1；§10 改造进度更新为当前状态（`internal/app` 组合根与 `transport/router` 已接管运行路径、八域模块四层实现完成、旧包退出运行路径仅剩删除与测试迁移、G6–G8 收尾项）。 |
 | 2026-10-18 | 0.1.0 | 首次建立后端目标架构文档：模块化单体与九条原则、目录结构、模块四层职责、依赖方向与允许 import、数据所有权、端口与 contracts、事务/错误/时间规范、路由策略组、架构守卫（`internal/architecture`）、迁移状态（0001–0015，含 no-transaction 与时间默认值移除）与当前改造进度。 |
 | 2026-10-19 | 0.4.0 | 需求基线更新至 0.25.0，新增私信模块：§2 目录结构新增 `modules/dm`（会话/消息/已读/撤回，管理后台不可见）；§4 数据所有权新增 `dm_conversations`、`dm_messages` 归 dm，`users.dm_policy` 归 auth（dm 只经 UserReader/RelationReader 读取，不向其它模块暴露能力）；§9 迁移状态补 `0021_direct_messages`（普通事务、无回填）；§10 八域改九域、迁移范围到 0021。 |
+| 2026-10-21 | 0.4.2 | 需求基线更新至 0.27.0，新增收藏：§4 数据所有权补 `bookmarks`/`bookmark_folders` 归 social（content 仅经 `BookmarkReader` 读 refs 组装列表，不触收藏表）；§5 端口说明补 `SocialService` 内嵌 `BookmarkReader` 先例；§9 迁移范围 0001–0023 并补 `0022_post_pinned`（上轮置顶未记录）与 `0023_bookmarks` 两条说明。 |

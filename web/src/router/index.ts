@@ -87,6 +87,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '定时发布', requiresAuth: true },
   },
   {
+    path: '/bookmarks',
+    name: 'bookmarks',
+    component: () => import('../views/BookmarksView.vue'),
+    meta: { title: '我的收藏', requiresAuth: true },
+  },
+  {
     path: '/follow-requests',
     name: 'follow-requests',
     component: () => import('../views/FollowRequestsView.vue'),

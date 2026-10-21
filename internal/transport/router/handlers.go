@@ -73,6 +73,7 @@ type ContentHandlers interface {
 	RestoreVersion(c *gin.Context)
 	ListMyDrafts(c *gin.Context)
 	ListMyScheduled(c *gin.Context)
+	ListBookmarks(c *gin.Context)
 	Timeline(c *gin.Context)
 	FollowingTimeline(c *gin.Context)
 	SuggestTags(c *gin.Context)
@@ -80,7 +81,7 @@ type ContentHandlers interface {
 	SearchPosts(c *gin.Context)
 }
 
-// SocialHandlers 覆盖关注/申请、点赞、评论、转发。
+// SocialHandlers 覆盖关注/申请、点赞、评论、转发、收藏。
 type SocialHandlers interface {
 	ListFollowers(c *gin.Context)
 	ListFollowing(c *gin.Context)
@@ -95,6 +96,12 @@ type SocialHandlers interface {
 	Unrepost(c *gin.Context)
 	LikePost(c *gin.Context)
 	UnlikePost(c *gin.Context)
+	BookmarkPost(c *gin.Context)
+	UnbookmarkPost(c *gin.Context)
+	ListBookmarkFolders(c *gin.Context)
+	CreateBookmarkFolder(c *gin.Context)
+	RenameBookmarkFolder(c *gin.Context)
+	DeleteBookmarkFolder(c *gin.Context)
 	LikeComment(c *gin.Context)
 	UnlikeComment(c *gin.Context)
 	ListComments(c *gin.Context)

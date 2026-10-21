@@ -11,7 +11,7 @@ import type { RepostDialogResult } from './RepostDialog.types'
 import UserAvatar from './UserAvatar.vue'
 import type { PostBrief, RepostState, UserBrief } from '../api/types'
 import { errorMessage } from '../api/client'
-import { likePost, unlikePost } from '../api/social'
+import { bookmarkPost, likePost, unbookmarkPost, unlikePost } from '../api/social'
 import { authState } from '../stores/auth'
 import { relativeTime, timeTitle } from '../utils/format'
 import { ui } from '../styles/ui'
@@ -35,6 +35,8 @@ const emit = defineEmits<{
   (event: 'post-created', post: PostBrief): void
   /** 置顶状态变化（置顶/取消置顶成功）：父列表整体刷新置顶区块与普通流 */
   (event: 'pin-changed', payload: { id: string; pinned: boolean }): void
+  /** 收藏状态变化：收藏页据此移除已取消收藏的条目 */
+  (event: 'bookmark-change', payload: { id: string; bookmarked: boolean }): void
 }>()
 
 const router = useRouter()
@@ -44,6 +46,7 @@ const liked = ref(props.post.viewer_state.liked)
 const likeCount = ref(props.post.like_count)
 const reposted = ref(props.post.viewer_state.reposted)
 const repostCount = ref(props.post.repost_count)
+const bookmarked = ref(props.post.viewer_state.bookmarked)
 
 // 父列表重新拉取后同步互动状态与计数：本地 ref 不会自动跟随 props 变化
 watch(
@@ -68,6 +71,12 @@ watch(
   () => props.post.repost_count,
   (value) => {
     repostCount.value = value
+  },
+)
+watch(
+  () => props.post.viewer_state.bookmarked,
+  (value) => {
+    bookmarked.value = value
   },
 )
 
@@ -137,6 +146,29 @@ async function toggleLike(): Promise<void> {
   }
 }
 
+/** 收藏/取消收藏（私有阅读清单，收藏到默认收藏；归属调整在「我的收藏」页进行） */
+async function toggleBookmark(): Promise<void> {
+  if (!requireLogin() || busy.value) return
+  busy.value = true
+  clearNotice()
+  try {
+    if (bookmarked.value) {
+      const result = await unbookmarkPost(target.value.id)
+      bookmarked.value = result.bookmarked
+      showNotice('已取消收藏。', 'success', true)
+    } else {
+      const result = await bookmarkPost(target.value.id)
+      bookmarked.value = result.bookmarked
+      showNotice('已收藏，可在「我的收藏」查看。', 'success', true)
+    }
+    emit('bookmark-change', { id: target.value.id, bookmarked: bookmarked.value })
+  } catch (err) {
+    showNotice(errorMessage(err), 'warning')
+  } finally {
+    busy.value = false
+  }
+}
+
 /**
  * 用转发响应构造纯转发列表项：作者是当前登录用户，正文与互动信息属于被转发的原帖。
  * 时间线接口不保证立即返回刚创建的转发，父列表用该对象即时插入。
@@ -165,7 +197,7 @@ function buildRepostItem(original: PostBrief, result: RepostState): PostBrief | 
     comment_count: original.comment_count,
     repost_count: result.repost_count,
     attachments: [],
-    viewer_state: { liked: liked.value, reposted: true },
+    viewer_state: { liked: liked.value, reposted: true, bookmarked: bookmarked.value },
     repost_of: original,
   }
 }
@@ -369,6 +401,18 @@ const richContentClass =
         <AppIcon name="heart" :size="17" />
         <span>{{ likeCount }}</span>
       </button>
+      <button
+        type="button"
+        class="inline-flex items-center gap-[5px] rounded-[8px] px-2 py-[5px] text-[13px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-ink! disabled:cursor-not-allowed disabled:opacity-60"
+        :class="bookmarked ? 'text-primary! font-bold' : ''"
+        :disabled="busy || !canInteract"
+        :title="canInteract ? (bookmarked ? '取消收藏' : '收藏') : '登录后可收藏'"
+        @click="toggleBookmark"
+      >
+        <AppIcon name="bookmark" :size="17" />
+      </button>
+      <!-- 列表场景扩展位（如收藏页的「移动到收藏夹」），复用互动栏的按钮节奏 -->
+      <slot name="actions-extra" :target="target"></slot>
     </footer>
     <p
       v-else-if="actions && authorSuspended"

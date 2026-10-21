@@ -1,4 +1,4 @@
-// Package app 编排社交域用例：关注/取关/粉丝移除、关注申请审批、点赞、评论、纯转发。
+// Package app 编排社交域用例：关注/取关/粉丝移除、关注申请审批、点赞、评论、纯转发、收藏。
 //
 // 事务边界由 app 决定（TxRunner.WithTx）；repo 通过 ctx 中事务自动加入。
 // 跨模块依赖通过 shared/contracts 的发布接口注入：账号来自 auth（UserReader）、
@@ -135,4 +135,37 @@ type RepostRepo interface {
 	ActiveStates(ctx context.Context, userID int64, postIDs []int64) (map[int64]bool, error)
 	// ListEvents 读取生效中的纯转发事件（时间+ID 倒序）。
 	ListEvents(ctx context.Context, query RepostEventQuery) ([]RepostEvent, error)
+}
+
+// BookmarkRepo 是收藏 SQL 端口。
+type BookmarkRepo interface {
+	// UpsertActive 收藏或更新归属（新收藏/失效复活/移动到指定夹共用一条路径，幂等）；
+	// 返回 bookmark 行 ID。
+	UpsertActive(ctx context.Context, id, userID, postID int64, folderID *int64, now time.Time) (rowID int64, err error)
+	// Deactivate 取消收藏；ok 表示是否存在生效收藏被翻转（幂等）。
+	Deactivate(ctx context.Context, userID, postID int64, now time.Time) (ok bool, err error)
+	// ActiveStates 批量查询用户已收藏的帖子集合。
+	ActiveStates(ctx context.Context, userID int64, postIDs []int64) (map[int64]bool, error)
+	// ListBatch 读取一批生效收藏（行 ID 倒序），夹过滤与游标语义见 domain.BookmarkListQuery。
+	ListBatch(ctx context.Context, query domain.BookmarkListQuery) ([]domain.BookmarkRow, error)
+}
+
+// BookmarkFolderRepo 是收藏夹 SQL 端口。
+type BookmarkFolderRepo interface {
+	// CreateFolder 创建收藏夹；返回完整行。
+	CreateFolder(ctx context.Context, id, userID int64, name string, now time.Time) (domain.BookmarkFolderRow, error)
+	// GetActiveFolderForUpdate 在事务内锁定并读取生效收藏夹；不存在（含已删除）返回 apperr.NotFound。
+	GetActiveFolderForUpdate(ctx context.Context, folderID int64) (domain.BookmarkFolderRow, error)
+	// GetActiveFolder 只读读取生效收藏夹（不锁行）；不存在（含已删除）返回 apperr.NotFound。
+	GetActiveFolder(ctx context.Context, folderID int64) (domain.BookmarkFolderRow, error)
+	// RenameFolder 重命名生效收藏夹；返回更新后的行。
+	RenameFolder(ctx context.Context, folderID int64, name string, now time.Time) (domain.BookmarkFolderRow, error)
+	// DeleteFolder 逻辑删除收藏夹；changed 表示是否存在生效夹被删除（幂等）。
+	DeleteFolder(ctx context.Context, folderID, userID int64, now time.Time) (changed bool, err error)
+	// ReassignToDefault 把某收藏夹下的生效收藏归还默认收藏（folder_id 置 NULL）。
+	ReassignToDefault(ctx context.Context, userID, folderID int64, now time.Time) error
+	// CountActiveFolders 统计用户当前生效收藏夹数量（上限校验用）。
+	CountActiveFolders(ctx context.Context, userID int64) (int, error)
+	// ListFoldersWithCounts 读取用户的生效收藏夹与各自的生效收藏数（新建在前）。
+	ListFoldersWithCounts(ctx context.Context, userID int64) ([]domain.BookmarkFolderRow, error)
 }

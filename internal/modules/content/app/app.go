@@ -43,6 +43,8 @@ type Deps struct {
 	Media contracts.MediaService
 	// Social 提供关注关系、访问者互动状态、回复与纯转发时间线（social 模块）。
 	Social contracts.SocialService
+	// Bookmarks 读取收藏 refs（social 模块；收藏行归 social 所有，帖子组装留在 content）。
+	Bookmarks contracts.BookmarkReader
 	// Notice 写入提及/引用通知（notice 模块）。
 	Notice contracts.NoticeService
 	// Jobs 入队/取消定时发布作业（platform/jobs 适配器）。

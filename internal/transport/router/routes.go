@@ -15,8 +15,8 @@ type Route struct {
 	Handler func(Deps) gin.HandlerFunc
 }
 
-// Routes 返回全部业务路由（121 条，基线 b6fed97 + 私信 11 条；新增业务接口时同步
-// 维护并更新 routes_test.go 的数量断言）。
+// Routes 返回全部业务路由（131 条，基线 b6fed97 + 私信 11 条 + 置顶 3 条 + 收藏 7 条；
+// 新增业务接口时同步维护并更新 routes_test.go 的数量断言）。
 func Routes() []Route {
 	return []Route{
 		// ---------- 公开 / 可选会话 ----------
@@ -34,6 +34,8 @@ func Routes() []Route {
 		{http.MethodGet, "/follow-requests", Login, func(d Deps) gin.HandlerFunc { return d.Social.ListFollowRequests }},
 		{http.MethodGet, "/me/drafts", Login, func(d Deps) gin.HandlerFunc { return d.Content.ListMyDrafts }},
 		{http.MethodGet, "/me/scheduled", Login, func(d Deps) gin.HandlerFunc { return d.Content.ListMyScheduled }},
+		{http.MethodGet, "/me/bookmarks", Login, func(d Deps) gin.HandlerFunc { return d.Content.ListBookmarks }},
+		{http.MethodGet, "/me/bookmark-folders", Login, func(d Deps) gin.HandlerFunc { return d.Social.ListBookmarkFolders }},
 		{http.MethodGet, "/timeline/following", Login, func(d Deps) gin.HandlerFunc { return d.Content.FollowingTimeline }},
 		{http.MethodGet, "/notifications", Login, func(d Deps) gin.HandlerFunc { return d.Notice.List }},
 		{http.MethodGet, "/notifications/unread-count", Login, func(d Deps) gin.HandlerFunc { return d.Notice.UnreadCount }},
@@ -68,6 +70,8 @@ func Routes() []Route {
 		{http.MethodPost, "/posts/:id/unrepost", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.Unrepost }},
 		{http.MethodPost, "/posts/:id/like", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.LikePost }},
 		{http.MethodPost, "/posts/:id/unlike", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.UnlikePost }},
+		{http.MethodPost, "/posts/:id/bookmark", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.BookmarkPost }},
+		{http.MethodPost, "/posts/:id/unbookmark", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.UnbookmarkPost }},
 		{http.MethodPost, "/comments/:id/like", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.LikeComment }},
 		{http.MethodPost, "/comments/:id/unlike", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.UnlikeComment }},
 		{http.MethodPost, "/posts/:id/comments", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.CreateComment }},
@@ -79,6 +83,9 @@ func Routes() []Route {
 		{http.MethodPost, "/dm/conversations/:id/read", HumanWrite, func(d Deps) gin.HandlerFunc { return d.DM.MarkRead }},
 		{http.MethodPost, "/dm/conversations/:id/hide", HumanWrite, func(d Deps) gin.HandlerFunc { return d.DM.HideConversation }},
 		{http.MethodPost, "/dm/messages/:id/recall", HumanWrite, func(d Deps) gin.HandlerFunc { return d.DM.RecallMessage }},
+		{http.MethodPost, "/me/bookmark-folders", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.CreateBookmarkFolder }},
+		{http.MethodPost, "/me/bookmark-folders/:id", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.RenameBookmarkFolder }},
+		{http.MethodPost, "/me/bookmark-folders/:id/delete", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.DeleteBookmarkFolder }},
 		{http.MethodPost, "/attachments", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.Upload }},
 		{http.MethodPost, "/attachments/:id/delete", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.Delete }},
 

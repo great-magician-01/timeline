@@ -7,11 +7,13 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiError, errorMessage } from '../api/client'
 import { getPost } from '../api/posts'
 import {
+  bookmarkPost,
   createComment,
   fetchProfile,
   followUser,
   likePost,
   listComments,
+  unbookmarkPost,
   unfollowUser,
   unlikePost,
 } from '../api/social'
@@ -55,6 +57,7 @@ const liked = ref(false)
 const likeCount = ref(0)
 const reposted = ref(false)
 const repostCount = ref(0)
+const bookmarked = ref(false)
 /** 转发弹窗开关：留空为纯转发、填写内容为引用转发 */
 const repostOpen = ref(false)
 const busy = ref(false)
@@ -196,6 +199,7 @@ async function loadPost(): Promise<void> {
     likeCount.value = data.post.like_count
     reposted.value = data.post.viewer_state.reposted
     repostCount.value = data.post.repost_count
+    bookmarked.value = data.post.viewer_state.bookmarked
     await loadFollowState(data.post, current)
     // 过期响应不触发评论加载，避免用旧帖子 id 拉评论
     if (current !== loadSequence) return
@@ -238,6 +242,33 @@ function openRepostDialog(): void {
   if (busy.value || !canShare.value) return
   clearActionNotice()
   repostOpen.value = true
+}
+
+/** 收藏/取消收藏（私有阅读清单；归属调整在「我的收藏」页进行） */
+async function toggleBookmark(): Promise<void> {
+  const current = target.value
+  if (!current || busy.value || authorSuspended.value) return
+  if (!my.value) {
+    void router.push({ name: 'login', query: { redirect: route.fullPath } })
+    return
+  }
+  busy.value = true
+  clearActionNotice()
+  try {
+    if (bookmarked.value) {
+      const result = await unbookmarkPost(current.id)
+      bookmarked.value = result.bookmarked
+      showActionNotice('已取消收藏。', 'success', true)
+    } else {
+      const result = await bookmarkPost(current.id)
+      bookmarked.value = result.bookmarked
+      showActionNotice('已收藏，可在「我的收藏」查看。', 'success', true)
+    }
+  } catch (err) {
+    showActionNotice(errorMessage(err), 'warning')
+  } finally {
+    busy.value = false
+  }
 }
 
 /** 转发弹窗完成：更新本地状态并提示；详情页不插入新列表项 */
@@ -491,6 +522,17 @@ onUnmounted(clearActionNoticeTimer)
             >
               <AppIcon name="message" :size="18" />
               <span>引用</span>
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-[5px] text-[13.5px] text-ink-3 hover-not-disabled:bg-hover hover-not-disabled:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+              :class="bookmarked && 'font-bold text-primary'"
+              :disabled="busy"
+              :title="my ? (bookmarked ? '取消收藏' : '收藏') : '登录后可收藏'"
+              @click="toggleBookmark"
+            >
+              <AppIcon name="bookmark" :size="18" />
+              <span v-if="bookmarked">已收藏</span>
             </button>
           </footer>
           <p v-else class="m-0 flex items-center gap-1.5 rounded-lg border-t border-solid border-border bg-soft px-2.5 py-2 text-[13px] text-ink-3">

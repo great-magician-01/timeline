@@ -15,8 +15,28 @@ type AttachmentView struct {
 
 // ViewerState 是访问者对当前内容的互动状态。
 type ViewerState struct {
-	Liked    bool
-	Reposted bool
+	Liked      bool
+	Reposted   bool
+	Bookmarked bool
+}
+
+// BookmarkState 是收藏列表项附带的归属信息（FolderID 为 nil 表示默认收藏）。
+type BookmarkState struct {
+	FolderID  *int64
+	CreatedAt time.Time
+}
+
+// BookmarkListItem 是「我的收藏」列表项：帖子 brief + 收藏归属。
+type BookmarkListItem struct {
+	PostBrief
+	Bookmark BookmarkState
+}
+
+// BookmarkListPage 是收藏列表分页结果（bookmark 行 ID 游标）。
+type BookmarkListPage struct {
+	Items   []BookmarkListItem
+	NextID  int64
+	HasMore bool
 }
 
 // QuotedPost 是引用转发的原帖占位：原帖不可见或已删除时 Available 为 false 且不带 Post。

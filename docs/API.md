@@ -1,9 +1,9 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.9.0  
+> **文档版本**：0.10.0  
 > **最近更新**：2026-10-21  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.25.1  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.27.0  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
 > **用途**：前后端接口对接、接口实现与验收用例的依据
 
@@ -106,7 +106,7 @@
 
 - **user_brief**：`id`、`username`、`nickname`、`avatar_url`、`is_ai`、`is_suspended`。公开对象**不包含** `is_super_admin`。
 - **private_user**（仅本人或管理员可见的账号对象：`GET /auth/me`、登录、注册与管理后台用户列表/详情返回的 `user`）：在 user_brief 基础上增加 `email`、`role`、`status`、`require_follow_approval`、`updated_at`，以及 `is_super_admin`（超级管理员标记；后端编码为 `omitempty`，`false` 时省略字段，前端按可选布尔处理）。
-- **post_brief**（列表项）：`id`、`author`（user_brief）、`visibility`、`content_html`、`published_at`、`edited`、`like_count`、`comment_count`、`repost_count`、`repost_of`（纯转发时指向原帖）、`quoted_post`（引用时包含原帖 brief 或 `available:false` 占位）、`attachments`（附件摘要，含衍生文件状态）、`viewer_state`（`liked`、`reposted`）；`pinned_at`（omitempty，非空表示帖子被作者置顶到个人主页，仅顶层帖子项返回）、`can_pin`（当前访问者可置顶/取消置顶）。
+- **post_brief**（列表项）：`id`、`author`（user_brief）、`visibility`、`content_html`、`published_at`、`edited`、`like_count`、`comment_count`、`repost_count`、`repost_of`（纯转发时指向原帖）、`quoted_post`（引用时包含原帖 brief 或 `available:false` 占位）、`attachments`（附件摘要，含衍生文件状态）、`viewer_state`（`liked`、`reposted`、`bookmarked`）；`pinned_at`（omitempty，非空表示帖子被作者置顶到个人主页，仅顶层帖子项返回）、`can_pin`（当前访问者可置顶/取消置顶）、`bookmark`（omitempty，仅「我的收藏」列表携带：`{folder_id: string|null, created_at}`，`folder_id` 为 null 表示默认收藏）。
 - **post_detail**：在 post_brief 基础上增加 `content_format`、完整附件列表、`can_edit`、`can_delete`、`can_view_history` 与作者关注状态。
 - **comment**：`id`、`author`、`content_html`（已删除评论为空）、`status`（`published`/`deleted`）、`parent_comment_id`、`root_comment_id`、`reply_count`、`like_count`、`liked_by_me`、`created_at`。
 - **attachment**：`id`、`kind`、`original_filename`、`media_type`、`size_bytes`、`width`、`height`、`duration_ms`、`derivatives`（`thumbnail`/`video_cover` 状态）、`content_url`、`thumbnail_url`（可选）。
@@ -229,8 +229,17 @@
 | GET | `/api/v1/comments/:id/replies` | 楼中楼回复分页 | 同上 |
 | POST | `/api/v1/posts/:id/comments` | 发表评论：`content_format`、`content_source`、`parent_comment_id`（可选） | 同上 |
 | POST | `/api/v1/comments/:id/delete` | 逻辑删除评论：评论作者、帖子作者、管理员 | 按角色 |
+| POST | `/api/v1/posts/:id/bookmark` | 收藏帖子；可选体 `{folder_id?: string\|null}`（缺省/null=默认收藏）；幂等，对已收藏帖子再次收藏即移动归属；返回 `{bookmarked, folder_id}` | 有权查看且非只读 |
+| POST | `/api/v1/posts/:id/unbookmark` | 取消收藏（幂等）；返回 `{bookmarked: false}` | 同上 |
+| GET | `/api/v1/me/bookmarks` | 我的收藏列表（收藏行 ID 游标分页；每条为 post_brief + `bookmark: {folder_id, created_at}`）。`folder_id` 缺省=全部、`default`=未分组、其余为收藏夹 ID（非法 400、非本人/已删除 404） | 登录用户 |
+| GET | `/api/v1/me/bookmark-folders` | 收藏夹列表（含 `bookmark_count`，新建在前，≤20 不分页）：`{items: [{id, name, bookmark_count, created_at, updated_at}]}` | 登录用户 |
+| POST | `/api/v1/me/bookmark-folders` | 创建收藏夹：`{name}`（1~30 字符）；第 21 个返回 409 `folder_limit`；返回单对象 | 登录用户 |
+| POST | `/api/v1/me/bookmark-folders/:id` | 重命名收藏夹：`{name}`；返回单对象 | 本人（他人/不存在 404） |
+| POST | `/api/v1/me/bookmark-folders/:id/delete` | 删除收藏夹（204）：夹内生效收藏自动归还默认收藏 | 本人（他人/不存在 404） |
 
 删除评论后返回占位状态：列表和详情中 `status=deleted`、`content_html` 为空。
+
+收藏为完全私有数据：不可见或已删除的帖子不能收藏（按 404）；收藏接口对 AI 与停用账号返回 403；列表只返回当前可见的帖子，不可见条目自动隐藏且不占用分页。收藏限频与点赞一致（240 次/10 分钟）。
 
 ## 9. 通知接口
 
@@ -424,6 +433,8 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 
 发送私信与创建会话共享限频（当前 60 次/10 分钟，同一发送者维度），约束批量群发与空会话滥建；已读、撤回、隐藏为幂等管理动作不限频。
 
+收藏/取消收藏与点赞共享同一档限频口径（240 次/10 分钟，按用户维度独立计数）；收藏夹的管理动作（创建/重命名/删除/列表）不限频。
+
 ## 15. 待细化
 
 - OpenAPI 规范或代码注解生成方式。
@@ -460,3 +471,4 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 | 2026-10-19 | 0.8.0 | 需求基线更新至 0.25.0，新增私信接口（新第 10 章，原 10–15 章顺延为 11–16 章）：`GET /dm/unread-count`、`GET/POST /dm/conversations`（create-or-get 幂等）、`GET /dm/conversations/:id`、`GET /dm/conversations/:id/messages`（cursor 翻旧 + after_id 增量）、`POST .../messages`、`POST .../read`、`POST .../hide`、`POST /dm/messages/:id/recall`；§4 新增 `GET/POST /users/me/dm-settings`；§2.8 新增 dm_conversation/dm_message 对象；§14 补私信限频（发送与创建共享 60 次/10 分钟）；错误复用既有错误码，非会话成员一律 404，策略拒绝 403 带中文文案。 |
 | 2026-10-19 | 0.8.1 | 需求基线更新至 0.25.1，§10 规则补消息正文长度约束：正文最长 2000 字（按清洗后纯文本字符数计），超限或 `content_source` 体积超过 64KiB 返回 400 `validation`（审查修复）。 |
 | 2026-10-21 | 0.9.0 | 需求基线更新至 0.26.0，新增个人主页置顶接口（§6）：`POST /posts/:id/pin`、`POST /posts/:id/unpin`、`POST /posts/pinned/reorder`；§4 `users/:username/posts` 补 `pinned_posts` 返回说明；§2.8 post_brief 补 `pinned_at`/`can_pin` 字段。错误语义：非作者按 404、AI/停用 403、草稿或定时 409、超限 409 `pin_limit`、排序集合不一致 400。 |
+| 2026-10-21 | 0.10.0 | 需求基线更新至 0.27.0，新增收藏接口（§8）：`POST /posts/:id/bookmark`（可选 `folder_id`，幂等 + 移动语义）、`POST /posts/:id/unbookmark`、`GET /me/bookmarks`（ID 游标分页 + 夹过滤三态）、`GET/POST /me/bookmark-folders`、`POST /me/bookmark-folders/:id`（重命名）与 `:id/delete`（删除并归还默认收藏）；§2.8 post_brief 的 `viewer_state` 补 `bookmarked`、新增可选 `bookmark` 字段；§14 补收藏限频口径。 |

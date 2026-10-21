@@ -58,6 +58,7 @@ export interface UserBrief {
 export interface ViewerState {
   liked: boolean
   reposted: boolean
+  bookmarked: boolean
 }
 
 export interface QuotedPost {
@@ -99,6 +100,8 @@ export interface PostBrief {
   pinned_at?: string
   /** 当前访问者可置顶/取消置顶（作者本人且已发布） */
   can_pin?: boolean
+  /** 收藏归属（仅「我的收藏」列表携带；folder_id 为 null 表示默认收藏） */
+  bookmark?: { folder_id: string | null; created_at: string }
   repost_of?: PostBrief
   quoted_post?: QuotedPost
   attachments: Attachment[]
@@ -209,6 +212,21 @@ export interface Comment {
 export interface LikeState {
   liked: boolean
   like_count: number
+}
+
+/** 收藏状态（folder_id 为 null 表示默认收藏） */
+export interface BookmarkState {
+  bookmarked: boolean
+  folder_id: string | null
+}
+
+/** 收藏夹（私有，仅本人可见） */
+export interface BookmarkFolder {
+  id: string
+  name: string
+  bookmark_count: number
+  created_at: string
+  updated_at: string
 }
 
 export interface RepostState {

@@ -1,9 +1,9 @@
 # Timeline 数据模型设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.11.0  
+> **文档版本**：0.12.0  
 > **最近更新**：2026-10-21  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.26.0  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.27.0  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[核心状态机与流程](WORKFLOWS.md)  
 > **用途**：数据库迁移、接口设计、后台任务和验收用例的依据
 
@@ -96,7 +96,7 @@
 - **账号与认证（`user`）**：`users`、`auth_sessions`
 - **帖子与内容（`timeline`）**：`posts`、`post_drafts`、`post_versions`、`post_version_attachments`、`post_draft_attachments`、`tags`、`post_tags`、`post_search`
 - **附件与媒体（`timeline`）**：`attachments`、`attachment_derivatives`
-- **社交互动（`timeline`）**：`follows`、`follow_requests`、`likes`、`comments`、`reposts`、`mentions`
+- **社交互动（`timeline`）**：`follows`、`follow_requests`、`likes`、`comments`、`reposts`、`mentions`、`bookmarks`、`bookmark_folders`
 - **通知（`timeline`）**：`notifications`
 - **私信（`timeline`）**：`dm_conversations`、`dm_messages`
 - **AI 配置（`timeline`）**：`model_providers`、`ai_profiles`、`ai_model_settings`、`ai_behavior_settings`
@@ -472,6 +472,22 @@
 - `created_at`、`updated_at`：应用 Clock 显式传参。
 - CHECK：`dm_messages_not_self_check` 禁止自发消息；`status`、`content_format` 取值兜底。
 
+### 6.33 bookmark_folders（`timeline`）
+
+- `id`：主键；`user_id`：所属用户；`name`：收藏夹名称（应用层校验去首尾空白后 1~30 字符，不加 CHECK）。
+- `deleted_at`：逻辑删除标记；删除收藏夹时由应用在同一事务内把夹下生效收藏的 `folder_id` 置回 `NULL`（归还默认收藏）。
+- 每人生效收藏夹上限 20 由应用层校验（并发极小概率超额，可接受，与置顶上限同口径）。
+- `created_at`、`updated_at`：应用 Clock 显式传参；无外键、不物理删除。
+
+### 6.34 bookmarks（`timeline`）
+
+- `id`：主键；`user_id`：收藏者；`post_id`：被收藏帖子。
+- `folder_id`：归属收藏夹；`NULL` 表示默认收藏（未分组）。归属校验（夹存在且属于本人）由应用层在写入事务内维护。
+- `is_active`：生效标记；取消收藏置 `FALSE` 并保留 `folder_id`（逻辑删除），再次收藏时由 upsert 指定新归属。唯一组合索引 `bookmarks_user_post_unique (user_id, post_id)` 非部分索引，`ON CONFLICT` 需命中 `is_active = FALSE` 的旧行以支持"取消后重新收藏"。
+- upsert 无条件覆盖：新收藏 / 失效复活 / 移动到指定夹共用一条路径；重新收藏已生效条目只更新 `folder_id` 与 `updated_at`，不刷新 `created_at` 与行 `id`（列表位置保持首次收藏时不变）。
+- 收藏不发通知、不更新帖子计数（完全私有，无公开计数可冗余）；帖子被删除不回写收藏行，列表组装时按可见性过滤隐藏。
+- `created_at`、`updated_at`：应用 Clock 显式传参；无外键、不物理删除。
+
 ## 7. 关系概览
 
 以下关系均为逻辑引用：只对引用列建立普通索引，数据库不定义外键约束，引用完整性由应用层在事务内维护。
@@ -483,6 +499,7 @@
 - `users` N—N `users`：`follows` 表示生效关系，`follow_requests` 表示申请历史。
 - `users` N—N `users`：`dm_conversations` 表示 1:1 私信会话（规范化排序唯一），`dm_messages` 属于会话并冗余 `recipient_id`。
 - `likes`、`mentions`、`notifications` 通过 `target_type`/`source_type` 引用帖子和评论。
+- `users` 1—N `bookmark_folders`；`users` N—N `posts`（经 `bookmarks`，`folder_id` 归属 `bookmark_folders`，`NULL` 为默认收藏）。
 - `ai_profiles` 1—1 `ai_model_settings`、1—1 `ai_behavior_settings`、1—N `ai_memories`、1—N `ai_tasks`。
 - `model_providers` 1—N `ai_model_settings` 与 `ai_tasks`。
 - `background_jobs` 以 `ref_type`/`ref_id` 弱引用对应实体。
@@ -510,6 +527,7 @@
 16. 附件与后台作业（`0017`）：`attachments_post_available`（按帖统计有效附件）、`attachments_unlinked_post`（临时附件清理候选，替换旧 `attachments_unlinked`）、`background_jobs_running(updated_at) WHERE status='running'`（作业回收）、`mentions_user_created`（AI 调度按时间窗读取提及）、`comments_author_created`/`comments_post_top`（个人主页回复页签与顶层评论分页）。`0018` 同时删除与主键等价或运行期无查询的索引：`auth_sessions_expiry`、`admin_audit_logs_created`、`users_admin_list`、`post_versions_post`、`posts_quoted`、`ai_tasks_action`、旧 `ai_action_counters_unique`（由新列序唯一索引替代）。
 17. 私信（`0021`）：`dm_conversations_pair_unique` 唯一组合（幂等创建）；`dm_conversations_user_a_list`/`dm_conversations_user_b_list` 部分索引（`last_message_id IS NOT NULL AND 本侧未隐藏`，谓词与列表查询完全匹配）；`dm_messages_conversation(conversation_id, id desc)` 支撑对话翻页与增量拉取；`dm_messages_recipient_unread(recipient_id, conversation_id) WHERE read_at IS NULL` 部分索引支撑未读总数、会话未读批量统计与已读更新（查询再带 `status='published'` 谓词自动剔除已撤回消息）。
 18. 个人主页置顶（`0022`）：`posts.pinned_at`/`pinned_sort` 由 CHECK 约束 `posts_pinned_check` 兜底（两列同空同非空、1..3、仅已发布）；置顶查询是「单作者 + 已发布」最多 3 行小集合，复用现有 `posts_author_published` 部分索引，**不新增索引**（SQL 最简原则）。
+19. 收藏（`0023`）：`bookmarks_user_post_unique (user_id, post_id)` 非部分唯一索引兜底收藏幂等与并发；`bookmarks_user_active (user_id, id DESC) WHERE is_active` 支撑收藏列表（全部/默认）游标分页；`bookmarks_user_folder_active (user_id, folder_id, id DESC) WHERE is_active AND folder_id IS NOT NULL` 支撑按夹过滤分页与删除夹时的归还 UPDATE；`bookmark_folders_user_active (user_id) WHERE deleted_at IS NULL` 支撑夹列表与上限计数。
 
 ## 9. 与流程文档的状态映射
 
@@ -584,3 +602,4 @@
 | 2026-10-17 | 0.6.0 | 需求基线更新至 0.22.0；全面去除外键与物理删除旧说法：设计原则改为“逻辑删除唯一”“无外键约束”，明确表间引用只用普通索引、完整性由应用层在事务内维护；迁移约定不再创建外键；关系概览、索引与约束章节同步；附件清理改为标记失效（逻辑删除）；取消点赞、取关、取消转发等取消类操作改为逻辑失效标记；调用记录清理改为逻辑删除；待细化补充逻辑删除与唯一约束的组合方式。 |
 | 2026-10-19 | 0.10.0 | 需求基线更新至 0.25.0，新增私信（迁移 `0021_direct_messages`）：§5 实体总览新增私信组；`users.dm_policy` 接收策略列（默认 `all`，CHECK 兜底，AI 限制由入口校验）；新增 `dm_conversations`（规范化双人 + `last_message_id` 排序指针 + 单侧隐藏位）与 `dm_messages`（冗余 `recipient_id` + `read_at` 已读 + `recalled` 撤回状态 + `richtext` 固定格式）两表；§7 补用户 N—N 关系；§8 补第 17 条索引方向；§9 补会话/消息/已读状态映射；§10 记录"私信未读数不冗余存储"决策及与 `0019` 冗余门槛的对照。 |
 | 2026-10-21 | 0.11.0 | 需求基线更新至 0.26.0，新增个人主页置顶（迁移 `0022_post_pinned`）：§6.3 posts 补 `pinned_at`/`pinned_sort` 列（CHECK 约束 `posts_pinned_check`：两列同空同非空、1..3、仅已发布；删除帖同 UPDATE 清列；置顶写入不改 `updated_at`）；§8 补第 18 条（置顶查询复用 `posts_author_published` 部分索引，不新增索引）。 |
+| 2026-10-21 | 0.12.0 | 需求基线更新至 0.27.0，新增收藏（迁移 `0023_bookmarks`）：§5 实体总览社交互动组补 `bookmarks`/`bookmark_folders`；新增 §6.33/§6.34 两表（收藏夹逻辑删除、删除时同事务归还夹内收藏；收藏 `is_active` 失效 + `folder_id NULL` 默认收藏 + 非部分唯一组合索引支撑 upsert 复活与移动）；§7 补收藏关系；§8 补第 19 条索引方向。 |

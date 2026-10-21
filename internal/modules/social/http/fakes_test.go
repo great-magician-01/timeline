@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/great-magician-01/timeline/internal/modules/social/app"
+	"github.com/great-magician-01/timeline/internal/modules/social/domain"
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
 	"github.com/great-magician-01/timeline/internal/platform/audit"
 	"github.com/great-magician-01/timeline/internal/platform/clock"
@@ -455,60 +456,138 @@ func (f *fakeReposts) ListEvents(context.Context, app.RepostEventQuery) ([]app.R
 	return nil, nil
 }
 
+// ===== 收藏端口 =====
+
+type fakeBookmarks struct {
+	app.BookmarkRepo
+
+	upsertErr error
+}
+
+func (f *fakeBookmarks) UpsertActive(
+	_ context.Context, id, _, _ int64, _ *int64, _ time.Time,
+) (int64, error) {
+	if f.upsertErr != nil {
+		return 0, f.upsertErr
+	}
+	return id, nil
+}
+
+func (f *fakeBookmarks) Deactivate(context.Context, int64, int64, time.Time) (bool, error) {
+	return true, nil
+}
+
+func (f *fakeBookmarks) ActiveStates(_ context.Context, _ int64, postIDs []int64) (map[int64]bool, error) {
+	return map[int64]bool{}, nil
+}
+
+func (f *fakeBookmarks) ListBatch(context.Context, domain.BookmarkListQuery) ([]domain.BookmarkRow, error) {
+	return nil, nil
+}
+
+type fakeFolders struct {
+	app.BookmarkFolderRepo
+
+	folderID int64
+	userID   int64
+	getErr   error
+}
+
+func newFakeFolders() *fakeFolders {
+	return &fakeFolders{folderID: 800, userID: uidViewer}
+}
+
+func (f *fakeFolders) CreateFolder(_ context.Context, id, userID int64, name string, at time.Time) (domain.BookmarkFolderRow, error) {
+	return domain.BookmarkFolderRow{ID: id, UserID: userID, Name: name, CreatedAt: at, UpdatedAt: at}, nil
+}
+
+func (f *fakeFolders) GetActiveFolderForUpdate(_ context.Context, _ int64) (domain.BookmarkFolderRow, error) {
+	if f.getErr != nil {
+		return domain.BookmarkFolderRow{}, f.getErr
+	}
+	return domain.BookmarkFolderRow{ID: f.folderID, UserID: f.userID, Name: "默认夹"}, nil
+}
+
+func (f *fakeFolders) RenameFolder(_ context.Context, folderID int64, name string, at time.Time) (domain.BookmarkFolderRow, error) {
+	return domain.BookmarkFolderRow{ID: folderID, UserID: f.userID, Name: name, CreatedAt: at, UpdatedAt: at}, nil
+}
+
+func (f *fakeFolders) DeleteFolder(context.Context, int64, int64, time.Time) (bool, error) {
+	return true, nil
+}
+
+func (f *fakeFolders) ReassignToDefault(context.Context, int64, int64, time.Time) error { return nil }
+
+func (f *fakeFolders) CountActiveFolders(context.Context, int64) (int, error) { return 0, nil }
+
+func (f *fakeFolders) ListFoldersWithCounts(_ context.Context, _ int64) ([]domain.BookmarkFolderRow, error) {
+	return []domain.BookmarkFolderRow{
+		{ID: f.folderID, UserID: f.userID, Name: "默认夹", CreatedAt: testNow, UpdatedAt: testNow},
+	}, nil
+}
+
 // ===== 固定装配 =====
 
 // fixture 汇总全部 fake 与构造好的 handler。
 type fixture struct {
-	users    *fakeUsers
-	posts    *fakePosts
-	notices  *fakeNotices
-	follows  *fakeFollows
-	requests *fakeRequests
-	likes    *fakeLikes
-	comments *fakeComments
-	reposts  *fakeReposts
-	tx       app.TxRunner
-	ids      app.IDGenerator
+	users     *fakeUsers
+	posts     *fakePosts
+	notices   *fakeNotices
+	follows   *fakeFollows
+	requests  *fakeRequests
+	likes     *fakeLikes
+	comments  *fakeComments
+	reposts   *fakeReposts
+	bookmarks *fakeBookmarks
+	folders   *fakeFolders
+	tx        app.TxRunner
+	ids       app.IDGenerator
 
-	commentLimiter *ratelimit.Limiter
-	likeLimiter    *ratelimit.Limiter
-	followLimiter  *ratelimit.Limiter
+	commentLimiter  *ratelimit.Limiter
+	likeLimiter     *ratelimit.Limiter
+	followLimiter   *ratelimit.Limiter
+	bookmarkLimiter *ratelimit.Limiter
 }
 
 func newFixture() *fixture {
 	return &fixture{
-		users:    newFakeUsers(),
-		posts:    newFakePosts(),
-		notices:  &fakeNotices{},
-		follows:  newFakeFollows(),
-		requests: &fakeRequests{},
-		likes:    newFakeLikes(),
-		comments: newFakeComments(),
-		reposts:  newFakeReposts(),
-		tx:       passTx{},
-		ids:      &seqIDs{next: 100},
+		users:     newFakeUsers(),
+		posts:     newFakePosts(),
+		notices:   &fakeNotices{},
+		follows:   newFakeFollows(),
+		requests:  &fakeRequests{},
+		likes:     newFakeLikes(),
+		comments:  newFakeComments(),
+		reposts:   newFakeReposts(),
+		bookmarks: &fakeBookmarks{},
+		folders:   newFakeFolders(),
+		tx:        passTx{},
+		ids:       &seqIDs{next: 100},
 	}
 }
 
 // deps 组装 app.Deps；unset 字段使用 fake 默认值。
 func (f *fixture) deps() app.Deps {
 	return app.Deps{
-		Clock:    clock.NewFake(testNow),
-		IDs:      f.ids,
-		Tx:       f.tx,
-		Users:    f.users,
-		Posts:    f.posts,
-		Notices:  f.notices,
-		Audit:    quietAudit{},
-		Follows:  f.follows,
-		Requests: f.requests,
-		Likes:    f.likes,
-		Comments: f.comments,
-		Reposts:  f.reposts,
+		Clock:     clock.NewFake(testNow),
+		IDs:       f.ids,
+		Tx:        f.tx,
+		Users:     f.users,
+		Posts:     f.posts,
+		Notices:   f.notices,
+		Audit:     quietAudit{},
+		Follows:   f.follows,
+		Requests:  f.requests,
+		Likes:     f.likes,
+		Comments:  f.comments,
+		Reposts:   f.reposts,
+		Bookmarks: f.bookmarks,
+		Folders:   f.folders,
 
-		CommentLimiter: f.commentLimiter,
-		LikeLimiter:    f.likeLimiter,
-		FollowLimiter:  f.followLimiter,
+		CommentLimiter:  f.commentLimiter,
+		LikeLimiter:     f.likeLimiter,
+		FollowLimiter:   f.followLimiter,
+		BookmarkLimiter: f.bookmarkLimiter,
 	}
 }
 

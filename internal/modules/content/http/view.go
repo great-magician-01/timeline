@@ -8,8 +8,21 @@ import (
 
 // viewerStateResponse 是访问者对内容的互动状态（JSON 形状与旧实现一致）。
 type viewerStateResponse struct {
-	Liked    bool `json:"liked"`
-	Reposted bool `json:"reposted"`
+	Liked      bool `json:"liked"`
+	Reposted   bool `json:"reposted"`
+	Bookmarked bool `json:"bookmarked"`
+}
+
+// bookmarkStateResponse 是收藏列表项附带的归属信息。
+type bookmarkStateResponse struct {
+	FolderID  *string `json:"folder_id"`
+	CreatedAt string  `json:"created_at"`
+}
+
+// bookmarkItemResponse 是「我的收藏」列表项 DTO：帖子 brief + 收藏归属。
+type bookmarkItemResponse struct {
+	postBriefResponse
+	Bookmark bookmarkStateResponse `json:"bookmark"`
 }
 
 // quotedPostResponse 是引用转发的原帖占位。
@@ -129,8 +142,9 @@ func briefResponseFor(brief app.PostBrief) postBriefResponse {
 		CanPin:       brief.CanPin,
 		Attachments:  attachmentResponsesFor(brief.Attachments),
 		ViewerState: viewerStateResponse{
-			Liked:    brief.ViewerState.Liked,
-			Reposted: brief.ViewerState.Reposted,
+			Liked:      brief.ViewerState.Liked,
+			Reposted:   brief.ViewerState.Reposted,
+			Bookmarked: brief.ViewerState.Bookmarked,
 		},
 	}
 	if brief.RepostOf != nil {

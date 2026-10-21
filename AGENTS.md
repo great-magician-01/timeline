@@ -1,6 +1,6 @@
 # Timeline 项目指南
 
-> **文档版本**：0.2.5  
+> **文档版本**：0.2.6  
 > **最近更新**：2026-10-21  
 > **关联文档**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（后端目标架构权威）、[`docs/README.md`](docs/README.md)（文档索引）
 
@@ -13,10 +13,10 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 当前仓库处于 **V1 已实现、待人工验证** 阶段，功能范围已全部落地：
 
 - Go/Gin HTTP 服务、`/healthz` 存活检查、`/readyz` 就绪检查，以及前端构建产物的 Go 内嵌托管和 SPA 回退。
-- PostgreSQL 连接、失败退避重试、最小迁移器 v2（支持 `no-transaction` 指令）；`migrations/` 内按文件名顺序追加的迁移（`0001`–`0022`，含账号、超级管理员标记、内容、社交、AI、后台作业、AI 记忆来源、时间默认值移除、并发索引与 `pg_trgm` 搜索索引，以及 SQL 最简原则改造的查询索引批次、冗余索引删除、`posts/reposts.author_is_ai` 作者类型快照列、`attachment_usage` 配额冗余计数表、私信会话/消息与 `users.dm_policy`、个人主页置顶 `pinned_at`/`pinned_sort` 等表结构变更）。
+- PostgreSQL 连接、失败退避重试、最小迁移器 v2（支持 `no-transaction` 指令）；`migrations/` 内按文件名顺序追加的迁移（`0001`–`0023`，含账号、超级管理员标记、内容、社交、AI、后台作业、AI 记忆来源、时间默认值移除、并发索引与 `pg_trgm` 搜索索引，以及 SQL 最简原则改造的查询索引批次、冗余索引删除、`posts/reposts.author_is_ai` 作者类型快照列、`attachment_usage` 配额冗余计数表、私信会话/消息与 `users.dm_policy`、个人主页置顶 `pinned_at`/`pinned_sort`、收藏 `bookmarks`/`bookmark_folders` 两表与配套索引等表结构变更）。
 - 账号：用户名/邮箱注册与登录、bcrypt 哈希、HttpOnly 服务端会话、游客与会话 CSRF、三维登录限频、资料与密码修改、关注审批设置、头像上传；公开 `GET /auth/config` 提供注册开关状态与 `bootstrap_required` 初始化状态。空库首个注册用户自动成为唯一超级管理员；超级管理员可授权/撤销管理员，普通管理员不能操作超管账号。
 - 内容：富文本/Markdown 统一安全渲染、帖子、草稿与自动保存冲突、定时发布、编辑历史与版本恢复、附件上传与图片缩略图/视频封面（ffmpeg 可选）、可见性（公开/仅关注者/仅自己）、时间线（全站/关注/个人主页）、个人主页置顶（作者置顶自己的已发布帖子到主页顶部，最多 3 条、支持调整顺序，普通流排除置顶帖）。
-- 社交：关注与关注审批、移除粉丝、点赞、评论与楼中楼、纯转发与引用、提及、通知中心（轮询未读数、按类型筛选）。
+- 社交：关注与关注审批、移除粉丝、点赞、评论与楼中楼、纯转发与引用、提及、收藏（仅帖子的私有阅读清单，支持收藏夹分组：每人 ≤20 个、删除夹时夹内收藏归还默认收藏；列表按访问者可见性过滤；AI 与停用账号不能收藏；不发通知、不展示计数）、通知中心（轮询未读数、按类型筛选）。
 - 私信：1:1 双人会话（纯文本无附件，正文上限 2000 字、来源体积上限 64KiB）、用户级接收策略 `dm_policy`（所有人/仅我关注的/仅互关/关闭，默认所有人）、未读数轮询徽章、会话列表与对话页、2 分钟内撤回、删除会话视图（单侧隐藏）；AI 账号双向不参与，管理后台完全不可见。
 - 发现：`#话题#` 链接化与标签聚合、用户搜索、帖子搜索，全部按访问者权限过滤。
 - AI：OpenAI 兼容接口预设（API Key 加密存储）、AI 身份与行为策略（含发帖/主动互动间隔）、分层记忆（近期/长期、关键词检索、沉淀与失效、来源关联）、自主动作（发帖/评论/点赞/关注/转发/引用，默认全部关闭）、按 AI 开关的受控联网搜索（全局独立密钥、默认关闭、有限工具轮次）、任务与决策审计、模型调用记录（可按任务筛选）、管理员手动生成支持立即发布或定时发布、任务详情展示注入记忆。
@@ -24,7 +24,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 - 后台作业：持久化在 `background_jobs`，重启恢复，有限次数与退避重试；附件失效清理与 AI 调度为周期任务。
 - 环境变量配置、双通道日志、雪花 ID 生成器、Docker/Compose、目录准备与备份恢复脚本，以及 GitHub Actions CI。
 
-验证状态：默认 Go 测试、`go vet`、`npm run build`、架构守卫（`go test ./internal/architecture`）与隔离 schema 集成测试已通过；私信功能补充的 domain/app 测试与 `TestDMIntegration`（发送/未读/已读/撤回/隐藏恢复/策略矩阵/AI 与停用拒绝/非成员 404/设置往返），以及置顶功能的 domain/app/repo 单测与 `TestPinIntegration`（置顶/取消/幂等/上限冲突/排序/权限/主页去重/可见性/删除联动）随 `go test ./...` 与 `TIMELINE_INTEGRATION=1 go test -p 1 ./...` 运行，迁移 `0021_direct_messages`、`0022_post_pinned` 已在开发库实际应用。开发机已使用临时 PostgreSQL 实例完成 Docker 镜像构建、容器启动、健康检查、前端托管与基础 API 冒烟，并完成一次备份/恢复演练（含附件属主修正）。尚未执行：`docs/ACCEPTANCE.md` 中的完整 P0 人工验收（含本轮 DM-01～12 与 SEC-10/11），以及部署机上的真实环境复演。
+验证状态：默认 Go 测试、`go vet`、`npm run build`、架构守卫（`go test ./internal/architecture`）与隔离 schema 集成测试已通过；私信功能补充的 domain/app 测试与 `TestDMIntegration`（发送/未读/已读/撤回/隐藏恢复/策略矩阵/AI 与停用拒绝/非成员 404/设置往返），置顶功能的 domain/app/repo 单测与 `TestPinIntegration`（置顶/取消/幂等/上限冲突/排序/权限/主页去重/可见性/删除联动），以及收藏功能的 domain/app/repo/http 单测与 `TestBookmarkIntegration`（收藏/取消/幂等、`viewer_state.bookmarked`、收藏夹 CRUD 与上限/属主 404、移动、删除夹归还默认、游客/停用拒绝、列表可见性过滤、后台无收藏路由）随 `go test ./...` 与 `TIMELINE_INTEGRATION=1 go test -p 1 ./...` 运行，迁移 `0021_direct_messages`、`0022_post_pinned`、`0023_bookmarks` 已在开发库实际应用。开发机已使用临时 PostgreSQL 实例完成 Docker 镜像构建、容器启动、健康检查、前端托管与基础 API 冒烟，并完成一次备份/恢复演练（含附件属主修正）。尚未执行：`docs/ACCEPTANCE.md` 中的完整 P0 人工验收（含本轮 DM-01～12、SEC-10/11 与 BK-01～07），以及部署机上的真实环境复演。
 
 当前分支 `refactor/target-architecture` 已按 `docs/ARCHITECTURE.md` 完成目标架构接管与旧包清理：`cmd/server` → `internal/app`（组合根）→ `transport/router`（声明式路由）→ `modules/*`；旧 `internal/*` 业务包已从仓库删除，集成测试迁移到 `internal/testkit` + `internal/server`/模块 `http` harness，架构守卫覆盖新树、`internal/server`、`cmd/` 与 `internal/testkit` 例外，并新增 DB 原语/遗留符号规则；新功能只写在目标结构中。改造过程与迁移序列见 `CODE_QUALITY_REFACTOR_PLAN.md`（过程文档，非长期权威）。
 
@@ -225,7 +225,7 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 当前自动化测试覆盖：
 
 - 单元测试：雪花 ID、密码与令牌、注册/资料校验、固定窗口限频、游标与 JSON 约束、代理配置、迁移安全约束（无外键/无物理删除）、路由方法与健康检查、富文本清洗与 Markdown 渲染（含 XSS 用例）、附件类型嗅探与图片缩放、帖子 DTO 与时间游标、评论状态机与幂等键、私信权限矩阵/撤回窗口/预览截断/规范化与幂等（`internal/modules/dm/{domain,app}`）、AI 密钥加解密与生成参数解析、AI 决策解析与频率判断、网页搜索 URL/重试/结果裁剪/密钥脱敏、有限工具轮次与降级、搜索设置加密与校验、候选范围二次授权、空工具调用兼容与控制字符校验；ERROR 日志调用栈与 panic 恢复：`internal/platform/logging/stack_test.go`（首帧为业务调用点、跳过日志内部帧、深栈扩容、WARN/INFO/访问日志不附加、显式 stack 去重、WithAttrs/WithGroup）、`TestInitAutoStackOnError`（Init 后 text 记录后多行缩进栈与 json `stack` 字段）、`internal/transport/middleware/recovery_test.go`（panic 记录完整栈并返回 500 `internal_error`、已写出不覆盖、EPIPE/`ErrAbortHandler` 按 WARN 无栈、nil logger 回退）、`internal/server` 的 panic 全局接线用例与 `internal/platform/jobs` 的作业/周期任务 panic 栈断言。
-- 集成测试（默认跳过，需要测试 schema）：`TestAccountIntegration`（账号全链路）、`TestContentIntegration`（帖子/草稿/定时/版本/附件/可见性/时间线/关注/点赞/评论/转发/通知/标签/搜索/管理审核）、`TestAdminSettingsAndAttachmentIntegration`（系统设置即时生效、全局搜索密钥加密/清除、存储配额、附件审核/删除、用户统计、定时失败状态）、`TestBootstrapIntegration`（空库首注册超管、并发唯一超管、空库忽略注册开关的隔离 schema 用例）、`TestAdminGrantIntegration`（超管授权/撤销管理员、普通管理员越权与超管保护、审计与幂等）、`TestGlobalAISwitchIntegration`（全局 AI 开关即时生效、紧急停止取消待执行任务并暂停后台作业）、`TestAIAdminIntegration`（模型预设、AI 配置、`allow_web_search`、记忆、生成任务）、`TestDMIntegration`（私信创建幂等/发送/未读/已读/撤回/隐藏恢复/策略矩阵/AI 与停用拒绝/非成员 404/设置往返）、`TestPinIntegration`（置顶权限与幂等、3 条上限冲突、完整列表重排、草稿拒绝、主页 pinned_posts 与普通流去重、仅关注者置顶帖可见性、删除置顶帖自动失效）。
+- 集成测试（默认跳过，需要测试 schema）：`TestAccountIntegration`（账号全链路）、`TestContentIntegration`（帖子/草稿/定时/版本/附件/可见性/时间线/关注/点赞/评论/转发/通知/标签/搜索/管理审核）、`TestAdminSettingsAndAttachmentIntegration`（系统设置即时生效、全局搜索密钥加密/清除、存储配额、附件审核/删除、用户统计、定时失败状态）、`TestBootstrapIntegration`（空库首注册超管、并发唯一超管、空库忽略注册开关的隔离 schema 用例）、`TestAdminGrantIntegration`（超管授权/撤销管理员、普通管理员越权与超管保护、审计与幂等）、`TestGlobalAISwitchIntegration`（全局 AI 开关即时生效、紧急停止取消待执行任务并暂停后台作业）、`TestAIAdminIntegration`（模型预设、AI 配置、`allow_web_search`、记忆、生成任务）、`TestDMIntegration`（私信创建幂等/发送/未读/已读/撤回/隐藏恢复/策略矩阵/AI 与停用拒绝/非成员 404/设置往返）、`TestPinIntegration`（置顶权限与幂等、3 条上限冲突、完整列表重排、草稿拒绝、主页 pinned_posts 与普通流去重、仅关注者置顶帖可见性、删除置顶帖自动失效）、`TestBookmarkIntegration`（收藏/取消/幂等、时间线与详情 `viewer_state.bookmarked`、收藏夹 CRUD 与第 21 个 409 `folder_limit`、他人夹 404、移动归属与 `folder_id` 三态过滤、删除夹归还默认、游客 401/停用 403、删帖与取关后列表过滤、管理后台无收藏路由）。
 - 前端以 `npm run build`（`vue-tsc` + `vite`）作为类型与构建校验，没有独立 lint/test 脚本。
 
 新增 Go 逻辑时，在对应包添加 `_test.go`，至少执行：
@@ -301,3 +301,4 @@ cd web && npm run build
 | 2026-10-19 | 0.2.3 | 新增私信（`modules/dm`）：§1 功能清单补充 1:1 私信（`dm_policy` 四档接收策略、未读轮询、撤回、单侧隐藏，AI 不参与、后台不可见）与迁移范围 `0001`–`0021`；§3 模块域补 `dm`；§6 测试清单补私信单元测试与 `TestDMIntegration`、验收补 DM-01～12 与 SEC-10/11；同步 `REQUIREMENTS.md` 0.25.0、`PAGES_AND_PERMISSIONS.md` 0.1.21、`WORKFLOWS.md` 0.8.0、`DATA_MODEL.md` 0.10.0、`API.md` 0.8.0、`ACCEPTANCE.md` 0.3.0、`ARCHITECTURE.md` 0.4.0、`docs/README.md` 0.1.11 与 `migrations/README.md`。 |
 | 2026-10-19 | 0.2.4 | §1 私信条目补充正文约束（上限 2000 字、来源体积上限 64KiB，超限 400）；§3 管理端 read-model 与 auth 的 users 投影对齐说明见代码注释；同步 `REQUIREMENTS.md` 0.25.1、`API.md` 0.8.1、`ACCEPTANCE.md` 0.3.1 与 `docs/README.md` 0.1.12（审查修复：admin 投影漂移、私信正文无长度上限、对话页陈旧响应污染）。 |
 | 2026-10-21 | 0.2.5 | 新增个人主页置顶：§1 功能清单补置顶条目（作者置顶已发布帖子到主页顶部、最多 3 条、可调整顺序、普通流排除）与迁移范围 `0001`–`0022`；§6 测试清单补 `TestPinIntegration`；同步 `REQUIREMENTS.md` 0.26.0、`PAGES_AND_PERMISSIONS.md` 0.1.22、`WORKFLOWS.md` 0.9.0、`DATA_MODEL.md` 0.11.0、`API.md` 0.9.0、`ACCEPTANCE.md` 0.4.0、`docs/README.md` 0.1.13 与 `migrations/README.md`（`0022_post_pinned`）。 |
+| 2026-10-21 | 0.2.6 | 新增收藏：§1 功能清单社交条目补收藏（仅帖子、私有、收藏夹分组 ≤20、删除夹归还默认、列表可见性过滤、AI 与停用拒绝）与迁移范围 `0001`–`0023`；§6 测试清单补 `TestBookmarkIntegration`；同步 `REQUIREMENTS.md` 0.27.0、`PAGES_AND_PERMISSIONS.md` 0.1.23、`WORKFLOWS.md` 0.10.0（原 11–14 章顺延）、`DATA_MODEL.md` 0.12.0、`API.md` 0.10.0、`ACCEPTANCE.md` 0.5.0（BK 组，原章节顺延）、`DESIGN_SYSTEM.md` 0.2.2、`ARCHITECTURE.md` 0.4.2、`docs/README.md` 0.1.14 与 `migrations/README.md`（`0023_bookmarks`）。 |

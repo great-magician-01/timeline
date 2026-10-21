@@ -49,7 +49,11 @@ func (s *Service) loadBriefData(
 		drafts:      map[int64]repo.Draft{},
 		attachments: map[int64][]AttachmentView{},
 		quoted:      map[int64]*QuotedPost{},
-		states:      contracts.PostViewerStates{Liked: map[int64]bool{}, Reposted: map[int64]bool{}},
+		states: contracts.PostViewerStates{
+			Liked:      map[int64]bool{},
+			Reposted:   map[int64]bool{},
+			Bookmarked: map[int64]bool{},
+		},
 	}
 
 	wanted := domain.UniqueIDs(postIDs)
@@ -306,8 +310,9 @@ func (d *briefData) brief(post model.Post, opts briefOptions) PostBrief {
 		RepostCount:  post.RepostCount,
 		Attachments:  d.attachments[post.ID],
 		ViewerState: ViewerState{
-			Liked:    d.states.Liked[post.ID],
-			Reposted: d.states.Reposted[post.ID],
+			Liked:      d.states.Liked[post.ID],
+			Reposted:   d.states.Reposted[post.ID],
+			Bookmarked: d.states.Bookmarked[post.ID],
 		},
 	}
 	if out.Attachments == nil {

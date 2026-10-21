@@ -1,6 +1,8 @@
-// 关注、点赞、评论、转发与通知接口（docs/API.md 第 5、8、9 章）
+// 关注、点赞、评论、转发、收藏与通知接口（docs/API.md 第 5、8、9 章）
 import { apiRequest } from './client'
 import type {
+  BookmarkFolder,
+  BookmarkState,
   Comment,
   ContentFormat,
   CursorPage,
@@ -9,6 +11,7 @@ import type {
   LikeState,
   Notification,
   NotificationType,
+  PostBrief,
   PublicUser,
   RepostState,
 } from './types'
@@ -72,6 +75,35 @@ export function likePost(id: string): Promise<LikeState> {
 
 export function unlikePost(id: string): Promise<LikeState> {
   return apiRequest(`/posts/${id}/unlike`, { method: 'POST' })
+}
+
+export function bookmarkPost(id: string, folderId?: string | null): Promise<BookmarkState> {
+  const body = folderId === undefined ? undefined : { folder_id: folderId }
+  return apiRequest(`/posts/${id}/bookmark`, { method: 'POST', body })
+}
+
+export function unbookmarkPost(id: string): Promise<{ bookmarked: boolean }> {
+  return apiRequest(`/posts/${id}/unbookmark`, { method: 'POST' })
+}
+
+export function listBookmarks(params: PageParams & { folder_id?: string } = {}): Promise<CursorPage<PostBrief>> {
+  return apiRequest('/me/bookmarks', { query: { ...params } })
+}
+
+export function listBookmarkFolders(): Promise<{ items: BookmarkFolder[] }> {
+  return apiRequest('/me/bookmark-folders')
+}
+
+export function createBookmarkFolder(name: string): Promise<BookmarkFolder> {
+  return apiRequest('/me/bookmark-folders', { method: 'POST', body: { name } })
+}
+
+export function renameBookmarkFolder(id: string, name: string): Promise<BookmarkFolder> {
+  return apiRequest(`/me/bookmark-folders/${id}`, { method: 'POST', body: { name } })
+}
+
+export function deleteBookmarkFolder(id: string): Promise<void> {
+  return apiRequest(`/me/bookmark-folders/${id}/delete`, { method: 'POST' })
 }
 
 export function likeComment(id: string): Promise<LikeState> {

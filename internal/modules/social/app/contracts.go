@@ -17,6 +17,9 @@ import (
 // 编译期断言：social app 实现 contracts.SocialService（写路径 ForActor + agent/admin 读路径）。
 var _ contracts.SocialService = (*Service)(nil)
 
+// 编译期断言：social app 单独满足收藏读取窄端口（content 消费者按窄接口依赖）。
+var _ contracts.BookmarkReader = (*Service)(nil)
+
 // agent 上下文预算（与旧 agent 实现保持一致）。
 const (
 	maxRecentCommentRunes = 200
@@ -568,7 +571,7 @@ func (s *Service) IsReposted(ctx context.Context, userID, postID int64) (bool, e
 	return s.deps.Reposts.IsActive(ctx, userID, postID)
 }
 
-// ViewerPostStates 批量读取访问者对帖子的点赞/转发状态。
+// ViewerPostStates 批量读取访问者对帖子的点赞/转发/收藏状态。
 func (s *Service) ViewerPostStates(ctx context.Context, userID int64, postIDs []int64) (contracts.PostViewerStates, error) {
 	states := contracts.PostViewerStates{}
 	if userID <= 0 || len(postIDs) == 0 {
@@ -582,9 +585,57 @@ func (s *Service) ViewerPostStates(ctx context.Context, userID int64, postIDs []
 	if err != nil {
 		return contracts.PostViewerStates{}, err
 	}
+	bookmarked, err := s.deps.Bookmarks.ActiveStates(ctx, userID, postIDs)
+	if err != nil {
+		return contracts.PostViewerStates{}, err
+	}
 	states.Liked = liked
 	states.Reposted = reposted
+	states.Bookmarked = bookmarked
 	return states, nil
+}
+
+// ListBookmarks 按收藏行 ID 倒序返回一批生效收藏（语义见 contracts.BookmarkReader）。
+func (s *Service) ListBookmarks(ctx context.Context, query contracts.BookmarkListQuery) ([]contracts.BookmarkItem, error) {
+	if query.UserID <= 0 || query.Limit <= 0 {
+		return nil, nil
+	}
+	rows, err := s.deps.Bookmarks.ListBatch(ctx, domain.BookmarkListQuery{
+		UserID:      query.UserID,
+		All:         query.All,
+		DefaultOnly: query.DefaultOnly,
+		FolderID:    query.FolderID,
+		AfterID:     query.AfterID,
+		Limit:       query.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]contracts.BookmarkItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, contracts.BookmarkItem{
+			ID:        row.ID,
+			PostID:    row.PostID,
+			FolderID:  row.FolderID,
+			CreatedAt: row.CreatedAt,
+		})
+	}
+	return items, nil
+}
+
+// HasBookmarkFolder 报告收藏夹是否存在且属于该用户（非本人/已删除一律 false）。
+func (s *Service) HasBookmarkFolder(ctx context.Context, userID, folderID int64) (bool, error) {
+	if userID <= 0 || folderID <= 0 {
+		return false, nil
+	}
+	folder, err := s.deps.Folders.GetActiveFolder(ctx, folderID)
+	if err != nil {
+		if apperr.IsKind(err, apperr.KindNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return folder.UserID == userID, nil
 }
 
 // ListRecentLikedPosts 读取用户最近点赞且仍公开可用的帖子（附摘要）。

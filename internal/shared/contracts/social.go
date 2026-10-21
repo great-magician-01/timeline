@@ -107,8 +107,44 @@ type RepostEvent struct {
 
 // PostViewerStates 是访问者对一批帖子的互动状态。消费者：content（列表 viewer_state）。
 type PostViewerStates struct {
-	Liked    map[int64]bool
-	Reposted map[int64]bool
+	Liked     map[int64]bool
+	Reposted  map[int64]bool
+	Bookmarked map[int64]bool
+}
+
+// BookmarkListQuery 是收藏列表的一批候选查询（bookmark 行 ID 倒序；AfterID=0 表示首页）。
+// 夹过滤为三态，优先级 All > DefaultOnly > FolderID：All=true 返回全部；否则
+// DefaultOnly=true 只看未分组（folder_id IS NULL）；否则按 FolderID 精确过滤。
+// 不能用 nil/0 FolderID 反向表示"全部"，否则过滤会静默退化为未分组
+// （教训同 RepostTimelineQuery.FollowingOnly）。
+type BookmarkListQuery struct {
+	UserID int64
+	All    bool
+	// DefaultOnly 表示只看未分组收藏；仅在 All=false 时生效。
+	DefaultOnly bool
+	FolderID    int64
+	AfterID     int64
+	Limit       int
+}
+
+// BookmarkItem 是一条生效中的收藏。ID 是 bookmark 行 ID（content 组装游标用，不外发）。
+type BookmarkItem struct {
+	ID        int64
+	PostID    int64
+	FolderID  *int64 // nil = 默认收藏（未分组）
+	CreatedAt time.Time
+}
+
+// BookmarkReader 是 social 模块发布的收藏读取能力。
+// 消费者：content（我的收藏页）。实现方：modules/social/app。
+type BookmarkReader interface {
+	// ListBookmarks 按 bookmark 行 ID 倒序返回一批生效收藏（至多 Limit 条；
+	// 不含可见性过滤，是否可见由消费方结合帖子复核）。语义同 ListUserReplies：
+	// 消费方以「多取一条」的批次大小自行驱动分页。
+	ListBookmarks(ctx context.Context, query BookmarkListQuery) ([]BookmarkItem, error)
+	// HasBookmarkFolder 报告收藏夹是否存在且属于该用户，供消费方校验
+	// 夹过滤参数（非本人/已删除的收藏夹一律按不存在处理，不暴露存在性）。
+	HasBookmarkFolder(ctx context.Context, userID, folderID int64) (bool, error)
 }
 
 // LikedPostRef 是 AI 已点赞且仍公开可用的帖子关系。消费者：agent（可取消关系上下文）。
@@ -157,6 +193,9 @@ type RelationReader interface {
 type SocialService interface {
 	// RelationReader 关系读取（content/notice/agent 共用同一实现）。
 	RelationReader
+
+	// BookmarkReader 收藏读取（content 我的收藏页共用同一实现）。
+	BookmarkReader
 
 	// ── 写路径（以指定作者身份执行，调用方已鉴权） ──
 

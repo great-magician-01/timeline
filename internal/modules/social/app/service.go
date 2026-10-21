@@ -22,6 +22,8 @@ const (
 	likeWindow    = 10 * time.Minute
 	followLimit   = 60
 	followWindow  = time.Hour
+	bookmarkLimit  = 240
+	bookmarkWindow = 10 * time.Minute
 )
 
 // Deps 是 Service 的全部依赖；除 Clock 与限频器外必须完整注入。
@@ -35,16 +37,19 @@ type Deps struct {
 	Notices contracts.NoticeService
 	Audit   audit.Writer
 
-	Follows  FollowRepo
-	Requests FollowRequestRepo
-	Likes    LikeRepo
-	Comments CommentRepo
-	Reposts  RepostRepo
+	Follows   FollowRepo
+	Requests  FollowRequestRepo
+	Likes     LikeRepo
+	Comments  CommentRepo
+	Reposts   RepostRepo
+	Bookmarks BookmarkRepo
+	Folders   BookmarkFolderRepo
 
 	// 不注入时使用生产默认限频参数。
-	CommentLimiter *ratelimit.Limiter
-	LikeLimiter    *ratelimit.Limiter
-	FollowLimiter  *ratelimit.Limiter
+	CommentLimiter  *ratelimit.Limiter
+	LikeLimiter     *ratelimit.Limiter
+	FollowLimiter   *ratelimit.Limiter
+	BookmarkLimiter *ratelimit.Limiter
 }
 
 // Service 实现社交域用例，并发布 contracts.RelationReader（content/notice/agent 复用）。
@@ -68,6 +73,9 @@ func New(deps Deps) *Service {
 	}
 	if deps.FollowLimiter == nil {
 		deps.FollowLimiter = ratelimit.New(followLimit, followWindow)
+	}
+	if deps.BookmarkLimiter == nil {
+		deps.BookmarkLimiter = ratelimit.New(bookmarkLimit, bookmarkWindow)
 	}
 	return &Service{deps: deps}
 }
@@ -140,6 +148,21 @@ type RepostResult struct {
 	Count      int
 	RepostID   int64
 	RepostedAt time.Time
+}
+
+// BookmarkResult 是收藏/取消收藏的结果；FolderID 是收藏归属（未分组为 nil）。
+type BookmarkResult struct {
+	Bookmarked bool
+	FolderID   *int64
+}
+
+// BookmarkFolder 是收藏夹列表项（含各自的生效收藏数）。
+type BookmarkFolder struct {
+	ID            int64
+	Name          string
+	BookmarkCount int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // ===== contracts.RelationReader 实现（供 content/notice/agent 复用） =====

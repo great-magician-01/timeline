@@ -132,18 +132,19 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 
 	// ── content（依赖 social/notice/media 的延迟端口） ──
 	contentApp := contentapp.New(contentapp.Deps{
-		Pools:    readiness,
-		Tx:       tx,
-		Clock:    clk,
-		IDs:      ids,
-		Log:      moduleLog(logModuleContent),
-		Users:    authApp,
-		Media:    mediaLazy,
-		Social:   socialLazy,
-		Notice:   noticeLazy,
-		Jobs:     jobsAdapter,
-		Audit:    auditAdapter,
-		Settings: settingsRead,
+		Pools:     readiness,
+		Tx:        tx,
+		Clock:     clk,
+		IDs:       ids,
+		Log:       moduleLog(logModuleContent),
+		Users:     authApp,
+		Media:     mediaLazy,
+		Social:    socialLazy,
+		Bookmarks: socialLazy,
+		Notice:    noticeLazy,
+		Jobs:      jobsAdapter,
+		Audit:     auditAdapter,
+		Settings:  settingsRead,
 	})
 
 	// ── social ──
@@ -160,6 +161,8 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Likes:    socialrepo.NewLikeRepo(pool),
 		Comments: socialrepo.NewCommentRepo(pool),
 		Reposts:  socialrepo.NewRepostRepo(pool),
+		Bookmarks: socialrepo.NewBookmarkRepo(pool),
+		Folders:   socialrepo.NewBookmarkFolderRepo(pool),
 	})
 
 	// ── notice ──

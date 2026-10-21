@@ -59,6 +59,7 @@ func (stubHandler) GetVersion(c *gin.Context)              { c.Header("X-Handler
 func (stubHandler) RestoreVersion(c *gin.Context)          { c.Header("X-Handler", "reached") }
 func (stubHandler) ListMyDrafts(c *gin.Context)            { c.Header("X-Handler", "reached") }
 func (stubHandler) ListMyScheduled(c *gin.Context)         { c.Header("X-Handler", "reached") }
+func (stubHandler) ListBookmarks(c *gin.Context)           { c.Header("X-Handler", "reached") }
 func (stubHandler) Timeline(c *gin.Context)                { c.Header("X-Handler", "reached") }
 func (stubHandler) FollowingTimeline(c *gin.Context)       { c.Header("X-Handler", "reached") }
 func (stubHandler) SuggestTags(c *gin.Context)             { c.Header("X-Handler", "reached") }
@@ -77,6 +78,12 @@ func (stubHandler) Repost(c *gin.Context)                  { c.Header("X-Handler
 func (stubHandler) Unrepost(c *gin.Context)                { c.Header("X-Handler", "reached") }
 func (stubHandler) LikePost(c *gin.Context)                { c.Header("X-Handler", "reached") }
 func (stubHandler) UnlikePost(c *gin.Context)              { c.Header("X-Handler", "reached") }
+func (stubHandler) BookmarkPost(c *gin.Context)            { c.Header("X-Handler", "reached") }
+func (stubHandler) UnbookmarkPost(c *gin.Context)          { c.Header("X-Handler", "reached") }
+func (stubHandler) ListBookmarkFolders(c *gin.Context)     { c.Header("X-Handler", "reached") }
+func (stubHandler) CreateBookmarkFolder(c *gin.Context)    { c.Header("X-Handler", "reached") }
+func (stubHandler) RenameBookmarkFolder(c *gin.Context)    { c.Header("X-Handler", "reached") }
+func (stubHandler) DeleteBookmarkFolder(c *gin.Context)    { c.Header("X-Handler", "reached") }
 func (stubHandler) LikeComment(c *gin.Context)             { c.Header("X-Handler", "reached") }
 func (stubHandler) UnlikeComment(c *gin.Context)           { c.Header("X-Handler", "reached") }
 func (stubHandler) ListComments(c *gin.Context)            { c.Header("X-Handler", "reached") }

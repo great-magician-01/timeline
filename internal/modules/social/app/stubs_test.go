@@ -986,6 +986,167 @@ func (s *stubReposts) ListEvents(_ context.Context, query RepostEventQuery) ([]R
 	return s.events, nil
 }
 
+// ===== 收藏端口 fake =====
+
+type stubBookmarkCall struct {
+	id, userID, postID int64
+	folderID           *int64
+	at                 time.Time
+}
+
+type stubBookmarks struct {
+	BookmarkRepo
+
+	activeStatesMap map[int64]bool
+	upsertID        int64
+	deactivateOK    bool
+	rows            []domain.BookmarkRow
+
+	upserts     []stubBookmarkCall
+	deactivates []stubBookmarkCall
+	lastQuery   domain.BookmarkListQuery
+
+	upsertErr, deactivateErr, statesErr, listErr error
+}
+
+func newStubBookmarks() *stubBookmarks {
+	return &stubBookmarks{
+		activeStatesMap: map[int64]bool{},
+		upsertID:        900,
+	}
+}
+
+func (s *stubBookmarks) UpsertActive(
+	_ context.Context, id, userID, postID int64, folderID *int64, at time.Time,
+) (int64, error) {
+	if s.upsertErr != nil {
+		return 0, s.upsertErr
+	}
+	s.upserts = append(s.upserts, stubBookmarkCall{id: id, userID: userID, postID: postID, folderID: folderID, at: at})
+	return s.upsertID, nil
+}
+
+func (s *stubBookmarks) Deactivate(_ context.Context, userID, postID int64, at time.Time) (bool, error) {
+	if s.deactivateErr != nil {
+		return false, s.deactivateErr
+	}
+	s.deactivates = append(s.deactivates, stubBookmarkCall{userID: userID, postID: postID, at: at})
+	return s.deactivateOK, nil
+}
+
+func (s *stubBookmarks) ActiveStates(_ context.Context, _ int64, postIDs []int64) (map[int64]bool, error) {
+	if s.statesErr != nil {
+		return nil, s.statesErr
+	}
+	return s.activeStatesMap, nil
+}
+
+func (s *stubBookmarks) ListBatch(_ context.Context, query domain.BookmarkListQuery) ([]domain.BookmarkRow, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	s.lastQuery = query
+	return s.rows, nil
+}
+
+type stubFolders struct {
+	BookmarkFolderRepo
+
+	activeFolder  domain.BookmarkFolderRow
+	getErr        error
+	countActive   int
+	folders       []domain.BookmarkFolderRow
+	createErr     error
+	renameErr     error
+	deleteChanged bool
+	deleteErr     error
+	reassignErr   error
+	countErr      error
+	listErr       error
+
+	creates     []stubBookmarkCall
+	renames     []stubFolderRename
+	deletes     []int64
+	reassigns   []stubFolderReassign
+	getCalls    []int64
+	countCalls  int
+	lastOwnerID int64
+}
+
+type stubFolderRename struct {
+	folderID int64
+	name     string
+	at       time.Time
+}
+
+type stubFolderReassign struct {
+	userID, folderID int64
+	at               time.Time
+}
+
+func newStubFolders() *stubFolders {
+	return &stubFolders{
+		activeFolder:  domain.BookmarkFolderRow{ID: 800, UserID: stubViewerID, Name: "默认夹"},
+		deleteChanged: true,
+	}
+}
+
+func (s *stubFolders) CreateFolder(_ context.Context, id, userID int64, name string, at time.Time) (domain.BookmarkFolderRow, error) {
+	if s.createErr != nil {
+		return domain.BookmarkFolderRow{}, s.createErr
+	}
+	s.creates = append(s.creates, stubBookmarkCall{id: id, userID: userID})
+	return domain.BookmarkFolderRow{ID: id, UserID: userID, Name: name, CreatedAt: at, UpdatedAt: at}, nil
+}
+
+func (s *stubFolders) GetActiveFolderForUpdate(_ context.Context, folderID int64) (domain.BookmarkFolderRow, error) {
+	if s.getErr != nil {
+		return domain.BookmarkFolderRow{}, s.getErr
+	}
+	s.getCalls = append(s.getCalls, folderID)
+	return s.activeFolder, nil
+}
+
+func (s *stubFolders) RenameFolder(_ context.Context, folderID int64, name string, at time.Time) (domain.BookmarkFolderRow, error) {
+	if s.renameErr != nil {
+		return domain.BookmarkFolderRow{}, s.renameErr
+	}
+	s.renames = append(s.renames, stubFolderRename{folderID: folderID, name: name, at: at})
+	return domain.BookmarkFolderRow{ID: folderID, UserID: s.activeFolder.UserID, Name: name, CreatedAt: at, UpdatedAt: at}, nil
+}
+
+func (s *stubFolders) DeleteFolder(_ context.Context, folderID, userID int64, _ time.Time) (bool, error) {
+	if s.deleteErr != nil {
+		return false, s.deleteErr
+	}
+	s.deletes = append(s.deletes, folderID)
+	s.lastOwnerID = userID
+	return s.deleteChanged, nil
+}
+
+func (s *stubFolders) ReassignToDefault(_ context.Context, userID, folderID int64, at time.Time) error {
+	if s.reassignErr != nil {
+		return s.reassignErr
+	}
+	s.reassigns = append(s.reassigns, stubFolderReassign{userID: userID, folderID: folderID, at: at})
+	return nil
+}
+
+func (s *stubFolders) CountActiveFolders(_ context.Context, _ int64) (int, error) {
+	if s.countErr != nil {
+		return 0, s.countErr
+	}
+	s.countCalls++
+	return s.countActive, nil
+}
+
+func (s *stubFolders) ListFoldersWithCounts(_ context.Context, _ int64) ([]domain.BookmarkFolderRow, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	return s.folders, nil
+}
+
 // ===== 固定装配 =====
 
 // stubSet 汇总全部 fake 端口，默认构造一个可直接调用读路径的 Service。
@@ -1002,48 +1163,56 @@ type stubSet struct {
 	likes    *stubLikes
 	comments *stubComments
 	reposts  *stubReposts
+	bookmarks *stubBookmarks
+	folders   *stubFolders
 
-	commentLimiter *ratelimit.Limiter
-	likeLimiter    *ratelimit.Limiter
-	followLimiter  *ratelimit.Limiter
+	commentLimiter  *ratelimit.Limiter
+	likeLimiter     *ratelimit.Limiter
+	followLimiter   *ratelimit.Limiter
+	bookmarkLimiter *ratelimit.Limiter
 }
 
 // newStubSet 构造带默认假数据的装配；业务时钟固定为 stubNow。
 func newStubSet() *stubSet {
 	return &stubSet{
-		clk:      clock.NewFake(stubNow),
-		ids:      &fixIDs{next: 100},
-		tx:       fixTx{},
-		users:    newStubUsers(),
-		posts:    newStubPosts(),
-		notices:  &stubNotices{},
-		audit:    &stubAudit{},
-		follows:  newStubFollows(),
-		requests: newStubRequests(),
-		likes:    newStubLikes(),
-		comments: newStubComments(),
-		reposts:  newStubReposts(),
+		clk:       clock.NewFake(stubNow),
+		ids:       &fixIDs{next: 100},
+		tx:        fixTx{},
+		users:     newStubUsers(),
+		posts:     newStubPosts(),
+		notices:   &stubNotices{},
+		audit:     &stubAudit{},
+		follows:   newStubFollows(),
+		requests:  newStubRequests(),
+		likes:     newStubLikes(),
+		comments:  newStubComments(),
+		reposts:   newStubReposts(),
+		bookmarks: newStubBookmarks(),
+		folders:   newStubFolders(),
 	}
 }
 
 func (s *stubSet) deps() Deps {
 	return Deps{
-		Clock:    s.clk,
-		IDs:      s.ids,
-		Tx:       s.tx,
-		Users:    s.users,
-		Posts:    s.posts,
-		Notices:  s.notices,
-		Audit:    s.audit,
-		Follows:  s.follows,
-		Requests: s.requests,
-		Likes:    s.likes,
-		Comments: s.comments,
-		Reposts:  s.reposts,
+		Clock:     s.clk,
+		IDs:       s.ids,
+		Tx:        s.tx,
+		Users:     s.users,
+		Posts:     s.posts,
+		Notices:   s.notices,
+		Audit:     s.audit,
+		Follows:   s.follows,
+		Requests:  s.requests,
+		Likes:     s.likes,
+		Comments:  s.comments,
+		Reposts:   s.reposts,
+		Bookmarks: s.bookmarks,
+		Folders:   s.folders,
 
-		CommentLimiter: s.commentLimiter,
-		LikeLimiter:    s.likeLimiter,
-		FollowLimiter:  s.followLimiter,
+		CommentLimiter:  s.commentLimiter,
+		LikeLimiter:     s.likeLimiter,
+		FollowLimiter:   s.followLimiter,
+		BookmarkLimiter: s.bookmarkLimiter,
 	}
 }
 

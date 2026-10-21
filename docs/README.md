@@ -1,9 +1,9 @@
 # Timeline 项目文档索引
 
 > **文档状态**：持续更新  
-> **文档版本**：0.1.13  
+> **文档版本**：0.1.14  
 > **最近更新**：2026-10-21  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.26.0  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.27.0  
 > **用途**：文档入口、版本索引与当前实现状态
 
 所有需求与设计决策以本目录文档为准，聊天记录不作为最终依据。各文档版本与更新日期见各自文件头部，变更历史见各自文末。
@@ -31,17 +31,17 @@
 
 （版本号以各文档头部为准；更新任何文档时同步此列表。）
 
-- 需求基线版本：`REQUIREMENTS.md` 0.26.0（全局约束：数据库无外键、全量逻辑删除、业务接口仅 GET/POST；默认保护阈值已确定；AI 联网搜索使用全局独立加密密钥；账号角色仍为 `user`/`admin`，新增 `is_super_admin` 标记：空库首个注册用户自动成为唯一超级管理员，超管可授权/撤销管理员，普通管理员不能操作超管账号；业务时间由应用生成显式传参、数据库不提供业务时间默认值；ERROR 级别日志自动附加完整调用栈（text 记录行后多行缩进、json `stack` 字段），HTTP 请求与后台作业/周期任务 panic 被恢复并记录完整栈；新增私信：1:1 双人会话、`dm_policy` 四档接收策略默认所有人、纯文本无附件且正文上限 2000 字（超限或来源超 64KiB 返回 400）、AI 双向不参与、管理后台不可见、轮询更新、2 分钟撤回、单侧隐藏）
-- 页面与权限：0.1.22（P-09 补置顶帖区块与「置顶帖交互」说明；私信相关条目保持）
-- 状态机与流程：0.9.0（新增「3.6 个人主页置顶」状态转换；私信章节保持）
-- 后端架构：0.4.0（新增 `modules/dm` 九域四层；数据所有权补 `dm_conversations`/`dm_messages` 与 `users.dm_policy`；迁移状态到 `0021_direct_messages`；目标架构重构与清理旧包、架构守卫、SQL 最简原则改造与 ERROR 日志自动调用栈等既有说明保持）
-- 数据模型：0.11.0（§6.3 posts 新增 `pinned_at`/`pinned_sort` 与 `posts_pinned_check`；§8 补第 18 条；私信与既有说明保持）
-- 接口设计：0.9.0（§6 新增 `POST /posts/:id/pin`、`POST /posts/:id/unpin`、`POST /posts/pinned/reorder`；§4 主页时间线补 `pinned_posts`；§2.8 post_brief 补 `pinned_at`/`can_pin`；私信章节保持）
+- 需求基线版本：`REQUIREMENTS.md` 0.26.0（全局约束：数据库无外键、全量逻辑删除、业务接口仅 GET/POST；默认保护阈值已确定；AI 联网搜索使用全局独立加密密钥；账号角色仍为 `user`/`admin`，新增 `is_super_admin` 标记：空库首个注册用户自动成为唯一超级管理员，超管可授权/撤销管理员，普通管理员不能操作超管账号；业务时间由应用生成显式传参、数据库不提供业务时间默认值；ERROR 级别日志自动附加完整调用栈（text 记录行后多行缩进、json `stack` 字段），HTTP 请求与后台作业/周期任务 panic 被恢复并记录完整栈；新增私信：1:1 双人会话、`dm_policy` 四档接收策略默认所有人、纯文本无附件且正文上限 2000 字（超限或来源超 64KiB 返回 400）、AI 双向不参与、管理后台不可见、轮询更新、2 分钟撤回、单侧隐藏；新增收藏（§10.8）：仅帖子可收藏、完全私有、支持收藏夹分组（≤20 个）、删除夹归还默认、列表按可见性过滤）
+- 页面与权限：0.1.23（新增 U-13 `/bookmarks` 我的收藏页与收藏交互说明；置顶与私信条目保持）
+- 状态机与流程：0.10.0（新增「11. 收藏与收藏夹」状态转换；原 11–14 章顺延为 12–15；置顶与私信章节保持）
+- 后端架构：0.4.2（数据所有权补 `bookmarks`/`bookmark_folders` 归 social；端口说明补 `SocialService` 内嵌 `BookmarkReader`；迁移状态到 `0023_bookmarks`；dm 九域四层等既有说明保持）
+- 数据模型：0.12.0（§6.33/§6.34 新增 `bookmark_folders`/`bookmarks`；§7 补收藏关系；§8 补第 19 条；置顶与私信条目保持）
+- 接口设计：0.10.0（§8 新增 bookmark/unbookmark 与 `/me/bookmarks`、`/me/bookmark-folders` 共 7 条；§2.8 `viewer_state` 补 `bookmarked`、post_brief 补可选 `bookmark`；§14 补收藏限频；置顶章节保持）
 - Docker 部署：0.4.5（§9 新增 `0021_direct_messages` 升级说明；§10 日志模块标签补 `[dm]`；保留 ERROR 调用栈、INVALID 索引处置、`pg_trgm` schema 要求、`check-time-defaults.sql` 用法与 NTP/`0011` 前置条件）
-- 验收用例：0.4.0（§5 新增 POST-13～17 置顶用例；私信 DM 组与既有条目保持）
-- 设计令牌：0.2.1（需求基线 0.25.0；§10 动态内容审计补私信未读与对话数据来源，令牌与组件规范无实质变更）
+- 验收用例：0.5.0（新增「12. 收藏（BK）」BK-01～07；原 12–19 章顺延为 13–20；置顶与私信条目保持）
+- 设计令牌：0.2.2（§6.4 互动按钮补收藏按钮；图标库新增 `bookmark`；私信审计条目保持）
 - 已产出实现文件：`.env.example`（部署配置模板）、`Dockerfile`、`docker-compose.yml`、`deploy/scripts/`、`.github/workflows/ci.yml`、`demo/`（主页样式演示五版 + 总览 + 图标候选 + `logo.svg`，E 版为选定方向）
-- 编码实现：V1 全部功能范围已落地（账号、内容与附件、社交互动、发现、AI 配置与自主社交、AI 联网搜索、管理后台、后台作业、前端全部页面），并新增私信：1:1 会话、`dm_policy` 四档接收策略、未读轮询徽章、会话列表/对话页、2 分钟撤回、单侧隐藏；AI 双向不参与、管理后台不可见。`migrations/` 按文件名顺序追加执行，开发库已应用现有迁移（至 `0022`）。默认 Go 测试、`go vet`、`npm run build` 与隔离 schema 集成测试（账号、内容、CSRF 路由覆盖、全局 AI 开关、AI 管理、私信 `TestDMIntegration`、置顶 `TestPinIntegration`）已通过；`TestBootstrapIntegration`、`TestAdminGrantIntegration` 与 `TestRequireSuperAdminRoleMatrix` 单测继续通过。
+- 编码实现：V1 全部功能范围已落地（账号、内容与附件、社交互动、发现、AI 配置与自主社交、AI 联网搜索、管理后台、后台作业、前端全部页面），并新增私信（1:1 会话、`dm_policy` 四档接收策略、未读轮询徽章、会话列表/对话页、2 分钟撤回、单侧隐藏；AI 双向不参与、管理后台不可见）与收藏（私有阅读清单、收藏夹分组、独立 `/bookmarks` 页）。`migrations/` 按文件名顺序追加执行，开发库已应用现有迁移（至 `0023`）。默认 Go 测试、`go vet`、`npm run build` 与隔离 schema 集成测试（账号、内容、CSRF 路由覆盖、全局 AI 开关、AI 管理、私信 `TestDMIntegration`、置顶 `TestPinIntegration`、收藏 `TestBookmarkIntegration`）已通过；`TestBootstrapIntegration`、`TestAdminGrantIntegration` 与 `TestRequireSuperAdminRoleMatrix` 单测继续通过。
 - 后端结构改造（`refactor/target-architecture` 分支）：已按 `docs/ARCHITECTURE.md` 完成——`cmd/server` 只保留进程生命周期，业务装配在 `internal/app` 组合根，路由由 `transport/router` 声明式注册，九个模块按 `domain/app/repo/http` 四层实现；`platform/*`、`shared/*`（model/access/contracts/page/richtext/format/view/search）、迁移器 v2、架构守卫 `internal/architecture`（覆盖新树、`cmd/`、`internal/server`，`internal/testkit` 为显式测试基础设施例外）与 `ARCHITECTURE.md` 已建立，`migrations/0011–0021` 已追加；旧 `internal/*` 业务包已从仓库删除，集成测试迁移到 `internal/testkit` + `internal/server`/模块 `http` harness。后端审查修复项、SQL 最简原则改造与私信模块均已落地并补默认测试与集成测试。
 - 未完成：`docs/ACCEPTANCE.md` 中 P0 清单的完整人工验收（含本轮新增的初始化与角色授权用例）。开发机已用临时 PostgreSQL 实例完成 Docker 镜像构建、容器启动、健康检查/前端托管/基础 API 冒烟，以及一次备份/恢复演练（含附件属主修正）；部署机仍应按 `docs/DEPLOYMENT.md` 第 11 章复演。
 
@@ -76,3 +76,4 @@
 | 2026-10-19 | 0.1.11 | 新增私信需求与全套设计：需求基线 0.25.0；页面权限 0.1.21、流程 0.8.0、后端架构 0.4.0（`modules/dm` 九域）、数据模型 0.10.0（`dm_conversations`/`dm_messages`/`users.dm_policy`）、接口 0.8.0（第 10 章私信接口）、验收 0.3.0（DM 组 + SEC-10/11）、`AGENTS.md` 0.2.3 与 `migrations/README.md`（`0021_direct_messages`）同步。决策：1:1 纯文本无附件、`dm_policy` 四档默认所有人、AI 双向不参与、管理后台不可见、轮询更新、2 分钟撤回、单侧隐藏恢复、发送与创建共享 60 次/10 分钟限频。 |
 | 2026-10-19 | 0.1.12 | 审查修复同步：需求基线 0.25.1（§10.7 私信正文上限 2000 字、来源体积上限 64KiB，超限 400）、接口 0.8.1（§10 规则补长度约束）、验收 0.3.1（DM-12 补超长正文检查点）、`AGENTS.md` 0.2.4；代码侧对齐 admin read-model 的 users 投影（补 `dm_policy`）、dm domain 新增长度校验与测试、对话页补请求序号守卫。 |
 | 2026-10-21 | 0.1.13 | 新增个人主页置顶功能：需求基线 0.26.0（§9.1 置顶需求，最多 3 条、仅作者本人、支持调整顺序）；页面权限 0.1.22、流程 0.9.0（§3.6 置顶状态转换）、数据模型 0.11.0（迁移 `0022_post_pinned`：`pinned_at`/`pinned_sort` + `posts_pinned_check`，不新增索引）、接口 0.9.0（pin/unpin/reorder 三接口与 `pinned_posts`/`pinned_at`/`can_pin` 字段）、验收 0.4.0（POST-13～17）、`AGENTS.md` 0.2.5 与 `migrations/README.md` 同步。 |
+| 2026-10-21 | 0.1.14 | 新增收藏功能：需求基线 0.27.0（§10.8 私有收藏与收藏夹）；页面权限 0.1.23（U-13 `/bookmarks`）、流程 0.10.0（§11 收藏与收藏夹，原 11–14 章顺延）、后端架构 0.4.2（两表归 social + `BookmarkReader` 端口、迁移至 0023）、数据模型 0.12.0（`0023_bookmarks` 两表与索引）、接口 0.10.0（7 条接口与 `viewer_state.bookmarked`/`bookmark` 字段）、验收 0.5.0（BK-01～07，原章节顺延）、设计令牌 0.2.2（收藏按钮与 `bookmark` 图标）、`AGENTS.md` 0.2.6 与 `migrations/README.md` 同步。 |

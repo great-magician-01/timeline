@@ -7,8 +7,9 @@ import (
 )
 
 // 基线：super-admin 合并后的 b6fed97 共 110 条 /api/v1 路由（GET 45 / POST 65），
-// 私信新增 11 条后为 121 条（GET 50 / POST 71）；置顶新增 3 条后为 124 条（GET 50 / POST 74）。
-const baselineRouteCount = 124
+// 私信新增 11 条后为 121 条（GET 50 / POST 71）；置顶新增 3 条后为 124 条（GET 50 / POST 74）；
+// 收藏新增 7 条后为 131 条（GET 52 / POST 79）。
+const baselineRouteCount = 131
 
 func TestRouteTableBaselineAndPolicies(t *testing.T) {
 	routes := Routes()
@@ -49,8 +50,8 @@ func TestRouteTableBaselineAndPolicies(t *testing.T) {
 		}
 	}
 
-	if methods[http.MethodGet] != 50 || methods[http.MethodPost] != 74 {
-		t.Fatalf("方法分布 = GET %d / POST %d，期望 50 / 74",
+	if methods[http.MethodGet] != 52 || methods[http.MethodPost] != 79 {
+		t.Fatalf("方法分布 = GET %d / POST %d，期望 52 / 79",
 			methods[http.MethodGet], methods[http.MethodPost])
 	}
 
@@ -58,8 +59,8 @@ func TestRouteTableBaselineAndPolicies(t *testing.T) {
 		Public:          1,
 		Optional:        17,
 		GuestWrite:      2,
-		Login:           13,
-		HumanWrite:      38,
+		Login:           15,
+		HumanWrite:      43,
 		AdminRead:       19,
 		AdminWrite:      32,
 		SuperAdminWrite: 2,
