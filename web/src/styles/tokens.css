@@ -69,3 +69,108 @@ html[data-theme='dark'] {
   --media-bg: #000000;
   --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.12);
 }
+
+/* 扩展主题（docs/DESIGN_SYSTEM.md §3.4/§8）：每套必须定义全部令牌并同步 color-scheme；
+   覆盖层与媒体令牌与既有主题保持同值。 */
+
+/* EVA 初号机：深紫黑底 + 初号机紫主色 + 荧光绿点缀（深色） */
+html[data-theme='eva-01'] {
+  color-scheme: dark;
+  --bg: #131019;
+  --surface: #1a1524;
+  --surface-subtle: #201a2c;
+  --soft: #251e33;
+  --soft-hover: #2f2643;
+  --glass: rgba(26, 21, 36, 0.92);
+  --ink: #efeaf8;
+  --ink-2: #a89bc4;
+  --ink-3: #7c6f99;
+  --border: #372c4f;
+  --hover: #251e33;
+  --primary: #8b63e8;
+  --primary-soft: rgba(139, 99, 232, 0.16);
+  --primary-hover: #a480f0;
+  --btn-bg: #efeaf8;
+  --btn-fg: #131019;
+  --btn-hover: #ffffff;
+  --violet: #b79bf5;
+  --violet-soft: rgba(139, 99, 232, 0.18);
+  --red: #f85149;
+  --red-soft: rgba(248, 81, 73, 0.15);
+  --green: #9fe32e;
+  --avatar-bg: #2f2643;
+  --avatar-fg: #d6cbee;
+  --overlay: rgba(0, 0, 0, 0.82);
+  --on-media: #ffffff;
+  --on-media-soft: rgba(255, 255, 255, 0.16);
+  --media-bg: #000000;
+  --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+
+/* EVA 凌波丽：冰蓝白冷调浅色 + 平静蓝主色 + 瞳色红/青绿点缀 */
+html[data-theme='eva-rei'] {
+  color-scheme: light;
+  --bg: #eef3f7;
+  --surface: #ffffff;
+  --surface-subtle: #f4f8fa;
+  --soft: #e9f0f4;
+  --soft-hover: #dbe6ec;
+  --glass: rgba(255, 255, 255, 0.94);
+  --ink: #1d2a33;
+  --ink-2: #5c6d78;
+  --ink-3: #8b9aa4;
+  --border: #dfe7ec;
+  --hover: #eff4f7;
+  --primary: #4d7fa3;
+  --primary-soft: #e7f0f6;
+  --primary-hover: #3d6c8e;
+  --btn-bg: #24343e;
+  --btn-fg: #ffffff;
+  --btn-hover: #354853;
+  --violet: #6f87c9;
+  --violet-soft: #e9edf8;
+  --red: #c9455e;
+  --red-soft: #faecef;
+  --green: #2f7f70;
+  --avatar-bg: #dfe7ec;
+  --avatar-fg: #3c5361;
+  --overlay: rgba(0, 0, 0, 0.82);
+  --on-media: #ffffff;
+  --on-media-soft: rgba(255, 255, 255, 0.16);
+  --media-bg: #000000;
+  --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+
+/* EVA 明日香：奶油暖调浅色 + 插装服红主色 + 发色橙（AI 徽章）与橄榄绿点缀 */
+html[data-theme='eva-asuka'] {
+  color-scheme: light;
+  --bg: #faf4ee;
+  --surface: #ffffff;
+  --surface-subtle: #fdf6f0;
+  --soft: #f6ece1;
+  --soft-hover: #eeddcb;
+  --glass: rgba(255, 255, 255, 0.94);
+  --ink: #2b1d15;
+  --ink-2: #6f5a4b;
+  --ink-3: #9d8571;
+  --border: #ecdfd0;
+  --hover: #f9efe4;
+  --primary: #d8433c;
+  --primary-soft: #fdecea;
+  --primary-hover: #b7342e;
+  --btn-bg: #2b211a;
+  --btn-fg: #ffffff;
+  --btn-hover: #40332a;
+  --violet: #dd7a33;
+  --violet-soft: #fdf0e4;
+  --red: #b3234b;
+  --red-soft: #f9e8ee;
+  --green: #5f8a2e;
+  --avatar-bg: #f0e0cf;
+  --avatar-fg: #6d4a30;
+  --overlay: rgba(0, 0, 0, 0.82);
+  --on-media: #ffffff;
+  --on-media-soft: rgba(255, 255, 255, 0.16);
+  --media-bg: #000000;
+  --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.12);
+}

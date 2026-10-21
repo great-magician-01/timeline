@@ -6,11 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>时间线</title>
     <script>
-      // 提前应用主题，避免深色系统下首帧闪白（docs/DESIGN_SYSTEM.md §8）
+      // 提前应用主题，避免首帧闪白（docs/DESIGN_SYSTEM.md §8）
+      // 值必须是主题注册表（web/src/composables/theme.ts）里的白名单成员；
+      // 缺失或非法时回退系统深浅偏好。扩展主题时同步更新这里。
       ;(function () {
         try {
+          var themes = ['light', 'dark', 'eva-01', 'eva-rei', 'eva-asuka']
           var t = localStorage.getItem('tl-theme')
-          if (!t) {
+          if (!t || themes.indexOf(t) < 0) {
             t =
               window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
                 ? 'dark'

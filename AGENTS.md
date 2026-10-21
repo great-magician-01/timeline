@@ -1,6 +1,6 @@
 # Timeline 项目指南
 
-> **文档版本**：0.2.6  
+> **文档版本**：0.2.7  
 > **最近更新**：2026-10-21  
 > **关联文档**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（后端目标架构权威）、[`docs/README.md`](docs/README.md)（文档索引）
 
@@ -198,7 +198,7 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 - `web/src/styles/app.css` 是唯一样式入口，负责 Tailwind 主题映射、全局基础行为、`shell-down`（`max-width: 880px`）断点和动画；不要启用 Preflight 或另建 PostCSS/Tailwind 配置文件。
 - 跨组件重复的 utility 组合放在 `web/src/styles/ui.ts`，必须使用完整静态类名；禁止运行时拼接 Tailwind 类名片段，动态状态使用静态映射或 Vue 条件 class。
 - 颜色统一来自 `web/src/styles/tokens.css` 的 CSS 自定义属性，并通过 `app.css` 的 `@theme inline` 映射给 Tailwind；组件不得随意写入字面量颜色。品牌 SVG 按现有品牌图源处理。
-- 主题通过 `<html data-theme="light|dark">` 切换，手动偏好存储在 `localStorage` 的 `tl-theme`；保留 `web/index.html` 中防止首帧闪白的内联脚本。
+- 主题通过 `<html data-theme>` 切换，注册表在 `web/src/composables/theme.ts`（内置浅色/深色 + EVA 扩展配色主题 `eva-01`/`eva-rei`/`eva-asuka`，每套主题在 `tokens.css` 定义全部令牌），手动偏好存储在 `localStorage` 的 `tl-theme`；保留 `web/index.html` 中防止首帧闪白的内联脚本（按主题白名单校验，扩展主题时同步更新）。
 - 图标使用内联 SVG 或本地 SVG sprite，遵循 24×24 viewBox、圆头线框和 `currentColor` 规范；不要引入图标字体、位图图标或外链图标。
 - 遵循 `docs/DESIGN_SYSTEM.md` 的 GitHub 式按钮、4px 间距体系、880px 响应式断点和减少动效规则。
 - 前端没有独立 lint/format/test 命令，至少用 `npm run build` 验证 TypeScript 与 Vite 构建。
@@ -302,3 +302,4 @@ cd web && npm run build
 | 2026-10-19 | 0.2.4 | §1 私信条目补充正文约束（上限 2000 字、来源体积上限 64KiB，超限 400）；§3 管理端 read-model 与 auth 的 users 投影对齐说明见代码注释；同步 `REQUIREMENTS.md` 0.25.1、`API.md` 0.8.1、`ACCEPTANCE.md` 0.3.1 与 `docs/README.md` 0.1.12（审查修复：admin 投影漂移、私信正文无长度上限、对话页陈旧响应污染）。 |
 | 2026-10-21 | 0.2.5 | 新增个人主页置顶：§1 功能清单补置顶条目（作者置顶已发布帖子到主页顶部、最多 3 条、可调整顺序、普通流排除）与迁移范围 `0001`–`0022`；§6 测试清单补 `TestPinIntegration`；同步 `REQUIREMENTS.md` 0.26.0、`PAGES_AND_PERMISSIONS.md` 0.1.22、`WORKFLOWS.md` 0.9.0、`DATA_MODEL.md` 0.11.0、`API.md` 0.9.0、`ACCEPTANCE.md` 0.4.0、`docs/README.md` 0.1.13 与 `migrations/README.md`（`0022_post_pinned`）。 |
 | 2026-10-21 | 0.2.6 | 新增收藏：§1 功能清单社交条目补收藏（仅帖子、私有、收藏夹分组 ≤20、删除夹归还默认、列表可见性过滤、AI 与停用拒绝）与迁移范围 `0001`–`0023`；§6 测试清单补 `TestBookmarkIntegration`；同步 `REQUIREMENTS.md` 0.27.0、`PAGES_AND_PERMISSIONS.md` 0.1.23、`WORKFLOWS.md` 0.10.0（原 11–14 章顺延）、`DATA_MODEL.md` 0.12.0、`API.md` 0.10.0、`ACCEPTANCE.md` 0.5.0（BK 组，原章节顺延）、`DESIGN_SYSTEM.md` 0.2.2、`ARCHITECTURE.md` 0.4.2、`docs/README.md` 0.1.14 与 `migrations/README.md`（`0023_bookmarks`）。 |
+| 2026-10-21 | 0.2.7 | 主题机制扩展为多主题：§5 前端 bullet 改为 `<html data-theme>` 注册表切换（`web/src/composables/theme.ts`，内置浅色/深色 + EVA 扩展主题 `eva-01`/`eva-rei`/`eva-asuka`，每套在 `tokens.css` 定义全部令牌；`index.html` 首帧按白名单校验）；纯前端变更，无后端/迁移影响；同步 `REQUIREMENTS.md` 0.28.0、`DESIGN_SYSTEM.md` 0.3.0（§3.4 EVA 配色表 + §8 多主题机制 + `ThemePicker.vue`/`palette` 图标）与 `docs/README.md` 0.1.15。 |

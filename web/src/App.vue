@@ -5,7 +5,7 @@ import AppIcon from './components/AppIcon.vue'
 import BrandMark from './components/BrandMark.vue'
 import UserAvatar from './components/UserAvatar.vue'
 import type { IconName } from './components/icons'
-import { useTheme } from './composables/theme'
+import ThemePicker from './components/ThemePicker.vue'
 import { authState } from './stores/auth'
 import { messageState, startMessagePolling, stopMessagePolling } from './stores/messages'
 import { notificationState, startNotificationPolling, stopNotificationPolling } from './stores/notifications'
@@ -17,7 +17,6 @@ interface NavEntry {
   icon: IconName
 }
 
-const { theme, toggleTheme } = useTheme()
 const route = useRoute()
 
 // 通知与私信未读轮询只对登录用户开启（两个独立接口、独立徽章）
@@ -48,7 +47,6 @@ function navBadge(to: string): number {
 
 const user = computed(() => authState.user)
 const isAdmin = computed(() => user.value?.role === 'admin')
-const themeLabel = computed(() => (theme.value === 'dark' ? '切换到浅色主题' : '切换到深色主题'))
 
 // 导航与 docs/PAGES_AND_PERMISSIONS.md §3 一致：游客只有时间线、搜索、登录与注册
 const mainNav = computed<NavEntry[]>(() => {
@@ -127,14 +125,7 @@ function isActive(to: string): boolean {
             <BrandMark class="size-[30px]" />
             <span class="text-[17px] font-extrabold tracking-[0.04em]">时间线</span>
           </RouterLink>
-          <button
-            class="ml-auto flex size-[34px] items-center justify-center rounded-[8px] text-ink-3 transition-[background,color] duration-150 ease-[ease] hover:bg-hover hover:text-ink"
-            type="button"
-            :aria-label="themeLabel"
-            @click="toggleTheme"
-          >
-            <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="19" />
-          </button>
+          <ThemePicker class="ml-auto" />
         </div>
 
         <nav class="mt-[14px] flex min-h-0 flex-col gap-[2px] overflow-y-auto" aria-label="主导航">
@@ -216,14 +207,7 @@ function isActive(to: string): boolean {
         >
           <UserAvatar :user="user" size="sm" />
         </RouterLink>
-        <button
-          class="ml-auto flex size-[34px] items-center justify-center rounded-[8px] text-ink-3 transition-[background,color] duration-150 ease-[ease] hover:bg-hover hover:text-ink shell-down:ml-0"
-          type="button"
-          :aria-label="themeLabel"
-          @click="toggleTheme"
-        >
-          <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="19" />
-        </button>
+        <ThemePicker class="ml-auto shell-down:ml-0" />
       </header>
 
       <main class="min-w-0 pb-[72px] pt-4 shell-down:px-3 shell-down:pb-[84px] shell-down:pt-3">
