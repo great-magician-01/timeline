@@ -281,6 +281,45 @@ func TestUploadAvatarSuccess(t *testing.T) {
 	}
 }
 
+// TestUploadBannerSuccess 覆盖横幅用途上传：附件落盘后经 auth 端口回写横幅地址。
+func TestUploadBannerSuccess(t *testing.T) {
+	env := newMediaTestEnv(t)
+	env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+	result, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "banner.png", domain.PurposeBanner, testPNG(t, 32, 8)))
+	if err != nil {
+		t.Fatalf("Upload 返回错误: %v", err)
+	}
+	if len(env.auth.bannerInputs) != 1 {
+		t.Fatalf("横幅回写次数 = %d，期望 1", len(env.auth.bannerInputs))
+	}
+	input := env.auth.bannerInputs[0]
+	if input.UserID != 7 || input.AttachmentID == nil || *input.AttachmentID != result.Attachment.ID {
+		t.Fatalf("横幅回写参数 = %+v", input)
+	}
+	if input.BannerURL != format.AttachmentContentURL(result.Attachment.ID) {
+		t.Fatalf("横幅地址 = %q，期望 %q", input.BannerURL, format.AttachmentContentURL(result.Attachment.ID))
+	}
+	if input.At != testNow {
+		t.Fatalf("横幅回写时间 = %v，期望应用时钟 %v", input.At, testNow)
+	}
+}
+
+// TestUploadBannerRejectsNonImage 横幅必须为图片：非图片种类在落盘前直接拒绝，不触库。
+func TestUploadBannerRejectsNonImage(t *testing.T) {
+	env := newMediaTestEnv(t)
+	env.expect(usageResult(0))
+	_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "clip.mp4", domain.PurposeBanner, testMP4Bytes()))
+	if !apperr.IsKind(err, apperr.KindInvalid) {
+		t.Fatalf("非图片横幅应返回 Invalid，实际: %v", err)
+	}
+	if got := env.stub.pending(); got != 0 {
+		t.Fatalf("拒绝后不应继续触库，剩余 %d", got)
+	}
+	if len(env.auth.bannerInputs) != 0 {
+		t.Fatal("被拒绝的上传不应回写横幅")
+	}
+}
+
 // TestUploadNonDecodableImage 可存储但标准库无法解码的图片直接记为 canceled，不投递注定失败的作业。
 func TestUploadNonDecodableImage(t *testing.T) {
 	env := newMediaTestEnv(t)

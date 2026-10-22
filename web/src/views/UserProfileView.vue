@@ -29,6 +29,8 @@ const profile = ref<ProfileSummary | null>(null)
 const loading = ref(true)
 const notFound = ref(false)
 const loadError = ref('')
+/** 横幅图片加载失败时回退默认占位；每次加载资料时重置 */
+const bannerFailed = ref(false)
 
 const isSelf = computed(
   () => Boolean(my.value && profile.value && my.value.username === profile.value.user.username),
@@ -180,6 +182,7 @@ async function loadProfile(): Promise<void> {
   notFound.value = false
   loadError.value = ''
   profile.value = null
+  bannerFailed.value = false
   try {
     const data = await fetchProfile(username.value)
     profile.value = data
@@ -293,76 +296,87 @@ async function toggleFollow(): Promise<void> {
       </template>
 
       <template v-else-if="profile">
-        <section :class="[ui.card, ui.cardPad]">
-          <div class="flex items-center gap-3.5 shell-down:flex-wrap">
-            <UserAvatar :user="profile.user" size="lg" />
-            <div class="min-w-0">
-              <p class="m-0 flex flex-wrap items-center gap-1.5 text-[17px] font-extrabold">
-                <span>{{ profile.user.nickname || profile.user.username }}</span>
-                <span v-if="profile.user.is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
-                <span v-if="profile.user.is_suspended" :class="[ui.badge, ui.badgeDanger]">已停用</span>
-                <span v-else-if="isSelf" :class="[ui.badge, ui.badgeMuted]">这是你</span>
-              </p>
-              <p :class="[ui.muted, 'm-0 mt-0.5']">@{{ profile.user.username }}</p>
-            </div>
-
-            <div class="ml-auto flex flex-wrap gap-2 shell-down:ml-0 shell-down:w-full">
-              <template v-if="!isSelf && !isSuspended">
-                <button
-                  v-if="profile.follow_state !== 'incoming_pending'"
-                  :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
-                  type="button"
-                  :disabled="followBusy"
-                  @click="toggleFollow"
-                >
-                  <AppIcon v-if="profile.follow_state === 'none'" name="user-plus" :size="16" />
-                  <AppIcon v-else name="check" :size="16" />
-                  {{ followLabel }}
-                </button>
-                <RouterLink
-                  v-else-if="my"
-                  :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
-                  :to="{ name: 'follow-requests' }"
-                >
-                  对方申请关注你
-                </RouterLink>
-                <button
-                  v-if="!profile.user.is_ai"
-                  :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
-                  type="button"
-                  :disabled="dmBusy"
-                  @click="startConversation"
-                >
-                  <AppIcon name="message" :size="16" /> 发私信
-                </button>
-              </template>
-              <RouterLink v-if="isSelf" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" to="/settings/profile">
-                <AppIcon name="pencil" :size="16" /> 编辑资料
-              </RouterLink>
-            </div>
+        <section :class="[ui.card]">
+          <div class="h-36 w-full overflow-hidden rounded-t-[14px] border-b border-solid border-border bg-soft shell-down:h-28">
+            <img
+              v-if="profile.user.banner_url && !bannerFailed"
+              :src="profile.user.banner_url"
+              class="size-full object-cover"
+              alt=""
+              @error="bannerFailed = true"
+            />
           </div>
+          <div :class="[ui.cardPad]">
+            <div class="flex items-center gap-3.5 shell-down:flex-wrap">
+              <UserAvatar :user="profile.user" size="lg" />
+              <div class="min-w-0">
+                <p class="m-0 flex flex-wrap items-center gap-1.5 text-[17px] font-extrabold">
+                  <span>{{ profile.user.nickname || profile.user.username }}</span>
+                  <span v-if="profile.user.is_ai" :class="[ui.badge, ui.badgeAi]">AI</span>
+                  <span v-if="profile.user.is_suspended" :class="[ui.badge, ui.badgeDanger]">已停用</span>
+                  <span v-else-if="isSelf" :class="[ui.badge, ui.badgeMuted]">这是你</span>
+                </p>
+                <p :class="[ui.muted, 'm-0 mt-0.5']">@{{ profile.user.username }}</p>
+              </div>
 
-          <p v-if="profile.bio" class="m-0 mt-3.5 text-[14.5px] leading-[1.8] whitespace-pre-wrap [word-break:break-word]">{{ profile.bio }}</p>
-          <p v-else :class="[ui.muted, 'm-0 mt-3.5']">还没有填写简介。</p>
+              <div class="ml-auto flex flex-wrap gap-2 shell-down:ml-0 shell-down:w-full">
+                <template v-if="!isSelf && !isSuspended">
+                  <button
+                    v-if="profile.follow_state !== 'incoming_pending'"
+                    :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
+                    type="button"
+                    :disabled="followBusy"
+                    @click="toggleFollow"
+                  >
+                    <AppIcon v-if="profile.follow_state === 'none'" name="user-plus" :size="16" />
+                    <AppIcon v-else name="check" :size="16" />
+                    {{ followLabel }}
+                  </button>
+                  <RouterLink
+                    v-else-if="my"
+                    :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
+                    :to="{ name: 'follow-requests' }"
+                  >
+                    对方申请关注你
+                  </RouterLink>
+                  <button
+                    v-if="!profile.user.is_ai"
+                    :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
+                    type="button"
+                    :disabled="dmBusy"
+                    @click="startConversation"
+                  >
+                    <AppIcon name="message" :size="16" /> 发私信
+                  </button>
+                </template>
+                <RouterLink v-if="isSelf" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" to="/settings/profile">
+                  <AppIcon name="pencil" :size="16" /> 编辑资料
+                </RouterLink>
+              </div>
+            </div>
 
-          <ul class="m-0 mt-4 flex list-none gap-[22px] p-0 shell-down:gap-[18px]">
-            <li>
-              <strong class="block text-[17px] font-extrabold leading-[1.3]">{{ profile.post_count }}</strong>
-              <span class="text-[12.5px] text-ink-3">帖子</span>
-            </li>
-            <li>
-              <RouterLink :to="`/users/${profile.user.username}/following`" class="text-ink hover:text-primary hover:no-underline">
-                <strong class="block text-[17px] font-extrabold leading-[1.3]">{{ profile.following_count }}</strong>
-                <span class="text-[12.5px] text-ink-3">关注</span>
-              </RouterLink>
-            </li>
-            <li>
-              <RouterLink :to="`/users/${profile.user.username}/followers`" class="text-ink hover:text-primary hover:no-underline">
-                <strong class="block text-[17px] font-extrabold leading-[1.3]">{{ profile.follower_count }}</strong>
-                <span class="text-[12.5px] text-ink-3">粉丝</span>
-              </RouterLink>
-            </li>
-          </ul>
+            <p v-if="profile.bio" class="m-0 mt-3.5 text-[14.5px] leading-[1.8] whitespace-pre-wrap [word-break:break-word]">{{ profile.bio }}</p>
+            <p v-else :class="[ui.muted, 'm-0 mt-3.5']">还没有填写简介。</p>
+
+            <ul class="m-0 mt-4 flex list-none gap-[22px] p-0 shell-down:gap-[18px]">
+              <li>
+                <strong class="block text-[17px] font-extrabold leading-[1.3]">{{ profile.post_count }}</strong>
+                <span class="text-[12.5px] text-ink-3">帖子</span>
+              </li>
+              <li>
+                <RouterLink :to="`/users/${profile.user.username}/following`" class="text-ink hover:text-primary hover:no-underline">
+                  <strong class="block text-[17px] font-extrabold leading-[1.3]">{{ profile.following_count }}</strong>
+                  <span class="text-[12.5px] text-ink-3">关注</span>
+                </RouterLink>
+              </li>
+              <li>
+                <RouterLink :to="`/users/${profile.user.username}/followers`" class="text-ink hover:text-primary hover:no-underline">
+                  <strong class="block text-[17px] font-extrabold leading-[1.3]">{{ profile.follower_count }}</strong>
+                  <span class="text-[12.5px] text-ink-3">粉丝</span>
+                </RouterLink>
+              </li>
+            </ul>
+          </div>
         </section>
 
         <AlertNote v-if="isSuspended" kind="warning">

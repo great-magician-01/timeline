@@ -327,3 +327,38 @@ func TestSearchUsersEscapesLikeWildcards(t *testing.T) {
 		t.Fatalf("repo 收到关键词 = %q，期望转义后的 %q", repo.lastSearchKeyword, want)
 	}
 }
+
+// TestClearBanner 移除主页横幅：清空 banner_url 回退默认占位；账号不存在与
+// 仓储缺失分支与头像写回同构。
+func TestClearBanner(t *testing.T) {
+	ctx := context.Background()
+	svc, users, _, _, clk := newTestService(t, true)
+	user := mustCreateUser(t, users, model.User{
+		ID: 1, Username: "alice", Nickname: "alice", BannerURL: "/api/v1/attachments/9/content",
+	})
+
+	t.Run("移除后回空串并刷新时间", func(t *testing.T) {
+		updated, err := svc.ClearBanner(ctx, user.ID)
+		if err != nil {
+			t.Fatalf("ClearBanner: %v", err)
+		}
+		if updated.BannerURL != "" {
+			t.Fatalf("移除后 banner_url = %q，期望空串", updated.BannerURL)
+		}
+		if !updated.UpdatedAt.Equal(clk.Now()) {
+			t.Fatalf("应使用应用时钟 %v，实际: %v", clk.Now(), updated.UpdatedAt)
+		}
+	})
+
+	t.Run("账号不存在返回 NotFound", func(t *testing.T) {
+		if _, err := svc.ClearBanner(ctx, 999); !apperr.IsKind(err, apperr.KindNotFound) {
+			t.Fatalf("账号不存在应返回 NotFound，实际: %v", err)
+		}
+	})
+
+	t.Run("仓储未装配返回 Internal", func(t *testing.T) {
+		if _, err := (&Service{}).ClearBanner(ctx, 1); !apperr.IsKind(err, apperr.KindInternal) {
+			t.Fatalf("缺少仓储应返回 Internal，实际: %v", err)
+		}
+	})
+}

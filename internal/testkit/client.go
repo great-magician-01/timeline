@@ -171,17 +171,41 @@ func (c *Client) Upload() string {
 
 // UploadWithHeaders 上传 PNG 并返回状态码、响应头、JSON 与原始响应体（用于配额等失败断言）。
 func (c *Client) UploadWithHeaders() (int, http.Header, map[string]any, string) {
+	return c.uploadMultipart("integration.png", "post", integrationPNGBytes)
+}
+
+// UploadWithPurpose 上传 PNG 并声明用途，返回附件对象（头像/横幅等 purpose 用例）。
+func (c *Client) UploadWithPurpose(purpose string) map[string]any {
+	c.t.Helper()
+	status, _, payload, raw := c.uploadMultipart("integration.png", purpose, integrationPNGBytes)
+	ExpectStatus(c.t, status, http.StatusCreated, raw)
+	attachment, ok := payload["attachment"].(map[string]any)
+	if !ok {
+		c.t.Fatalf("附件上传响应缺少 attachment: %s", raw)
+	}
+	return attachment
+}
+
+// UploadRawWithPurpose 上传任意内容并声明用途，返回状态码、JSON 与原始响应体
+// （用于非图片拒绝等失败断言）。
+func (c *Client) UploadRawWithPurpose(purpose, filename string, content []byte) (int, map[string]any, string) {
+	c.t.Helper()
+	status, _, payload, raw := c.uploadMultipart(filename, purpose, content)
+	return status, payload, raw
+}
+
+func (c *Client) uploadMultipart(filename, purpose string, content []byte) (int, http.Header, map[string]any, string) {
 	c.t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("file", "integration.png")
+	part, err := writer.CreateFormFile("file", filename)
 	if err != nil {
 		c.t.Fatal(err)
 	}
-	if _, err := part.Write(integrationPNGBytes); err != nil {
+	if _, err := part.Write(content); err != nil {
 		c.t.Fatal(err)
 	}
-	if err := writer.WriteField("purpose", "post"); err != nil {
+	if err := writer.WriteField("purpose", purpose); err != nil {
 		c.t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {

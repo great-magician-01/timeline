@@ -361,4 +361,28 @@ func TestUpdateUserProfileAndAvatarContracts(t *testing.T) {
 			t.Fatalf("仓储失败应返回 Internal，实际: %v", err)
 		}
 	})
+
+	t.Run("SetBanner 写入横幅引用", func(t *testing.T) {
+		svc.users = users
+		at := now.Add(4 * time.Hour)
+		attachmentID := int64(43)
+		if err := svc.SetBanner(ctx, contracts.BannerUpdateInput{
+			UserID: user.ID, AttachmentID: &attachmentID, BannerURL: "/api/v1/attachments/43/content", At: at,
+		}); err != nil {
+			t.Fatalf("SetBanner: %v", err)
+		}
+		stored := users.users[user.ID]
+		if stored.BannerURL != "/api/v1/attachments/43/content" || !stored.UpdatedAt.Equal(at) {
+			t.Fatalf("横幅引用未保存: %+v", stored)
+		}
+	})
+
+	t.Run("SetBanner 依赖与错误分支", func(t *testing.T) {
+		if err := (&Service{}).SetBanner(ctx, contracts.BannerUpdateInput{UserID: 1}); !apperr.IsKind(err, apperr.KindInternal) {
+			t.Fatalf("缺少仓储应返回 Internal，实际: %v", err)
+		}
+		if err := svc.SetBanner(ctx, contracts.BannerUpdateInput{UserID: 999}); !apperr.IsKind(err, apperr.KindNotFound) {
+			t.Fatalf("账号不存在应返回 NotFound，实际: %v", err)
+		}
+	})
 }

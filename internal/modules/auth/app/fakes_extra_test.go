@@ -139,6 +139,10 @@ func (r *stubUserRepo) UpdateAvatar(ctx context.Context, id int64, attachmentID 
 	return r.fakeUserRepo.UpdateAvatar(ctx, id, attachmentID, avatarURL, at)
 }
 
+func (r *stubUserRepo) UpdateBanner(ctx context.Context, id int64, attachmentID *int64, bannerURL string, at time.Time) error {
+	return r.fakeUserRepo.UpdateBanner(ctx, id, attachmentID, bannerURL, at)
+}
+
 func (r *stubUserRepo) Search(ctx context.Context, keyword string, cursor int64, limit int) ([]model.User, error) {
 	r.lastSearchKeyword = keyword
 	if r.searchErr != nil {

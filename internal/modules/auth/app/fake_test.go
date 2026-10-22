@@ -179,6 +179,17 @@ func (r *fakeUserRepo) UpdateAvatar(_ context.Context, id int64, _ *int64, avata
 	return nil
 }
 
+func (r *fakeUserRepo) UpdateBanner(_ context.Context, id int64, _ *int64, bannerURL string, at time.Time) error {
+	u, ok := r.users[id]
+	if !ok {
+		return apperr.NotFound("用户不存在")
+	}
+	u.BannerURL = bannerURL
+	u.UpdatedAt = at
+	r.users[id] = u
+	return nil
+}
+
 func (r *fakeUserRepo) Search(_ context.Context, keyword string, _ int64, limit int) ([]model.User, error) {
 	result := make([]model.User, 0, limit)
 	for _, u := range r.users {

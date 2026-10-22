@@ -7,9 +7,14 @@ export function getUserProfile(username: string): Promise<{ user: PublicUser }> 
   return apiRequest<{ user: PublicUser }>(`/users/${encodeURIComponent(username)}`)
 }
 
-/** POST /users/me：修改昵称与简介（本阶段不做头像上传） */
+/** POST /users/me：修改昵称与简介（头像与主页横幅通过附件上传设置） */
 export function updateProfile(payload: { nickname: string; bio: string }): Promise<{ user: CurrentUser }> {
   return apiRequest<{ user: CurrentUser }>('/users/me', { method: 'POST', body: payload })
+}
+
+/** POST /users/me/banner/delete：移除主页横幅，回退默认占位 */
+export function deleteBanner(): Promise<{ user: CurrentUser }> {
+  return apiRequest<{ user: CurrentUser }>('/users/me/banner/delete', { method: 'POST' })
 }
 
 /** GET /users/me/follow-settings：关注审批开关 */

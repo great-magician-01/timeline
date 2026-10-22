@@ -206,6 +206,18 @@ func (s *Service) SetAvatar(ctx context.Context, in contracts.AvatarUpdateInput)
 	return nil
 }
 
+// SetBanner 更新主页横幅附件引用与展示地址（media 在自身事务内调用）；
+// AttachmentID 为 nil 表示移除横幅。
+func (s *Service) SetBanner(ctx context.Context, in contracts.BannerUpdateInput) error {
+	if s.users == nil {
+		return apperr.Internal("auth 账号仓储未初始化")
+	}
+	if err := s.users.UpdateBanner(ctx, in.UserID, in.AttachmentID, in.BannerURL, in.At); err != nil {
+		return internal(err, "更新主页横幅引用失败")
+	}
+	return nil
+}
+
 // SetUserStatus 停用/启用账号：更新状态、token_version 与会话失效；
 // 与审计在同一事务内提交（审计动作由 admin 领域约定）。
 func (s *Service) SetUserStatus(ctx context.Context, in contracts.UserStatusInput) (model.User, error) {

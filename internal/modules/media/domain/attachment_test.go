@@ -82,6 +82,9 @@ func TestNormalizePurpose(t *testing.T) {
 	if got, err := NormalizePurpose(" avatar "); err != nil || got != PurposeAvatar {
 		t.Fatalf("头像用途解析错误：%q, %v", got, err)
 	}
+	if got, err := NormalizePurpose(" banner "); err != nil || got != PurposeBanner {
+		t.Fatalf("横幅用途解析错误：%q, %v", got, err)
+	}
 	if _, err := NormalizePurpose("other"); !apperr.IsKind(err, apperr.KindInvalid) {
 		t.Fatalf("非法用途应返回 invalid 领域错误，得到 %v", err)
 	}

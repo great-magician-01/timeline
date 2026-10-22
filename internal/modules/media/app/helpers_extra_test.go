@@ -53,12 +53,15 @@ func (f *stubSettings) WebSearch(context.Context) (contracts.WebSearchSettings, 
 	return contracts.WebSearchSettings{}, nil
 }
 
-// stubAuth 记录头像更新参数与清理流程读取的头像引用附件 ID。
+// stubAuth 记录头像/横幅更新参数与清理流程读取的头像引用附件 ID。
 type stubAuth struct {
 	contracts.AuthService
 
 	setAvatarErr error
 	avatarInputs []contracts.AvatarUpdateInput
+
+	setBannerErr error
+	bannerInputs []contracts.BannerUpdateInput
 
 	avatarIDs    []int64
 	avatarIDsErr error
@@ -67,6 +70,11 @@ type stubAuth struct {
 func (f *stubAuth) SetAvatar(_ context.Context, in contracts.AvatarUpdateInput) error {
 	f.avatarInputs = append(f.avatarInputs, in)
 	return f.setAvatarErr
+}
+
+func (f *stubAuth) SetBanner(_ context.Context, in contracts.BannerUpdateInput) error {
+	f.bannerInputs = append(f.bannerInputs, in)
+	return f.setBannerErr
 }
 
 func (f *stubAuth) ListAvatarAttachmentIDs(context.Context) ([]int64, error) {

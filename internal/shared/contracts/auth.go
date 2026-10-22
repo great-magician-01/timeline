@@ -16,6 +16,16 @@ type AvatarUpdateInput struct {
 	At           time.Time
 }
 
+// BannerUpdateInput 更新用户主页横幅（users 表由 auth 模块拥有，media 不得直接 UPDATE）。
+// AttachmentID 为 nil 表示移除横幅（banner_url 置空串，回退默认占位）。
+// 消费者：media（上传横幅后回写）、auth（移除横幅）。
+type BannerUpdateInput struct {
+	UserID       int64
+	AttachmentID *int64
+	BannerURL    string
+	At           time.Time
+}
+
 // UserStatusInput 停用/启用账号；实现方在调用方事务内更新 users 并吊销会话。
 // 消费者：admin（用户管理）。
 type UserStatusInput struct {
@@ -101,6 +111,8 @@ type UserWriter interface {
 	UpdateUserProfile(ctx context.Context, in UpdateUserProfileInput) error
 	// SetAvatar 更新头像引用；失败时返回领域错误。
 	SetAvatar(ctx context.Context, in AvatarUpdateInput) error
+	// SetBanner 更新主页横幅引用（AttachmentID 为 nil 表示移除）；失败时返回领域错误。
+	SetBanner(ctx context.Context, in BannerUpdateInput) error
 	// SetUserStatus 停用/启用账号并吊销/保留会话，返回更新后的账号行。
 	SetUserStatus(ctx context.Context, in UserStatusInput) (model.User, error)
 	// ResetPassword 重置密码并吊销会话。

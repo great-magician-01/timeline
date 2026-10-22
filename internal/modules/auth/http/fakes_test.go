@@ -225,6 +225,17 @@ func (f *fakeUsers) UpdateAvatar(_ context.Context, id int64, _ *int64, avatarUR
 	return nil
 }
 
+func (f *fakeUsers) UpdateBanner(_ context.Context, id int64, _ *int64, bannerURL string, at time.Time) error {
+	user, ok := f.users[id]
+	if !ok {
+		return apperr.NotFound("用户不存在")
+	}
+	user.BannerURL = bannerURL
+	user.UpdatedAt = at
+	f.users[id] = user
+	return nil
+}
+
 func (f *fakeUsers) Search(_ context.Context, keyword string, _ int64, limit int) ([]model.User, error) {
 	if f.searchErr != nil {
 		return nil, f.searchErr
@@ -545,6 +556,7 @@ func (h *harness) engine() *gin.Engine {
 	engine.POST("/api/v1/auth/logout", h.handler.RequireLogin, h.handler.RequireCSRF, h.handler.Logout)
 	engine.POST("/api/v1/auth/password", h.handler.RequireLogin, h.handler.RequireCSRF, h.handler.ChangePassword)
 	engine.POST("/api/v1/users/me", h.handler.RequireLogin, h.handler.RequireCSRF, h.handler.UpdateProfile)
+	engine.POST("/api/v1/users/me/banner/delete", h.handler.RequireLogin, h.handler.RequireCSRF, h.handler.DeleteBanner)
 	engine.GET("/api/v1/users/me/follow-settings", h.handler.RequireLogin, h.handler.FollowSettings)
 	engine.POST("/api/v1/users/me/follow-settings", h.handler.RequireLogin, h.handler.RequireCSRF, h.handler.UpdateFollowSettings)
 	engine.GET("/api/v1/users/me/dm-settings", h.handler.RequireLogin, h.handler.DMSettings)

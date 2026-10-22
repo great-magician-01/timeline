@@ -85,7 +85,7 @@ func (s *Service) precheckUpload(ctx context.Context, viewer model.Viewer) (Uplo
 }
 
 // Upload 处理附件上传：鉴权 → 复用预检快照（或补做一次预检）→ 内容嗅探与落盘 →
-// 事务内写附件行、累加已用配额、衍生文件记录、入队衍生作业、头像回写。
+// 事务内写附件行、累加已用配额、衍生文件记录、入队衍生作业、头像/横幅回写。
 // 只信任实际内容，文件名仅用于展示。
 func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, error) {
 	if err := access.RequireWritable(in.Viewer); err != nil {
@@ -119,6 +119,10 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, err
 	buffered := bufio.NewReaderSize(in.Content, sniffBytes)
 	header, _ := buffered.Peek(sniffBytes) // 不足 512 字节时返回可用部分，不影响判定
 	kind, _, _ := storage.Detect(header)
+	// 横幅是主页背景装饰，必须为图片；头像沿用既有行为不做种类限制。
+	if purpose == domain.PurposeBanner && kind != domain.KindImage {
+		return UploadResult{}, apperr.Invalid("主页横幅必须是图片文件")
+	}
 
 	at := s.clk.Now()
 	key, size, mediaType, err := s.store.Save(buffered, precheck.MaxUploadBytes, at)
@@ -219,6 +223,16 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, err
 				At:           at,
 			}); err != nil {
 				return s.internal("更新头像地址失败", err)
+			}
+		}
+		if purpose == domain.PurposeBanner {
+			if err := s.auth.SetBanner(txCtx, contracts.BannerUpdateInput{
+				UserID:       in.Viewer.ID,
+				AttachmentID: &attachmentID,
+				BannerURL:    format.AttachmentContentURL(attachmentID),
+				At:           at,
+			}); err != nil {
+				return s.internal("更新主页横幅地址失败", err)
 			}
 		}
 		return nil

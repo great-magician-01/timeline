@@ -71,12 +71,16 @@ func (f *fakeSettings) WebSearch(context.Context) (contracts.WebSearchSettings, 
 	return contracts.WebSearchSettings{}, nil
 }
 
-// fakeAuth 记录头像回写与清理读取的头像引用附件。
+// fakeAuth 记录头像/横幅回写与清理读取的头像引用附件。
 type fakeAuth struct {
 	contracts.AuthService
 
 	setAvatarErr error
 	avatarInputs []contracts.AvatarUpdateInput
+
+	setBannerErr error
+	bannerInputs []contracts.BannerUpdateInput
+
 	avatarIDs    []int64
 	avatarIDsErr error
 }
@@ -85,6 +89,14 @@ func (f *fakeAuth) SetAvatar(_ context.Context, in contracts.AvatarUpdateInput) 
 	f.avatarInputs = append(f.avatarInputs, in)
 	if f.setAvatarErr != nil {
 		return f.setAvatarErr
+	}
+	return nil
+}
+
+func (f *fakeAuth) SetBanner(_ context.Context, in contracts.BannerUpdateInput) error {
+	f.bannerInputs = append(f.bannerInputs, in)
+	if f.setBannerErr != nil {
+		return f.setBannerErr
 	}
 	return nil
 }

@@ -38,6 +38,20 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	c.JSON(stdhttp.StatusOK, userEnvelope{User: privateUser(user)})
 }
 
+// DeleteBanner 处理 POST /api/v1/users/me/banner/delete：移除主页横幅，回退默认占位。
+func (h *Handler) DeleteBanner(c *gin.Context) {
+	viewer, ok := httpx.RequireViewer(c)
+	if !ok {
+		return
+	}
+	user, err := h.svc.ClearBanner(c.Request.Context(), viewer.ID)
+	if err != nil {
+		h.fail(c, "移除主页横幅失败", err)
+		return
+	}
+	c.JSON(stdhttp.StatusOK, userEnvelope{User: privateUser(user)})
+}
+
 // FollowSettings 处理 GET /api/v1/users/me/follow-settings：读取关注审批开关。
 func (h *Handler) FollowSettings(c *gin.Context) {
 	viewer, ok := httpx.RequireViewer(c)

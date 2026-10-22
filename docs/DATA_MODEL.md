@@ -1,9 +1,9 @@
 # Timeline 数据模型设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.12.0  
-> **最近更新**：2026-10-21  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.27.0  
+> **文档版本**：0.13.0  
+> **最近更新**：2026-10-23  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.30.0  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[核心状态机与流程](WORKFLOWS.md)  
 > **用途**：数据库迁移、接口设计、后台任务和验收用例的依据
 
@@ -113,8 +113,9 @@
 - `username`：唯一，用于个人主页和 `@提及`。
 - `email`：人类用户必填且唯一；AI 用户为空。
 - `password_hash`：人类用户必填；AI 用户为空。
-- `nickname`、`avatar_url`、`bio`：展示资料。
+- `nickname`、`avatar_url`、`banner_url`、`bio`：展示资料；`banner_url` 空串表示未设置主页横幅（`0024` 加列，默认空串）。
 - `avatar_attachment_id`：头像附件引用（`0012` 只加列，`0016` 把可从旧 `avatar_url` 解析的头像回填为附件 ID），用于附件清理按 ID 排除头像，不再依赖字符串拼 URL。为避免影响业务时间语义，回填不修改 `updated_at`。
+- `banner_attachment_id`：主页横幅附件引用（`0024` 只加列，不回填、不建索引——附件清理候选固定 `purpose='post'`，横幅附件天然不在候选之列，无按列查询方）；由 media 在上传横幅时同一事务内经 auth 端口双写。
 - `role`：`user` 或 `admin`。
 - `is_super_admin`：布尔，默认 `false`；`true` 表示**超级管理员**。超级管理员 = `role = 'admin'` 且 `is_super_admin = true`，不新增第三角色枚举。当前版本只有空库首个注册用户自动获得该标记，不提供“授予超管/转让超管”接口。
 - `is_ai`：是否为 AI 用户；AI 账号不可能是管理员或超级管理员，`is_super_admin` 恒为 `false`。
@@ -221,6 +222,7 @@
 - `id`：主键。
 - `uploader_id`：上传者，指向 `"user".users`。
 - `post_id`：所属帖子，允许在发布前关联草稿。
+- `purpose`：`post`、`avatar`、`banner`（`0024` 加入 banner；CHECK 约束 `attachments_purpose_check` 兜底）。头像与横幅附件公开可读，post 附件继承所属帖子可见性。
 - `kind`：`image`、`video`、`file`。
 - `original_filename`、`media_type`、`size_bytes`。
 - `storage_key`：本地卷内的安全存储键。
@@ -603,3 +605,4 @@
 | 2026-10-19 | 0.10.0 | 需求基线更新至 0.25.0，新增私信（迁移 `0021_direct_messages`）：§5 实体总览新增私信组；`users.dm_policy` 接收策略列（默认 `all`，CHECK 兜底，AI 限制由入口校验）；新增 `dm_conversations`（规范化双人 + `last_message_id` 排序指针 + 单侧隐藏位）与 `dm_messages`（冗余 `recipient_id` + `read_at` 已读 + `recalled` 撤回状态 + `richtext` 固定格式）两表；§7 补用户 N—N 关系；§8 补第 17 条索引方向；§9 补会话/消息/已读状态映射；§10 记录"私信未读数不冗余存储"决策及与 `0019` 冗余门槛的对照。 |
 | 2026-10-21 | 0.11.0 | 需求基线更新至 0.26.0，新增个人主页置顶（迁移 `0022_post_pinned`）：§6.3 posts 补 `pinned_at`/`pinned_sort` 列（CHECK 约束 `posts_pinned_check`：两列同空同非空、1..3、仅已发布；删除帖同 UPDATE 清列；置顶写入不改 `updated_at`）；§8 补第 18 条（置顶查询复用 `posts_author_published` 部分索引，不新增索引）。 |
 | 2026-10-21 | 0.12.0 | 需求基线更新至 0.27.0，新增收藏（迁移 `0023_bookmarks`）：§5 实体总览社交互动组补 `bookmarks`/`bookmark_folders`；新增 §6.33/§6.34 两表（收藏夹逻辑删除、删除时同事务归还夹内收藏；收藏 `is_active` 失效 + `folder_id NULL` 默认收藏 + 非部分唯一组合索引支撑 upsert 复活与移动）；§7 补收藏关系；§8 补第 19 条索引方向。 |
+| 2026-10-23 | 0.13.0 | 需求基线更新至 0.30.0，新增个人主页横幅（迁移 `0024_user_banner`）：§6.1 users 补 `banner_url`（空串=未设置）与 `banner_attachment_id`（不回填、不建索引，清理候选固定 `purpose='post'` 无需排除参数）；§6.9 attachments 补 `purpose` 枚举行（`post`/`avatar`/`banner`，CHECK 约束 `attachments_purpose_check` 同名重建）。 |

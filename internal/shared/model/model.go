@@ -115,6 +115,7 @@ type User struct {
 	PasswordHash          string
 	Nickname              string
 	AvatarURL             string
+	BannerURL             string
 	Bio                   string
 	Role                  string
 	IsSuperAdmin          bool

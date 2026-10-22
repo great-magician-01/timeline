@@ -15,8 +15,8 @@ type Route struct {
 	Handler func(Deps) gin.HandlerFunc
 }
 
-// Routes 返回全部业务路由（131 条，基线 b6fed97 + 私信 11 条 + 置顶 3 条 + 收藏 7 条；
-// 新增业务接口时同步维护并更新 routes_test.go 的数量断言）。
+// Routes 返回全部业务路由（132 条，基线 b6fed97 + 私信 11 条 + 置顶 3 条 + 收藏 7 条
+// + 主页横幅移除 1 条；新增业务接口时同步维护并更新 routes_test.go 的数量断言）。
 func Routes() []Route {
 	return []Route{
 		// ---------- 公开 / 可选会话 ----------
@@ -48,6 +48,7 @@ func Routes() []Route {
 		{http.MethodPost, "/auth/logout", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Auth.Logout }},
 		{http.MethodPost, "/auth/password", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Auth.ChangePassword }},
 		{http.MethodPost, "/users/me", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Auth.UpdateProfile }},
+		{http.MethodPost, "/users/me/banner/delete", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Auth.DeleteBanner }},
 		{http.MethodPost, "/users/me/follow-settings", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Auth.UpdateFollowSettings }},
 		{http.MethodPost, "/users/me/dm-settings", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Auth.UpdateDMSettings }},
 		{http.MethodPost, "/users/:username/follow", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.Follow }},

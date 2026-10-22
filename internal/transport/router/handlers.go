@@ -38,6 +38,7 @@ type AuthHandlers interface {
 	Logout(c *gin.Context)
 	ChangePassword(c *gin.Context)
 	UpdateProfile(c *gin.Context)
+	DeleteBanner(c *gin.Context)
 	FollowSettings(c *gin.Context)
 	UpdateFollowSettings(c *gin.Context)
 	DMSettings(c *gin.Context)

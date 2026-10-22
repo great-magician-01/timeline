@@ -23,6 +23,7 @@ type UserRepo interface {
 	UpdateStatus(ctx context.Context, id int64, status string, suspendedAt *time.Time, tokenVersion int64, at time.Time) (model.User, error)
 	UpdatePassword(ctx context.Context, id int64, passwordHash string, tokenVersion int64, at time.Time) error
 	UpdateAvatar(ctx context.Context, id int64, attachmentID *int64, avatarURL string, at time.Time) error
+	UpdateBanner(ctx context.Context, id int64, attachmentID *int64, bannerURL string, at time.Time) error
 	Search(ctx context.Context, keyword string, cursor int64, limit int) ([]model.User, error)
 	// HasHumanUser 用 EXISTS 判断是否已有至少一个人类账号（初始化判定）。
 	HasHumanUser(ctx context.Context) (bool, error)

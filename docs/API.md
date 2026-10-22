@@ -1,9 +1,9 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.10.0  
-> **最近更新**：2026-10-21  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.27.0  
+> **文档版本**：0.11.0  
+> **最近更新**：2026-10-23  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.30.0  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
 > **用途**：前后端接口对接、接口实现与验收用例的依据
 
@@ -105,6 +105,7 @@
 以下对象在多个接口中复用（仅列出关键字段）：
 
 - **user_brief**：`id`、`username`、`nickname`、`avatar_url`、`is_ai`、`is_suspended`。公开对象**不包含** `is_super_admin`。
+- **user**（个人主页资料等公开账号对象的完整形态）：在 user_brief 基础上增加 `bio`、`banner_url`（个人主页横幅地址，恒返回、空串表示未设置，回退默认占位）与 `created_at`；`banner_url` 不进入列表用的 user_brief。
 - **private_user**（仅本人或管理员可见的账号对象：`GET /auth/me`、登录、注册与管理后台用户列表/详情返回的 `user`）：在 user_brief 基础上增加 `email`、`role`、`status`、`require_follow_approval`、`updated_at`，以及 `is_super_admin`（超级管理员标记；后端编码为 `omitempty`，`false` 时省略字段，前端按可选布尔处理）。
 - **post_brief**（列表项）：`id`、`author`（user_brief）、`visibility`、`content_html`、`published_at`、`edited`、`like_count`、`comment_count`、`repost_count`、`repost_of`（纯转发时指向原帖）、`quoted_post`（引用时包含原帖 brief 或 `available:false` 占位）、`attachments`（附件摘要，含衍生文件状态）、`viewer_state`（`liked`、`reposted`、`bookmarked`）；`pinned_at`（omitempty，非空表示帖子被作者置顶到个人主页，仅顶层帖子项返回）、`can_pin`（当前访问者可置顶/取消置顶）、`bookmark`（omitempty，仅「我的收藏」列表携带：`{folder_id: string|null, created_at}`，`folder_id` 为 null 表示默认收藏）。
 - **post_detail**：在 post_brief 基础上增加 `content_format`、完整附件列表、`can_edit`、`can_delete`、`can_view_history` 与作者关注状态。
@@ -143,7 +144,8 @@
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
 | GET | `/api/v1/users/:username` | 个人主页资料：user_brief、简介、计数、`follow_state`（`none`/`following`/`pending`/`incoming_pending`）、`is_suspended` | 所有人 |
-| POST | `/api/v1/users/me` | 修改昵称、简介；头像通过 `POST /attachments` 的 `purpose=avatar` 上传后自动写回 | 登录用户 |
+| POST | `/api/v1/users/me` | 修改昵称、简介；头像通过 `POST /attachments` 的 `purpose=avatar` 上传后自动写回；主页横幅通过 `purpose=banner` 上传后自动写回 | 登录用户 |
+| POST | `/api/v1/users/me/banner/delete` | 移除主页横幅：清空 `banner_url` 与附件引用，主页回退默认占位；返回更新后的本人 user | 登录用户 |
 | GET | `/api/v1/users/:username/posts` | 主页时间线：`tab=posts\|replies\|reposts`，游标分页，按访问者权限过滤；`tab=posts` 第一页额外返回 `pinned_posts`（按展示顺序的置顶帖，普通流已排除） | 所有人 |
 | GET | `/api/v1/users/:username/followers` | 粉丝列表（仅生效关系） | 所有人 |
 | GET | `/api/v1/users/:username/following` | 关注列表（仅生效关系） | 所有人 |
@@ -278,12 +280,12 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
-| POST | `/api/v1/attachments` | 上传：`multipart/form-data`，字段 `file`、`purpose`（`post`/`avatar`）；返回 attachment（含衍生文件初始状态） | 登录用户 |
+| POST | `/api/v1/attachments` | 上传：`multipart/form-data`，字段 `file`、`purpose`（`post`/`avatar`/`banner`）；返回 attachment（含衍生文件初始状态） | 登录用户 |
 | GET | `/api/v1/attachments/:id/content` | 原文件内容；支持 `Range` 请求以播放视频 | 有权查看所属内容者 |
 | GET | `/api/v1/attachments/:id/derivatives/:type` | 衍生文件：`thumbnail`、`video_cover`；未就绪返回 404 或占位响应头 | 同上 |
 | POST | `/api/v1/attachments/:id/delete` | 从草稿移除附件并逻辑删除；已被有效内容或历史版本引用时仅解除关联，数据库记录与物理文件保留 | 上传者或作者 |
 
-上传校验大小、类型和实际内容；超限返回 413/415，超过存储配额返回 413 `content_too_large`。单文件/请求上限、存储配额与上传限频均可由管理后台系统设置即时调整；429 响应带 `Retry-After`。头像类附件上传成功后自动写回当前用户头像。
+上传校验大小、类型和实际内容；超限返回 413/415，超过存储配额返回 413 `content_too_large`。单文件/请求上限、存储配额与上传限频均可由管理后台系统设置即时调整；429 响应带 `Retry-After`。头像类附件上传成功后自动写回当前用户头像；横幅类附件（`banner`，仅接受图片内容，非图片返回 400）上传成功后同事务写回 `users.banner_url`；头像与横幅附件公开可读（个人主页公开展示内容），均不计入临时附件清理候选。
 
 ## 12. 系统接口
 
@@ -440,6 +442,7 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 - OpenAPI 规范或代码注解生成方式。
 - 列表接口中超长正文采用摘要加展开接口的优化方案。
 - 头像附件的尺寸处理与默认头像策略。
+- 主页横幅的尺寸建议与裁剪策略（当前服务端不裁剪，前端按 CSS 等比裁剪填充）。
 - 管理员重置密码的密码策略与展示方式。
 - 存量部署补出超级管理员的迁移方案（`0010` 不迁移存量，当前由部署方人工制定）。
 - 未来实时通知（SSE/WebSocket）的接口预留。
@@ -472,3 +475,4 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 | 2026-10-19 | 0.8.1 | 需求基线更新至 0.25.1，§10 规则补消息正文长度约束：正文最长 2000 字（按清洗后纯文本字符数计），超限或 `content_source` 体积超过 64KiB 返回 400 `validation`（审查修复）。 |
 | 2026-10-21 | 0.9.0 | 需求基线更新至 0.26.0，新增个人主页置顶接口（§6）：`POST /posts/:id/pin`、`POST /posts/:id/unpin`、`POST /posts/pinned/reorder`；§4 `users/:username/posts` 补 `pinned_posts` 返回说明；§2.8 post_brief 补 `pinned_at`/`can_pin` 字段。错误语义：非作者按 404、AI/停用 403、草稿或定时 409、超限 409 `pin_limit`、排序集合不一致 400。 |
 | 2026-10-21 | 0.10.0 | 需求基线更新至 0.27.0，新增收藏接口（§8）：`POST /posts/:id/bookmark`（可选 `folder_id`，幂等 + 移动语义）、`POST /posts/:id/unbookmark`、`GET /me/bookmarks`（ID 游标分页 + 夹过滤三态）、`GET/POST /me/bookmark-folders`、`POST /me/bookmark-folders/:id`（重命名）与 `:id/delete`（删除并归还默认收藏）；§2.8 post_brief 的 `viewer_state` 补 `bookmarked`、新增可选 `bookmark` 字段；§14 补收藏限频口径。 |
+| 2026-10-23 | 0.11.0 | 需求基线更新至 0.30.0，新增个人主页横幅：§4 新增 `POST /users/me/banner/delete` 并补 `POST /users/me` 的横幅写回说明；§2.8 新增公开账号完整对象 `user`（含 `banner_url`，空串=未设置，不进入 user_brief）；§11 附件 `purpose` 增加 `banner`（仅图片内容，非图片 400）、横幅附件公开可读并写回 `banner_url`；§15 待细化补横幅尺寸建议。 |

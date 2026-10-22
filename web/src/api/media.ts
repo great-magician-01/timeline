@@ -10,7 +10,7 @@ import {
 } from './client'
 import type { Attachment } from './types'
 
-export type UploadPurpose = 'post' | 'avatar'
+export type UploadPurpose = 'post' | 'avatar' | 'banner'
 
 interface ErrorPayload {
   error?: { code?: string; message?: string; details?: unknown }
@@ -84,5 +84,11 @@ export function deleteAttachment(id: string): Promise<{ detached: boolean; delet
 /** 更新头像：上传 purpose=avatar 的附件后由后端写回 avatar_url */
 export async function updateAvatar(file: File): Promise<Attachment> {
   const result = await uploadAttachment(file, 'avatar')
+  return result.attachment
+}
+
+/** 更新主页横幅：上传 purpose=banner 的附件后由后端写回 banner_url */
+export async function updateBanner(file: File): Promise<Attachment> {
+  const result = await uploadAttachment(file, 'banner')
   return result.attachment
 }

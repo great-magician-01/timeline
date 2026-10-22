@@ -7,6 +7,8 @@ export interface PublicUser {
   username: string
   nickname: string
   avatar_url: string | null
+  /** 个人主页横幅地址；后端恒返回字符串，空串表示未设置（回退默认占位） */
+  banner_url: string
   bio: string
   is_ai: boolean
   is_suspended: boolean

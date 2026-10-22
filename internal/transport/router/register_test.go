@@ -29,6 +29,7 @@ func (stubHandler) Me(c *gin.Context)                      { c.Header("X-Handler
 func (stubHandler) Logout(c *gin.Context)                  { c.Header("X-Handler", "reached") }
 func (stubHandler) ChangePassword(c *gin.Context)          { c.Header("X-Handler", "reached") }
 func (stubHandler) UpdateProfile(c *gin.Context)           { c.Header("X-Handler", "reached") }
+func (stubHandler) DeleteBanner(c *gin.Context)            { c.Header("X-Handler", "reached") }
 func (stubHandler) FollowSettings(c *gin.Context)          { c.Header("X-Handler", "reached") }
 func (stubHandler) UpdateFollowSettings(c *gin.Context)    { c.Header("X-Handler", "reached") }
 func (stubHandler) DMSettings(c *gin.Context)              { c.Header("X-Handler", "reached") }

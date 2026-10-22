@@ -21,8 +21,8 @@ import (
 
 // userColumns 是 users 表的完整行投影，字段顺序与 scanUser 一致。
 const userColumns = `id, username, COALESCE(email, ''), COALESCE(password_hash, ''),
-	nickname, avatar_url, bio, role, is_super_admin, is_ai, status, require_follow_approval,
-	dm_policy, token_version, suspended_at, created_at, updated_at`
+	nickname, avatar_url, banner_url, bio, role, is_super_admin, is_ai, status,
+	require_follow_approval, dm_policy, token_version, suspended_at, created_at, updated_at`
 
 // rowScanner 抽象 pgx.Row 与 pgx.Rows 的 Scan，便于复用同一列投影。
 type rowScanner interface {
@@ -45,13 +45,13 @@ func (r *UserRepo) exec(ctx context.Context) db.Executor {
 func (r *UserRepo) Insert(ctx context.Context, u model.User) error {
 	_, err := r.exec(ctx).Exec(ctx, `
 		INSERT INTO users (
-			id, username, email, password_hash, nickname, avatar_url, bio,
+			id, username, email, password_hash, nickname, avatar_url, banner_url, bio,
 			role, is_super_admin, is_ai, status, require_follow_approval,
 			token_version, suspended_at, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
 		u.ID, u.Username, nullableText(u.Email), nullableText(u.PasswordHash), u.Nickname,
-		u.AvatarURL, u.Bio, u.Role, u.IsSuperAdmin, u.IsAI, u.Status, u.RequireFollowApproval,
-		u.TokenVersion, u.SuspendedAt, u.CreatedAt, u.UpdatedAt,
+		u.AvatarURL, u.BannerURL, u.Bio, u.Role, u.IsSuperAdmin, u.IsAI, u.Status,
+		u.RequireFollowApproval, u.TokenVersion, u.SuspendedAt, u.CreatedAt, u.UpdatedAt,
 	)
 	return mapUserWriteError(err)
 }
@@ -180,6 +180,21 @@ func (r *UserRepo) UpdateAvatar(ctx context.Context, id int64, attachmentID *int
 		UPDATE users
 		SET avatar_attachment_id = $2, avatar_url = $3, updated_at = $4
 		WHERE id = $1`, id, attachmentID, avatarURL, at)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.NotFound("用户不存在")
+	}
+	return nil
+}
+
+// UpdateBanner 更新主页横幅附件引用与展示地址；attachmentID 为 nil 表示移除横幅。
+func (r *UserRepo) UpdateBanner(ctx context.Context, id int64, attachmentID *int64, bannerURL string, at time.Time) error {
+	tag, err := r.exec(ctx).Exec(ctx, `
+		UPDATE users
+		SET banner_attachment_id = $2, banner_url = $3, updated_at = $4
+		WHERE id = $1`, id, attachmentID, bannerURL, at)
 	if err != nil {
 		return err
 	}
@@ -370,8 +385,9 @@ func scanUser(row rowScanner) (model.User, error) {
 	var u model.User
 	err := row.Scan(
 		&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Nickname, &u.AvatarURL,
-		&u.Bio, &u.Role, &u.IsSuperAdmin, &u.IsAI, &u.Status, &u.RequireFollowApproval,
-		&u.DMPolicy, &u.TokenVersion, &u.SuspendedAt, &u.CreatedAt, &u.UpdatedAt,
+		&u.BannerURL, &u.Bio, &u.Role, &u.IsSuperAdmin, &u.IsAI, &u.Status,
+		&u.RequireFollowApproval, &u.DMPolicy, &u.TokenVersion, &u.SuspendedAt,
+		&u.CreatedAt, &u.UpdatedAt,
 	)
 	return u, err
 }

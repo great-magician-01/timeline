@@ -53,8 +53,8 @@ func (r *SessionRepo) ByTokenHash(ctx context.Context, tokenHash string) (model.
 		&session.ID, &session.UserID, &session.CSRFToken, &session.TokenVersion,
 		&session.ExpiresAt, &session.RevokedAt,
 		&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.Nickname, &user.AvatarURL,
-		&user.Bio, &user.Role, &user.IsSuperAdmin, &user.IsAI, &user.Status, &user.RequireFollowApproval,
-		&user.TokenVersion, &user.SuspendedAt, &user.CreatedAt, &user.UpdatedAt,
+		&user.BannerURL, &user.Bio, &user.Role, &user.IsSuperAdmin, &user.IsAI, &user.Status,
+		&user.RequireFollowApproval, &user.TokenVersion, &user.SuspendedAt, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.User{}, model.Session{}, apperr.NotFound("会话不存在")
@@ -98,5 +98,5 @@ func (r *SessionRepo) UpdateTokenVersion(ctx context.Context, sessionID, tokenVe
 
 // userColumnsJoined 是 JOIN 查询中带 u. 前缀的 users 列投影。
 const userColumnsJoined = `u.id, u.username, COALESCE(u.email, ''), COALESCE(u.password_hash, ''),
-	u.nickname, u.avatar_url, u.bio, u.role, u.is_super_admin, u.is_ai, u.status,
+	u.nickname, u.avatar_url, u.banner_url, u.bio, u.role, u.is_super_admin, u.is_ai, u.status,
 	u.require_follow_approval, u.token_version, u.suspended_at, u.created_at, u.updated_at`

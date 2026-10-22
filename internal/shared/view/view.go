@@ -87,6 +87,7 @@ type UserResponse struct {
 	Username              string `json:"username"`
 	Nickname              string `json:"nickname"`
 	AvatarURL             string `json:"avatar_url"`
+	BannerURL             string `json:"banner_url"`
 	Bio                   string `json:"bio"`
 	IsAI                  bool   `json:"is_ai"`
 	IsSuspended           bool   `json:"is_suspended"`
@@ -106,6 +107,7 @@ func PublicUserResponse(u model.User) UserResponse {
 		Username:    u.Username,
 		Nickname:    u.Nickname,
 		AvatarURL:   u.AvatarURL,
+		BannerURL:   u.BannerURL,
 		Bio:         u.Bio,
 		IsAI:        u.IsAI,
 		IsSuspended: u.IsSuspended(),

@@ -89,6 +89,44 @@ func TestUpdateProfileHandler(t *testing.T) {
 	})
 }
 
+func TestDeleteBannerHandler(t *testing.T) {
+	h := newHarness(t, true)
+	engine := h.engine()
+	user := h.seedUser(t, model.User{
+		ID: 1, Username: "alice", Nickname: "爱丽丝", BannerURL: "/api/v1/attachments/9/content",
+	})
+	h.seedSession(user, "banner-token", "banner-csrf")
+
+	t.Run("缺少 CSRF 返回 403", func(t *testing.T) {
+		recorder := h.performAs(t, engine, http.MethodPost, "/api/v1/users/me/banner/delete", "", "banner-token", "")
+		if recorder.Code != http.StatusForbidden || errorCode(t, recorder) != "csrf_failed" {
+			t.Fatalf("状态码 = %d，body=%s", recorder.Code, recorder.Body.String())
+		}
+	})
+
+	t.Run("移除成功返回清空横幅的私有资料", func(t *testing.T) {
+		recorder := h.performAs(t, engine, http.MethodPost, "/api/v1/users/me/banner/delete", "", "banner-token", "banner-csrf")
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("状态码 = %d，body=%s", recorder.Code, recorder.Body.String())
+		}
+		responseUser, ok := bodyMap(t, recorder)["user"].(map[string]any)
+		if !ok {
+			t.Fatalf("响应缺少 user: %s", recorder.Body.String())
+		}
+		if responseUser["banner_url"] != "" {
+			t.Fatalf("banner_url 未清空: %v", responseUser["banner_url"])
+		}
+	})
+
+	t.Run("缺少 Viewer 的直接调用返回 401", func(t *testing.T) {
+		c, recorder := newJSONContext(http.MethodPost, "/api/v1/users/me/banner/delete", "")
+		h.handler.DeleteBanner(c)
+		if recorder.Code != http.StatusUnauthorized || errorCode(t, recorder) != "unauthenticated" {
+			t.Fatalf("状态码 = %d，body=%s", recorder.Code, recorder.Body.String())
+		}
+	})
+}
+
 func TestFollowSettingsHandlers(t *testing.T) {
 	h := newHarness(t, true)
 	engine := h.engine()

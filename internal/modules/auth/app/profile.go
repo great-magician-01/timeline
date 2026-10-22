@@ -52,6 +52,18 @@ func (s *Service) UpdateProfile(ctx context.Context, in UpdateProfileInput) (mod
 	return updated, nil
 }
 
+// ClearBanner 移除个人主页横幅：清空 banner_url 与 banner_attachment_id，
+// 主页回退默认占位。与头像不同，横幅支持恢复默认，因此提供独立用例。
+func (s *Service) ClearBanner(ctx context.Context, userID int64) (model.User, error) {
+	if s.users == nil {
+		return model.User{}, apperr.Internal("auth 账号仓储未初始化")
+	}
+	if err := s.users.UpdateBanner(ctx, userID, nil, "", s.now()); err != nil {
+		return model.User{}, internal(err, "移除主页横幅失败")
+	}
+	return s.users.ByID(ctx, userID)
+}
+
 // FollowSettings 读取关注审批开关。
 func (s *Service) FollowSettings(ctx context.Context, userID int64) (bool, error) {
 	if s.users == nil {

@@ -39,14 +39,15 @@ func (s *Service) getAttachment(ctx context.Context, attachmentID int64) (repo.A
 }
 
 // requireAttachmentAccess 校验访问者能否读取附件内容（原文件与衍生文件共用）。
-// 规则：purpose='avatar' 的头像附件公开可读；其余附件继承所属帖子的可见性；
+// 规则：purpose='avatar' 的头像附件与 purpose='banner' 的主页横幅附件公开可读
+// （均为个人主页公开展示内容）；其余附件继承所属帖子的可见性；
 // 尚未关联任何帖子的附件只有上传者本人与管理员可查看。不满足时返回 404，
 // 不暴露资源存在性（docs/PAGES_AND_PERMISSIONS.md §8）。
 func (s *Service) requireAttachmentAccess(ctx context.Context, viewer model.Viewer, row repo.AttachmentRow) error {
 	if !row.Available() {
 		return apperr.NotFound("附件不存在或已失效")
 	}
-	if row.Purpose == domain.PurposeAvatar {
+	if row.Purpose == domain.PurposeAvatar || row.Purpose == domain.PurposeBanner {
 		return nil
 	}
 	if row.PostID == nil {

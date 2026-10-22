@@ -2,8 +2,8 @@
 import { computed, reactive, ref } from 'vue'
 import { me } from '../../api/auth'
 import { errorMessage, fieldErrors } from '../../api/client'
-import { updateAvatar } from '../../api/media'
-import { updateProfile } from '../../api/users'
+import { updateAvatar, updateBanner } from '../../api/media'
+import { deleteBanner, updateProfile } from '../../api/users'
 import AlertNote from '../../components/AlertNote.vue'
 import FormField from '../../components/FormField.vue'
 import UserAvatar from '../../components/UserAvatar.vue'
@@ -58,6 +58,59 @@ async function onAvatarSelected(event: Event): Promise<void> {
   }
 }
 
+// ---------- 主页横幅：purpose=banner，成功后重新拉取当前用户 ----------
+const bannerInput = ref<HTMLInputElement | null>(null)
+const bannerUploading = ref(false)
+const bannerRemoving = ref(false)
+const bannerError = ref('')
+const bannerNotice = ref('')
+
+function pickBanner(): void {
+  if (bannerUploading.value || suspended.value) return
+  bannerInput.value?.click()
+}
+
+async function onBannerSelected(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  bannerError.value = ''
+  bannerNotice.value = ''
+  if (!file.type.startsWith('image/')) {
+    bannerError.value = '请选择图片文件作为主页横幅。'
+    return
+  }
+  bannerUploading.value = true
+  try {
+    await updateBanner(file)
+    // 后端在横幅附件落库后写回 banner_url；重新读取当前用户以刷新预览
+    const data = await me()
+    setCurrentUser(data.user)
+    bannerNotice.value = '主页横幅已更新。'
+  } catch (error) {
+    bannerError.value = errorMessage(error)
+  } finally {
+    bannerUploading.value = false
+  }
+}
+
+async function onRemoveBanner(): Promise<void> {
+  if (bannerRemoving.value || suspended.value || !user.value?.banner_url) return
+  bannerRemoving.value = true
+  bannerError.value = ''
+  bannerNotice.value = ''
+  try {
+    const data = await deleteBanner()
+    setCurrentUser(data.user)
+    bannerNotice.value = '主页横幅已移除。'
+  } catch (error) {
+    bannerError.value = errorMessage(error)
+  } finally {
+    bannerRemoving.value = false
+  }
+}
+
 async function onSubmit(): Promise<void> {
   errors.value = {}
   formError.value = ''
@@ -90,6 +143,56 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
+  <section :class="[ui.card, ui.cardPad]">
+    <h2 :class="[ui.pageTitle]">主页横幅</h2>
+    <p :class="[ui.pageDesc]">展示在个人主页顶部的背景图片。</p>
+
+    <div class="mt-3 grid gap-2.5">
+      <div class="h-32 w-full overflow-hidden rounded-[10px] border border-solid border-border bg-soft shell-down:h-24">
+        <img
+          v-if="user?.banner_url"
+          :src="user.banner_url"
+          class="size-full object-cover"
+          alt="主页横幅预览"
+        />
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <input
+          ref="bannerInput"
+          class="absolute -m-px size-px overflow-hidden border-0 border-solid p-0 whitespace-nowrap [clip:rect(0,0,0,0)]"
+          type="file"
+          accept="image/*"
+          aria-label="选择主页横幅图片"
+          :disabled="bannerUploading || suspended"
+          @change="onBannerSelected"
+        />
+        <button
+          :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
+          type="button"
+          :disabled="bannerUploading || suspended"
+          @click="pickBanner"
+        >
+          <span v-if="bannerUploading" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
+          {{ bannerUploading ? '上传中…' : user?.banner_url ? '更换横幅' : '上传横幅' }}
+        </button>
+        <button
+          v-if="user?.banner_url"
+          :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
+          type="button"
+          :disabled="bannerRemoving || suspended"
+          @click="onRemoveBanner"
+        >
+          <span v-if="bannerRemoving" :class="[ui.spinner, ui.buttonSpinner]" aria-hidden="true"></span>
+          {{ bannerRemoving ? '移除中…' : '移除横幅' }}
+        </button>
+      </div>
+      <p :class="[ui.muted, 'm-0']">支持常见图片格式；展示时按比例裁剪填充，移除后回退默认占位。</p>
+      <AlertNote v-if="bannerNotice" kind="success">{{ bannerNotice }}</AlertNote>
+      <AlertNote v-if="bannerError" kind="error">{{ bannerError }}</AlertNote>
+      <p v-if="suspended" :class="[ui.muted, 'm-0']">账号已被停用，暂时无法更改主页横幅。</p>
+    </div>
+  </section>
+
   <section :class="[ui.card, ui.cardPad]">
     <h2 :class="[ui.pageTitle]">头像</h2>
     <div class="mt-3 flex items-center gap-3.5">

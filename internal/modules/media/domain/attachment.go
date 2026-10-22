@@ -18,6 +18,7 @@ import (
 const (
 	PurposePost   = "post"
 	PurposeAvatar = "avatar"
+	PurposeBanner = "banner"
 )
 
 // 附件种类（与 attachments.kind 的 CHECK 约束及 platform/storage 的嗅探结果一致）。
@@ -68,8 +69,8 @@ func NormalizePurpose(raw string) (string, error) {
 	if purpose == "" {
 		return PurposePost, nil
 	}
-	if purpose != PurposePost && purpose != PurposeAvatar {
-		return "", apperr.Invalid("purpose 只能是 post 或 avatar")
+	if purpose != PurposePost && purpose != PurposeAvatar && purpose != PurposeBanner {
+		return "", apperr.Invalid("purpose 只能是 post、avatar 或 banner")
 	}
 	return purpose, nil
 }
