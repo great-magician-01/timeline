@@ -16,12 +16,14 @@ import {
 import type { DMConversation, DMMessage } from '../api/types'
 import AlertNote from '../components/AlertNote.vue'
 import AppIcon from '../components/AppIcon.vue'
+import EmojiPicker from '../components/EmojiPicker.vue'
 import EmptyState from '../components/EmptyState.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useBackNavigation } from '../composables/useBackNavigation'
 import { authState } from '../stores/auth'
 import { refreshDMUnreadCount } from '../stores/messages'
 import { ui } from '../styles/ui'
+import { insertAtSelection } from '../utils/emoji'
 import { relativeTime, timeTitle } from '../utils/format'
 import { textToParagraphHTML } from '../utils/text'
 
@@ -47,6 +49,11 @@ const sending = ref(false)
 const sendError = ref('')
 const actionError = ref('')
 const recallingId = ref('')
+const messageBox = ref<HTMLTextAreaElement | null>(null)
+
+function onMessageEmoji(emoji: string): void {
+  if (messageBox.value) insertAtSelection(messageBox.value, emoji)
+}
 
 const scroller = ref<HTMLElement | null>(null)
 const peerSuspended = computed(() => Boolean(conversation.value?.peer.is_suspended))
@@ -356,6 +363,7 @@ onUnmounted(stopPolling)
             <AlertNote v-if="sendError" kind="error" class="mb-2!">{{ sendError }}</AlertNote>
             <div class="grid gap-2">
               <textarea
+                ref="messageBox"
                 v-model="text"
                 :class="[ui.input, ui.textarea, 'max-h-[180px]']"
                 rows="2"
@@ -365,7 +373,25 @@ onUnmounted(stopPolling)
                 @keydown="onKeydown"
               ></textarea>
               <div class="flex items-center justify-between gap-2">
-                <span class="text-[12px] text-ink-3">仅支持纯文本，不支持附件。</span>
+                <div class="flex items-center gap-2">
+                  <EmojiPicker :disabled="sending || peerSuspended" @select="onMessageEmoji">
+                    <template #trigger="{ toggle, open: pickerOpen }">
+                      <button
+                        type="button"
+                        class="flex size-[34px] items-center justify-center rounded-[8px] text-ink-3 transition-[background,color] duration-150 ease-[ease] hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-[0.55]"
+                        title="插入表情"
+                        aria-label="插入表情"
+                        aria-haspopup="dialog"
+                        :aria-expanded="pickerOpen"
+                        :disabled="sending || peerSuspended"
+                        @click="toggle"
+                      >
+                        <AppIcon name="smile" :size="18" />
+                      </button>
+                    </template>
+                  </EmojiPicker>
+                  <span class="text-[12px] text-ink-3">仅支持纯文本，不支持附件。</span>
+                </div>
                 <button
                   :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]"
                   type="button"

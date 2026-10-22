@@ -3,6 +3,7 @@
 // 输出 HTML 不可信，后端会用同一套白名单清洗（docs/REQUIREMENTS.md 6.1）。
 import { onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import EmojiPicker from './EmojiPicker.vue'
 import type { IconName } from './icons'
 
 const props = withDefaults(
@@ -102,6 +103,42 @@ function onPaste(event: ClipboardEvent): void {
   document.execCommand('insertText', false, text)
   syncFromDom()
 }
+
+// 打开表情面板时记录编辑器内的光标；点击表情（面板夺焦）后恢复再插入，
+// 与 onPaste 同样走 insertText 以保留撤销栈
+let savedRange: Range | null = null
+
+function onPickerOpenChange(value: boolean): void {
+  if (!value) {
+    savedRange = null
+    return
+  }
+  const editorEl = editor.value
+  const selection = window.getSelection()
+  if (!editorEl || !selection || selection.rangeCount === 0 || !editorEl.contains(selection.anchorNode)) return
+  savedRange = selection.getRangeAt(0).cloneRange()
+}
+
+function insertEmoji(emoji: string): void {
+  if (props.disabled) return
+  editor.value?.focus()
+  const selection = window.getSelection()
+  const selectionInEditor = Boolean(
+    selection && selection.rangeCount > 0 && editor.value?.contains(selection.anchorNode),
+  )
+  // 面板打开后用户可能继续输入：编辑器仍有选区时用当前光标，
+  // 仅当焦点/选区丢失（真实点击面板导致失焦）时才回退到打开时记录的位置
+  if (savedRange && !selectionInEditor) {
+    selection?.removeAllRanges()
+    selection?.addRange(savedRange)
+  }
+  try {
+    document.execCommand('insertText', false, emoji)
+  } catch {
+    // 某些浏览器对个别命令不支持；忽略即可，内容仍会经后端清洗
+  }
+  syncFromDom()
+}
 </script>
 
 <template>
@@ -125,6 +162,23 @@ function onPaste(event: ClipboardEvent): void {
       >
         <AppIcon :name="tool.icon" :size="16" />
       </button>
+      <EmojiPicker :disabled="disabled" align="left" @select="insertEmoji" @open-change="onPickerOpenChange">
+        <template #trigger="{ toggle, open: pickerOpen }">
+          <button
+            type="button"
+            class="flex size-[30px] items-center justify-center rounded-[7px] text-ink-2 hover-not-disabled:bg-hover hover-not-disabled:text-ink"
+            title="插入表情"
+            aria-label="插入表情"
+            aria-haspopup="dialog"
+            :aria-expanded="pickerOpen"
+            :disabled="disabled"
+            @mousedown.prevent
+            @click="toggle"
+          >
+            <AppIcon name="smile" :size="16" />
+          </button>
+        </template>
+      </EmojiPicker>
       <button
         type="button"
         class="flex size-[30px] items-center justify-center rounded-[7px] text-ink-2 hover-not-disabled:bg-hover hover-not-disabled:text-ink"

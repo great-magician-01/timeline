@@ -10,6 +10,7 @@ import { listFollowRequests } from '../api/social'
 import type { Attachment, PostBrief, Visibility } from '../api/types'
 import AlertNote from '../components/AlertNote.vue'
 import AppIcon from '../components/AppIcon.vue'
+import EmojiPicker from '../components/EmojiPicker.vue'
 import EmptyState from '../components/EmptyState.vue'
 import MediaUploader from '../components/MediaUploader.vue'
 import MoreMenu from '../components/MoreMenu.vue'
@@ -19,6 +20,7 @@ import { useCursorList } from '../composables/useCursorList'
 import { authState } from '../stores/auth'
 import { registrationOpen } from '../stores/site'
 import { ui } from '../styles/ui'
+import { insertAtSelection } from '../utils/emoji'
 import { textToParagraphHTML } from '../utils/text'
 
 const user = computed(() => authState.user)
@@ -84,8 +86,13 @@ const attachments = ref<Attachment[]>([])
 const postingMode = ref<'' | 'draft' | 'publish'>('')
 const postError = ref('')
 const draftNotice = ref('')
+const quickBox = ref<HTMLTextAreaElement | null>(null)
 
 const posting = computed(() => postingMode.value !== '')
+
+function onQuickEmoji(emoji: string): void {
+  if (quickBox.value) insertAtSelection(quickBox.value, emoji)
+}
 
 async function submitQuickPost(action: 'draft' | 'publish'): Promise<void> {
   const value = draft.value.trim()
@@ -180,6 +187,7 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
           <p :class="[ui.muted, 'm-0']">以 @{{ user.username }} 的身份发布</p>
         </div>
         <textarea
+          ref="quickBox"
           v-model="draft"
           :class="[ui.input, ui.textarea]"
           rows="3"
@@ -210,6 +218,22 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
                   <option value="private">仅自己</option>
                 </select>
               </label>
+              <EmojiPicker :disabled="posting" @select="onQuickEmoji">
+                <template #trigger="{ toggle, open: pickerOpen }">
+                  <button
+                    type="button"
+                    class="flex size-[34px] items-center justify-center rounded-[8px] text-ink-3 transition-[background,color] duration-150 ease-[ease] hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-[0.55]"
+                    title="插入表情"
+                    aria-label="插入表情"
+                    aria-haspopup="dialog"
+                    :aria-expanded="pickerOpen"
+                    :disabled="posting"
+                    @click="toggle"
+                  >
+                    <AppIcon name="smile" :size="18" />
+                  </button>
+                </template>
+              </EmojiPicker>
               <button
                 type="button"
                 :class="[

@@ -220,6 +220,14 @@ const definitions = {
     circles: [[12, 12, 8.5]],
     paths: ['M6 6 18 18'],
   },
+  smile: {
+    circles: [
+      [12, 12, 8.5],
+      [9, 10, 1],
+      [15, 10, 1],
+    ],
+    paths: ['M8.3 13.8c.9 1.5 2.2 2.4 3.7 2.4s2.8-.9 3.7-2.4'],
+  },
 } satisfies Record<string, IconShape>
 
 export type IconName = keyof typeof definitions

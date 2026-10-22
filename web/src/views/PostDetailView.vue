@@ -22,6 +22,7 @@ import AlertNote from '../components/AlertNote.vue'
 import AppIcon from '../components/AppIcon.vue'
 import AttachmentGallery from '../components/AttachmentGallery.vue'
 import CommentItem from '../components/CommentItem.vue'
+import EmojiPicker from '../components/EmojiPicker.vue'
 import EmptyState from '../components/EmptyState.vue'
 import PostActionMenu from '../components/PostActionMenu.vue'
 import RepostDialog from '../components/RepostDialog.vue'
@@ -31,6 +32,7 @@ import { useBackNavigation } from '../composables/useBackNavigation'
 import { useCursorList } from '../composables/useCursorList'
 import { authState } from '../stores/auth'
 import { ui } from '../styles/ui'
+import { insertAtSelection } from '../utils/emoji'
 import { relativeTime, timeTitle } from '../utils/format'
 import { textToParagraphHTML } from '../utils/text'
 
@@ -328,6 +330,10 @@ const commentSubmitting = ref(false)
 const commentError = ref('')
 const commentBox = ref<HTMLTextAreaElement | null>(null)
 
+function onCommentEmoji(emoji: string): void {
+  if (commentBox.value) insertAtSelection(commentBox.value, emoji)
+}
+
 function startReply(comment: Comment): void {
   if (!my.value) {
     void router.push({ name: 'login', query: { redirect: route.fullPath } })
@@ -573,7 +579,23 @@ onUnmounted(clearActionNoticeTimer)
                 aria-label="评论内容"
               ></textarea>
               <AlertNote v-if="commentError" kind="error" class="m-0!">{{ commentError }}</AlertNote>
-              <div class="flex justify-end">
+              <div class="flex items-center justify-between gap-2">
+                <EmojiPicker :disabled="commentSubmitting" @select="onCommentEmoji">
+                  <template #trigger="{ toggle, open: pickerOpen }">
+                    <button
+                      type="button"
+                      class="flex size-[34px] items-center justify-center rounded-[8px] text-ink-3 transition-[background,color] duration-150 ease-[ease] hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-[0.55]"
+                      title="插入表情"
+                      aria-label="插入表情"
+                      aria-haspopup="dialog"
+                      :aria-expanded="pickerOpen"
+                      :disabled="commentSubmitting"
+                      @click="toggle"
+                    >
+                      <AppIcon name="smile" :size="18" />
+                    </button>
+                  </template>
+                </EmojiPicker>
                 <button
                   :class="[ui.button, ui.buttonPrimary, ui.buttonSmall]"
                   type="button"

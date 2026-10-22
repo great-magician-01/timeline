@@ -216,3 +216,46 @@ func TestSanitizeHTMLLimitsEmbeddedImages(t *testing.T) {
 		t.Fatalf("非法衍生图类型应丢弃: %s", safe)
 	}
 }
+
+// TestEmojiPassesThroughPipeline 固化表情选取功能的前提：
+// emoji（含 BMP 外字符与 ZWJ 组合序列）作为纯文本经过清洗、富文本/Markdown
+// 渲染、链接化与纯文本提取后必须原样保留，不被过滤或破坏。
+func TestEmojiPassesThroughPipeline(t *testing.T) {
+	const single = "😀"
+	const zwj = "👨‍👩‍👧‍👦"
+	const mixed = "开场 " + single + " 中间 " + zwj + " 结尾"
+
+	t.Run("清洗保留 emoji", func(t *testing.T) {
+		got := SanitizeHTML(`<p>` + mixed + `</p>`)
+		if !strings.Contains(got, mixed) {
+			t.Fatalf("清洗后 emoji 被破坏: %s", got)
+		}
+	})
+
+	t.Run("富文本渲染与链接化共存", func(t *testing.T) {
+		html, plain := Render(FormatRichText, "<p>"+mixed+" #心情#</p>")
+		if !strings.Contains(html, mixed) {
+			t.Fatalf("富文本渲染破坏 emoji: %s", html)
+		}
+		if !strings.Contains(html, `href="/tags/`) {
+			t.Fatalf("话题未链接化: %s", html)
+		}
+		if !strings.Contains(plain, mixed) || !strings.Contains(plain, "#心情#") {
+			t.Fatalf("纯文本提取破坏 emoji: %q", plain)
+		}
+	})
+
+	t.Run("Markdown 渲染保留 emoji", func(t *testing.T) {
+		html, _ := Render(FormatMarkdown, "标题 "+single+"\n\n**粗体** "+zwj)
+		if !strings.Contains(html, single) || !strings.Contains(html, zwj) {
+			t.Fatalf("Markdown 渲染破坏 emoji: %s", html)
+		}
+	})
+
+	t.Run("PlainText 提取保留 emoji", func(t *testing.T) {
+		got := PlainText("<p>" + mixed + "</p>")
+		if got != mixed {
+			t.Fatalf("PlainText = %q, 期望 %q", got, mixed)
+		}
+	})
+}

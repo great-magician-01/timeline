@@ -3,6 +3,7 @@
 // 弹层样式对齐 AttachmentGallery：固定遮罩、点遮罩或 Esc 关闭，提交中禁止关闭。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
+import EmojiPicker from './EmojiPicker.vue'
 import UserAvatar from './UserAvatar.vue'
 import type { RepostDialogResult } from './RepostDialog.types'
 import { errorMessage } from '../api/client'
@@ -10,6 +11,7 @@ import { createPost } from '../api/posts'
 import { repostPost, unrepostPost } from '../api/social'
 import type { PostBrief } from '../api/types'
 import { ui } from '../styles/ui'
+import { insertAtSelection } from '../utils/emoji'
 import { plainSummary } from '../utils/format'
 import { textToParagraphHTML } from '../utils/text'
 
@@ -41,6 +43,10 @@ const submitLabel = computed(() => {
   return '转发'
 })
 const pureHint = computed(() => (pureDisabled.value ? '已转发，可输入内容后发布引用转发' : ''))
+
+function onEmoji(emoji: string): void {
+  if (textarea.value) insertAtSelection(textarea.value, emoji)
+}
 
 function requestClose(): void {
   if (busy.value) return
@@ -136,9 +142,28 @@ onBeforeUnmount(() => {
         <p :class="[ui.muted, 'm-0 [word-break:break-word]']">{{ plainSummary(post.content_html, 80) }}</p>
       </blockquote>
 
-      <label class="grid gap-[6px]">
-        <span class="text-[13px] font-semibold text-ink-2">转发内容（可选）</span>
+      <div class="grid gap-[6px]">
+        <div class="flex items-center justify-between gap-2">
+          <label for="repost-content" class="text-[13px] font-semibold text-ink-2">转发内容（可选）</label>
+          <EmojiPicker :disabled="busy" align="right" @select="onEmoji">
+            <template #trigger="{ toggle, open: pickerOpen }">
+              <button
+                type="button"
+                class="flex size-[34px] items-center justify-center rounded-[8px] text-ink-3 transition-[background,color] duration-150 ease-[ease] hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-[0.55]"
+                title="插入表情"
+                aria-label="插入表情"
+                aria-haspopup="dialog"
+                :aria-expanded="pickerOpen"
+                :disabled="busy"
+                @click="toggle"
+              >
+                <AppIcon name="smile" :size="18" />
+              </button>
+            </template>
+          </EmojiPicker>
+        </div>
         <textarea
+          id="repost-content"
           ref="textarea"
           v-model="text"
           :class="[ui.input, ui.textarea]"
@@ -147,7 +172,7 @@ onBeforeUnmount(() => {
           aria-label="转发内容"
           :disabled="busy"
         ></textarea>
-      </label>
+      </div>
       <p :class="[ui.muted, 'm-0']">留空为纯转发；填写内容将作为引用转发发布。</p>
       <p v-if="pureDisabled" :class="[ui.muted, 'm-0']">已转发；填写内容可发布引用转发，或点击「取消转发」取消。</p>
 
