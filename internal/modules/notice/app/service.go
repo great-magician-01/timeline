@@ -25,6 +25,10 @@ type Deps struct {
 
 	Notices  NotificationRepo
 	Mentions MentionRepo
+
+	// Realtime 推送通知更新的实时提示信号（组合根注入进程内事件总线）；
+	// nil 时静默跳过（测试与未启用实时推送的部署）。
+	Realtime contracts.RealtimePublisher
 }
 
 // Service 实现通知域用例，并作为 content/social/agent 的通知写入端口（contracts.NoticeService）。

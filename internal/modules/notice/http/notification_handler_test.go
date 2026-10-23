@@ -62,7 +62,7 @@ type fakeNotices struct {
 }
 
 // Insert 实现通知写入（HTTP 用例不写通知，保留空实现）。
-func (f *fakeNotices) Insert(context.Context, model.Notification) error { return nil }
+func (f *fakeNotices) Insert(context.Context, model.Notification) (bool, error) { return true, nil }
 
 // List 记录列表参数并返回预设行。
 func (f *fakeNotices) List(

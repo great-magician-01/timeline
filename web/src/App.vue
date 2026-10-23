@@ -7,6 +7,7 @@ import UserAvatar from './components/UserAvatar.vue'
 import type { IconName } from './components/icons'
 import ThemePicker from './components/ThemePicker.vue'
 import { authState } from './stores/auth'
+import { startRealtime, stopRealtime } from './composables/realtime'
 import { messageState, startMessagePolling, stopMessagePolling } from './stores/messages'
 import { notificationState, startNotificationPolling, stopNotificationPolling } from './stores/notifications'
 import { registrationOpen } from './stores/site'
@@ -19,16 +20,19 @@ interface NavEntry {
 
 const route = useRoute()
 
-// 通知与私信未读轮询只对登录用户开启（两个独立接口、独立徽章）
+// 通知与私信未读轮询只对登录用户开启（两个独立接口、独立徽章）；
+// SSE 实时信号与轮询并存：信号降低延迟，轮询作为断线兜底
 watch(
   () => authState.user?.id,
   (id) => {
     if (id) {
       startNotificationPolling()
       startMessagePolling()
+      startRealtime()
     } else {
       stopNotificationPolling()
       stopMessagePolling()
+      stopRealtime()
     }
   },
   { immediate: true },
@@ -36,6 +40,7 @@ watch(
 onUnmounted(() => {
   stopNotificationPolling()
   stopMessagePolling()
+  stopRealtime()
 })
 
 /** 主导航未读徽章：通知与私信各自独立 */

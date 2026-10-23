@@ -36,6 +36,10 @@ type Deps struct {
 	Conversations ConversationRepo
 	Messages      MessageRepo
 
+	// Realtime 推送会话更新的实时提示信号（组合根注入进程内事件总线）；
+	// nil 时静默跳过（测试与未启用实时推送的部署）。
+	Realtime contracts.RealtimePublisher
+
 	MessageLimiter *ratelimit.Limiter
 }
 

@@ -25,6 +25,7 @@ type harness struct {
 	clk           *clock.Fake
 	ids           *fakeIDs
 	tx            *fakeTx
+	realtime      *fakeRealtime
 }
 
 func newHarness(t *testing.T, options ...func(*dmapp.Deps)) *harness {
@@ -38,6 +39,7 @@ func newHarness(t *testing.T, options ...func(*dmapp.Deps)) *harness {
 	clk := clock.NewFake(testStart)
 	ids := &fakeIDs{}
 	tx := &fakeTx{}
+	realtime := &fakeRealtime{}
 	deps := dmapp.Deps{
 		Clock:         clk,
 		IDs:           ids,
@@ -46,6 +48,7 @@ func newHarness(t *testing.T, options ...func(*dmapp.Deps)) *harness {
 		Relations:     newFakeRelations(),
 		Conversations: newFakeConversationRepo(),
 		Messages:      newFakeMessageRepo(),
+		Realtime:      realtime,
 	}
 	for _, option := range options {
 		option(&deps)
@@ -59,6 +62,10 @@ func newHarness(t *testing.T, options ...func(*dmapp.Deps)) *harness {
 		clk:           clk,
 		ids:           ids,
 		tx:            tx,
+	}
+	// 选项可能把 Realtime 置为 nil（nil 端口安全用例），类型断言需容忍。
+	if rt, ok := deps.Realtime.(*fakeRealtime); ok {
+		h.realtime = rt
 	}
 	return h
 }
@@ -200,6 +207,67 @@ func TestSendMessageRechecksPolicyInsideTransaction(t *testing.T) {
 	if len(h.messages.byID) != 0 {
 		t.Fatal("被拒绝的发送不得写入消息")
 	}
+}
+
+// TestRealtimeSignals 覆盖私信实时提示信号：发送/撤回向双方发布、幂等重放不发、
+// 策略拒绝不发、nil 端口安全。单元测试的 fake 事务不经 db 包装，AfterCommit 立即
+// 执行；「提交后发布」的时序由 platform/db 单测与集成测试覆盖。
+func TestRealtimeSignals(t *testing.T) {
+	t.Run("发送向双方发布", func(t *testing.T) {
+		h := newHarness(t)
+		conv := h.createConversation(t, 1, "bob")
+		h.send(t, 1, conv.Row.ID, "你好")
+		if len(h.realtime.dmUsers) != 2 {
+			t.Fatalf("发布次数 = %d，期望双方各 1 次", len(h.realtime.dmUsers))
+		}
+		if h.realtime.dmUsers[0] != 1 || h.realtime.dmUsers[1] != 2 {
+			t.Fatalf("信号接收方 = %v，期望 [1 2]", h.realtime.dmUsers)
+		}
+		for _, got := range h.realtime.dmConvIDs {
+			if got != conv.Row.ID {
+				t.Fatalf("会话 ID = %d，期望 %d", got, conv.Row.ID)
+			}
+		}
+		if len(h.realtime.notifications) != 0 {
+			t.Fatalf("私信路径不应发布通知信号: %v", h.realtime.notifications)
+		}
+	})
+	t.Run("实际撤回发布且幂等重放不发", func(t *testing.T) {
+		h := newHarness(t)
+		conv := h.createConversation(t, 1, "bob")
+		msg := h.send(t, 1, conv.Row.ID, "你好")
+		before := len(h.realtime.dmUsers)
+		if _, err := h.svc.RecallMessage(context.Background(), viewer(1), msg.Row.ID); err != nil {
+			t.Fatalf("撤回失败: %v", err)
+		}
+		if got := len(h.realtime.dmUsers); got != before+2 {
+			t.Fatalf("撤回后发布次数增量 = %d，期望 2（双方）", got-before)
+		}
+		if _, err := h.svc.RecallMessage(context.Background(), viewer(1), msg.Row.ID); err != nil {
+			t.Fatalf("幂等重放撤回失败: %v", err)
+		}
+		if got := len(h.realtime.dmUsers); got != before+2 {
+			t.Fatalf("幂等重放不应发布信号，增量 = %d", got-before-2)
+		}
+	})
+	t.Run("策略拒绝不发布", func(t *testing.T) {
+		h := newHarness(t)
+		conv := h.createConversation(t, 1, "bob")
+		h.setPolicy(2, model.DMPolicyNone)
+		if _, err := h.svc.SendMessage(context.Background(), viewer(1), conv.Row.ID, "richtext", "<p>你好</p>"); err == nil {
+			t.Fatal("策略收紧后发送应被拒绝")
+		}
+		if len(h.realtime.dmUsers) != 0 {
+			t.Fatalf("被拒绝的发送不应发布信号: %v", h.realtime.dmUsers)
+		}
+	})
+	t.Run("nil 端口安全", func(t *testing.T) {
+		h := newHarness(t, func(deps *dmapp.Deps) { deps.Realtime = nil })
+		conv := h.createConversation(t, 1, "bob")
+		if _, err := h.svc.SendMessage(context.Background(), viewer(1), conv.Row.ID, "richtext", "<p>你好</p>"); err != nil {
+			t.Fatalf("nil Realtime 端口不应报错: %v", err)
+		}
+	})
 }
 
 func TestSendMessageValidation(t *testing.T) {

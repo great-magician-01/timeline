@@ -22,8 +22,8 @@ type CommentReader interface {
 
 // NotificationRepo 是 notifications 表 SQL 端口。
 type NotificationRepo interface {
-	// Insert 写入通知；幂等键冲突时静默忽略。
-	Insert(ctx context.Context, row model.Notification) error
+	// Insert 写入通知；返回是否实际写入（幂等键冲突时为 false 且不报错）。
+	Insert(ctx context.Context, row model.Notification) (bool, error)
 	// List 按接收者分页（ID 倒序）；filter 为 all/unread，noticeType 为空表示不过滤。
 	List(ctx context.Context, recipientID int64, filter, noticeType string, cursor int64, limit int) ([]model.Notification, error)
 	UnreadCount(ctx context.Context, recipientID int64) (int64, error)

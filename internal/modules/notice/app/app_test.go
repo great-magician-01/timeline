@@ -197,6 +197,22 @@ type markReadCall struct {
 	id          int64
 }
 
+// fakeRealtime 记录实时提示信号的发布（contracts.RealtimePublisher）。
+type fakeRealtime struct {
+	notifications []int64
+	dmUsers       []int64
+	dmConvIDs     []int64
+}
+
+func (f *fakeRealtime) PublishNotification(recipientID int64) {
+	f.notifications = append(f.notifications, recipientID)
+}
+
+func (f *fakeRealtime) PublishDM(userID, conversationID int64) {
+	f.dmUsers = append(f.dmUsers, userID)
+	f.dmConvIDs = append(f.dmConvIDs, conversationID)
+}
+
 // fakeNotices 实现 app.NotificationRepo。
 type fakeNotices struct {
 	rows []model.Notification
@@ -210,6 +226,7 @@ type fakeNotices struct {
 	markAllErr     error
 	inserted       []model.Notification
 	insertErr      error
+	insertDeduped  bool
 
 	listCalls     []noticeListCall
 	unreadCalls   []int64
@@ -217,13 +234,13 @@ type fakeNotices struct {
 	markAllCalls  []int64
 }
 
-// Insert 记录通知写入。
-func (f *fakeNotices) Insert(_ context.Context, row model.Notification) error {
+// Insert 记录通知写入；insertDeduped 预设幂等键冲突（返回未写入且不报错）。
+func (f *fakeNotices) Insert(_ context.Context, row model.Notification) (bool, error) {
 	if f.insertErr != nil {
-		return f.insertErr
+		return false, f.insertErr
 	}
 	f.inserted = append(f.inserted, row)
-	return nil
+	return !f.insertDeduped, nil
 }
 
 // List 记录列表参数并返回预设行。
@@ -354,6 +371,7 @@ type fixture struct {
 	comments *fakeComments
 	notices  *fakeNotices
 	mentions *fakeMentions
+	realtime *fakeRealtime
 	svc      *Service
 }
 
@@ -368,6 +386,7 @@ func newFixture() *fixture {
 		comments: &fakeComments{comments: map[int64]model.Comment{}},
 		notices:  &fakeNotices{},
 		mentions: &fakeMentions{},
+		realtime: &fakeRealtime{},
 	}
 	f.svc = New(Deps{
 		Clock:     f.clock,
@@ -378,6 +397,7 @@ func newFixture() *fixture {
 		Comments:  f.comments,
 		Notices:   f.notices,
 		Mentions:  f.mentions,
+		Realtime:  f.realtime,
 	})
 	return f
 }
@@ -1374,6 +1394,59 @@ func TestCreateNotificationSuccess(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCreateNotificationRealtimeSignal 覆盖实时提示信号：
+// 实际写入才发布（事务外立即执行）、幂等跳过与写入失败不发布、nil 端口安全。
+// 事务内注册、提交后发布的时序由 platform/db 的 AfterCommit 单测与集成测试覆盖。
+func TestCreateNotificationRealtimeSignal(t *testing.T) {
+	t.Run("写入成功发布给接收者", func(t *testing.T) {
+		f := newFixture()
+		f.users.users[9] = activeHuman(9)
+		f.ids.ids = []int64{555}
+		if err := f.svc.CreateNotification(context.Background(), validNotificationInput()); err != nil {
+			t.Fatalf("CreateNotification 返回错误: %v", err)
+		}
+		if len(f.realtime.notifications) != 1 || f.realtime.notifications[0] != 9 {
+			t.Fatalf("通知信号 = %v，期望 [9]", f.realtime.notifications)
+		}
+		if len(f.realtime.dmUsers) != 0 {
+			t.Fatalf("通知路径不应发布私信信号: %v", f.realtime.dmUsers)
+		}
+	})
+	t.Run("幂等跳过不发布", func(t *testing.T) {
+		f := newFixture()
+		f.users.users[9] = activeHuman(9)
+		f.ids.ids = []int64{555}
+		f.notices.insertDeduped = true
+		if err := f.svc.CreateNotification(context.Background(), validNotificationInput()); err != nil {
+			t.Fatalf("幂等跳过不应返回错误: %v", err)
+		}
+		if len(f.realtime.notifications) != 0 {
+			t.Fatalf("幂等跳过不应发布信号: %v", f.realtime.notifications)
+		}
+	})
+	t.Run("写入失败不发布", func(t *testing.T) {
+		f := newFixture()
+		f.users.users[9] = activeHuman(9)
+		f.ids.ids = []int64{555}
+		f.notices.insertErr = errors.New("端口故障")
+		if err := f.svc.CreateNotification(context.Background(), validNotificationInput()); err == nil {
+			t.Fatal("写入失败应返回错误")
+		}
+		if len(f.realtime.notifications) != 0 {
+			t.Fatalf("写入失败不应发布信号: %v", f.realtime.notifications)
+		}
+	})
+	t.Run("nil 端口安全", func(t *testing.T) {
+		f := newFixture()
+		f.users.users[9] = activeHuman(9)
+		f.ids.ids = []int64{555}
+		f.svc.deps.Realtime = nil
+		if err := f.svc.CreateNotification(context.Background(), validNotificationInput()); err != nil {
+			t.Fatalf("nil Realtime 端口不应报错: %v", err)
+		}
+	})
 }
 
 // ===== 提及写入 =====

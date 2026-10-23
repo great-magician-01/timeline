@@ -16,15 +16,16 @@ type Readiness interface {
 
 // Deps 是组合根注入的全部 HTTP handler。
 type Deps struct {
-	Auth    AuthHandlers
-	Content ContentHandlers
-	Social  SocialHandlers
-	Notice  NoticeHandlers
-	DM      DMHandlers
-	Media   MediaHandlers
-	AI      AIHandlers
-	Agent   AgentHandlers
-	Admin   AdminHandlers
+	Auth     AuthHandlers
+	Content  ContentHandlers
+	Social   SocialHandlers
+	Notice   NoticeHandlers
+	DM       DMHandlers
+	Media    MediaHandlers
+	AI       AIHandlers
+	Agent    AgentHandlers
+	Admin    AdminHandlers
+	Realtime RealtimeHandlers
 }
 
 // AuthHandlers 覆盖认证域路由处理器与鉴权中间件。
@@ -130,6 +131,11 @@ type DMHandlers interface {
 	ListMessages(c *gin.Context)
 	SendMessage(c *gin.Context)
 	RecallMessage(c *gin.Context)
+}
+
+// RealtimeHandlers 覆盖 SSE 实时推送通道。
+type RealtimeHandlers interface {
+	Events(c *gin.Context)
 }
 
 // MediaHandlers 覆盖附件上传、鉴权读取、衍生文件与删除。

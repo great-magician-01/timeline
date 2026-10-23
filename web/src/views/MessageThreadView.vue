@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // 私信对话（docs/PAGES_AND_PERMISSIONS.md U-12）：
 // 消息按时间升序展示，顶部加载更早消息，底部发送纯文本；
-// 10 秒增量轮询新消息，进入与新消息到达时标记已读；发送者可撤回窗口内自己的消息。
+// 10 秒增量轮询新消息（SSE 信号触发即时增量拉取），进入与新消息到达时标记已读；
+// 发送者可撤回窗口内自己的消息。
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { ApiError, errorMessage } from '../api/client'
@@ -19,6 +20,7 @@ import AppIcon from '../components/AppIcon.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
 import EmptyState from '../components/EmptyState.vue'
 import UserAvatar from '../components/UserAvatar.vue'
+import { onDMSignal } from '../composables/realtime'
 import { useBackNavigation } from '../composables/useBackNavigation'
 import { authState } from '../stores/auth'
 import { refreshDMUnreadCount } from '../stores/messages'
@@ -241,7 +243,16 @@ watch(
   },
   { immediate: true },
 )
-onUnmounted(stopPolling)
+// SSE 私信信号：本会话有更新（新消息/撤回）时立即增量拉取；10s 轮询保留为兜底
+const stopDMSignal = onDMSignal((signal) => {
+  if (signal.kind === 'dm' && signal.conversationId === conversationId.value) {
+    void pollNew()
+  }
+})
+onUnmounted(() => {
+  stopPolling()
+  stopDMSignal()
+})
 </script>
 
 <template>

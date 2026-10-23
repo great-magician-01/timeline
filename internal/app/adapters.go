@@ -8,6 +8,7 @@ import (
 
 	platformaudit "github.com/great-magician-01/timeline/internal/platform/audit"
 	"github.com/great-magician-01/timeline/internal/platform/db"
+	"github.com/great-magician-01/timeline/internal/platform/eventbus"
 	platformjobs "github.com/great-magician-01/timeline/internal/platform/jobs"
 	platformsettings "github.com/great-magician-01/timeline/internal/platform/settings"
 	"github.com/great-magician-01/timeline/internal/shared/contracts"
@@ -15,11 +16,12 @@ import (
 
 // 编译期断言：组合根提供的适配器满足模块依赖的 contracts 端口。
 var (
-	_ contracts.SettingsReader  = settingsAdapter{}
-	_ contracts.SettingsWriter  = settingsAdapter{}
-	_ contracts.SettingsService = settingsServiceAdapter{}
-	_ contracts.AuditWriter     = auditAdapter{}
-	_ contracts.JobsQueue       = jobsAdapter{}
+	_ contracts.SettingsReader    = settingsAdapter{}
+	_ contracts.SettingsWriter    = settingsAdapter{}
+	_ contracts.SettingsService   = settingsServiceAdapter{}
+	_ contracts.AuditWriter       = auditAdapter{}
+	_ contracts.JobsQueue         = jobsAdapter{}
+	_ contracts.RealtimePublisher = realtimeAdapter{}
 )
 
 // ===== platform/settings → contracts.SettingsReader / SettingsWriter =====
@@ -79,6 +81,28 @@ func (a auditAdapter) Write(ctx context.Context, entry contracts.AuditEntry) err
 		Detail:     entry.Detail,
 		At:         entry.At,
 	})
+}
+
+// ===== platform/eventbus → contracts.RealtimePublisher =====
+
+// realtimeAdapter 把进程内事件总线适配为模块依赖的实时发布端口。
+// Publish 自身 recover，满足 db.AfterCommit 回调「不得 panic」的契约。
+type realtimeAdapter struct {
+	broker *eventbus.Broker
+}
+
+func (a realtimeAdapter) PublishNotification(recipientID int64) {
+	if a.broker == nil {
+		return
+	}
+	a.broker.Publish(recipientID, eventbus.Event{Kind: eventbus.KindNotification})
+}
+
+func (a realtimeAdapter) PublishDM(userID, conversationID int64) {
+	if a.broker == nil {
+		return
+	}
+	a.broker.Publish(userID, eventbus.Event{Kind: eventbus.KindDM, ConversationID: conversationID})
 }
 
 // ===== platform/jobs → contracts.JobsQueue =====

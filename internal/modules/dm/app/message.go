@@ -5,6 +5,7 @@ import (
 
 	"github.com/great-magician-01/timeline/internal/modules/dm/domain"
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
+	"github.com/great-magician-01/timeline/internal/platform/db"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 	"github.com/great-magician-01/timeline/internal/shared/richtext"
 )
@@ -69,7 +70,21 @@ func (s *Service) SendMessage(
 			return insertErr
 		}
 		row = inserted
-		return s.deps.Conversations.TouchOnSend(ctx, conv.ID, inserted.ID, now)
+		if touchErr := s.deps.Conversations.TouchOnSend(ctx, conv.ID, inserted.ID, now); touchErr != nil {
+			return touchErr
+		}
+		// 提交后向双方推送实时提示信号：接收者即时收信，发送者自己的其他
+		// 标签页同步。AfterCommit 保证信号发出时消息必然已提交。
+		if s.deps.Realtime != nil {
+			peerID := recipient.ID
+			convID := conv.ID
+			senderID := viewer.ID
+			db.AfterCommit(ctx, func(context.Context) {
+				s.deps.Realtime.PublishDM(senderID, convID)
+				s.deps.Realtime.PublishDM(peerID, convID)
+			})
+		}
+		return nil
 	})
 	if err != nil {
 		return Message{}, err
@@ -145,6 +160,19 @@ func (s *Service) RecallMessage(ctx context.Context, viewer model.Viewer, messag
 			}
 			current.Status = model.DMMessageStatusRecalled
 			current.UpdatedAt = now
+			// 实际发生撤回才推送信号（幂等重放不发）；双方都应重新拉取会话。
+			if s.deps.Realtime != nil {
+				convID := current.ConversationID
+				peerID := current.SenderID
+				if viewer.ID == peerID {
+					peerID = current.RecipientID
+				}
+				senderID := viewer.ID
+				db.AfterCommit(ctx, func(context.Context) {
+					s.deps.Realtime.PublishDM(senderID, convID)
+					s.deps.Realtime.PublishDM(peerID, convID)
+				})
+			}
 		}
 		row = current
 		return nil

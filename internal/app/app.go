@@ -9,6 +9,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 
@@ -35,6 +36,7 @@ type App struct {
 
 	bootstrap BootstrapStatusFn
 	onClose   func()
+	closeOnce sync.Once
 
 	started bool
 }
@@ -72,12 +74,24 @@ func (a *App) Runner() *platformjobs.Runner { return a.runner }
 func (a *App) Readiness() *db.Readiness { return a.readiness }
 
 // Start 启动作业运行器与周期任务；重复调用安全。
+//
+// 同时监听进程退出信号（ctx 取消）：先断开全部 SSE 长连接再让 main 调用
+// http.Server.Shutdown，避免优雅关闭被长连接拖满超时；关闭回调幂等，Close()
+// 的后续调用安全。
 func (a *App) Start(ctx context.Context) {
-	if a.started || a.runner == nil {
+	if a.started {
 		return
 	}
 	a.started = true
-	a.runner.Start(ctx)
+	if a.runner != nil {
+		a.runner.Start(ctx)
+	}
+	if a.onClose != nil {
+		go func() {
+			<-ctx.Done()
+			a.runOnClose()
+		}()
+	}
 }
 
 // Bootstrap 输出初始化状态日志：空库提示首注册成为超管、无超管时告警。
@@ -101,9 +115,15 @@ func (a *App) Bootstrap(ctx context.Context) {
 }
 
 // Close 释放组合根持有的资源；外部传入的连接池由调用方关闭。
+// 与 Start 布防的退出信号监听共用同一个 Once，幂等。
 func (a *App) Close() {
-	if a.onClose != nil {
-		a.onClose()
-		a.onClose = nil
+	a.runOnClose()
+}
+
+// runOnClose 幂等执行关闭回调；onClose 在构造后只读，无并发写。
+func (a *App) runOnClose() {
+	if a.onClose == nil {
+		return
 	}
+	a.closeOnce.Do(a.onClose)
 }

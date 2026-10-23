@@ -11,6 +11,22 @@ import (
 
 type fakeIDs struct{ next int64 }
 
+// fakeRealtime 记录实时提示信号的发布（contracts.RealtimePublisher）。
+type fakeRealtime struct {
+	notifications []int64
+	dmUsers       []int64
+	dmConvIDs     []int64
+}
+
+func (f *fakeRealtime) PublishNotification(recipientID int64) {
+	f.notifications = append(f.notifications, recipientID)
+}
+
+func (f *fakeRealtime) PublishDM(userID, conversationID int64) {
+	f.dmUsers = append(f.dmUsers, userID)
+	f.dmConvIDs = append(f.dmConvIDs, conversationID)
+}
+
 func (f *fakeIDs) Next() (int64, error) {
 	f.next++
 	return f.next, nil

@@ -44,6 +44,7 @@ func (stubHandler) RequireAdmin(c *gin.Context)            { c.Header("X-Handler
 func (stubHandler) RequireSuperAdmin(c *gin.Context)       { c.Header("X-Handler", "reached") }
 func (stubHandler) RequireCSRF(c *gin.Context)             { c.Header("X-Handler", "reached") }
 func (stubHandler) GuestCSRF(c *gin.Context)               { c.Header("X-Handler", "reached") }
+func (stubHandler) Events(c *gin.Context)                  { c.Header("X-Handler", "reached") }
 func (stubHandler) UserTimeline(c *gin.Context)            { c.Header("X-Handler", "reached") }
 func (stubHandler) GetPost(c *gin.Context)                 { c.Header("X-Handler", "reached") }
 func (stubHandler) CreatePost(c *gin.Context)              { c.Header("X-Handler", "reached") }
@@ -234,15 +235,16 @@ func (f fakeReadiness) Ready() bool { return f.ready }
 // newTestDeps 构造只含 stub handler 的依赖；auth 使用可注入失败的 fakeAuth。
 func newTestDeps(auth *fakeAuth) Deps {
 	return Deps{
-		Auth:    auth,
-		Content: stubHandler{},
-		Social:  stubHandler{},
-		Notice:  stubHandler{},
-		DM:      stubHandler{},
-		Media:   stubHandler{},
-		AI:      stubHandler{},
-		Agent:   stubHandler{},
-		Admin:   stubHandler{},
+		Auth:     auth,
+		Content:  stubHandler{},
+		Social:   stubHandler{},
+		Notice:   stubHandler{},
+		DM:       stubHandler{},
+		Media:    stubHandler{},
+		AI:       stubHandler{},
+		Agent:    stubHandler{},
+		Admin:    stubHandler{},
+		Realtime: stubHandler{},
 	}
 }
 

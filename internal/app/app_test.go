@@ -49,11 +49,12 @@ func TestNewAppDefaults(t *testing.T) {
 	if got := app.clk.Now().Year(); got < 2020 {
 		t.Fatalf("系统时钟回退异常: year=%d", got)
 	}
-	// nil runner 时 Start 直接返回，不启动后台任务。
+	// nil runner 时 Start 不启动后台任务，但会标记启动并布防退出信号监听。
 	app.Start(context.Background())
-	if app.started {
-		t.Fatal("nil runner 时不应标记为已启动")
+	if !app.started {
+		t.Fatal("Start 应标记为已启动")
 	}
+	app.Start(context.Background()) // 重复调用安全
 	// Close 对 nil onClose 安全。
 	app.Close()
 }
@@ -69,14 +70,37 @@ func TestCloseCallsOnCloseOnce(t *testing.T) {
 	}
 }
 
-// TestStartNilRunnerIsSafe 校验 Start 的幂等/空依赖保护：runner 为 nil 或重复调用都安全。
+// TestStartNilRunnerIsSafe 校验 Start 的幂等/空依赖保护：runner 为 nil 不启动后台任务，
+// 重复调用安全。
 func TestStartNilRunnerIsSafe(t *testing.T) {
 	app := newApp(nil, nil, nil, nil, nil, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	app.Start(ctx)
-	if app.started {
-		t.Fatal("runner 为 nil 时不应标记已启动")
+	app.Start(ctx)
+	if !app.started {
+		t.Fatal("Start 应标记为已启动")
+	}
+}
+
+// TestStartClosesOnContextDone 校验退出信号监听：ctx 取消后触发 onClose，
+// 与 Close() 共用同一个 Once，总共只执行一次。
+func TestStartClosesOnContextDone(t *testing.T) {
+	calls := 0
+	app := newApp(nil, nil, nil, nil, nil, nil, func() { calls++ })
+	ctx, cancel := context.WithCancel(context.Background())
+	app.Start(ctx)
+	cancel()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && calls == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	if calls != 1 {
+		t.Fatalf("ctx 取消后 onClose 调用次数 = %d，期望 1", calls)
+	}
+	app.Close()
+	if calls != 1 {
+		t.Fatalf("Close 与退出监听应共用 Once，实际调用次数 = %d", calls)
 	}
 }
 

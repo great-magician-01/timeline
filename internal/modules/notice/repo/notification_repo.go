@@ -42,13 +42,16 @@ const (
 		WHERE recipient_id = $1 AND NOT is_read`
 )
 
-// Insert 写入通知；幂等键冲突时静默忽略。
-func (r *NotificationRepo) Insert(ctx context.Context, row model.Notification) error {
-	_, err := db.ExecutorFrom(ctx, r.pool).Exec(ctx, sqlNotificationInsert,
+// Insert 写入通知；返回是否实际写入（幂等键冲突时为 false 且不报错）。
+func (r *NotificationRepo) Insert(ctx context.Context, row model.Notification) (bool, error) {
+	tag, err := db.ExecutorFrom(ctx, r.pool).Exec(ctx, sqlNotificationInsert,
 		row.ID, row.RecipientID, row.ActorID, row.Type, row.TargetType, row.TargetID,
 		row.PostID, row.CommentID, row.IsRead, row.IdempotencyKey, row.CreatedAt,
 	)
-	return err
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // List 按接收者分页（ID 倒序）；filter 为 all/unread，noticeType 为空表示不过滤。

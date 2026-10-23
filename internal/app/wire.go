@@ -28,6 +28,8 @@ import (
 	noticeapp "github.com/great-magician-01/timeline/internal/modules/notice/app"
 	noticehttp "github.com/great-magician-01/timeline/internal/modules/notice/http"
 	noticerepo "github.com/great-magician-01/timeline/internal/modules/notice/repo"
+	realtimeapp "github.com/great-magician-01/timeline/internal/modules/realtime/app"
+	realtimehttp "github.com/great-magician-01/timeline/internal/modules/realtime/http"
 	socialapp "github.com/great-magician-01/timeline/internal/modules/social/app"
 	socialhttp "github.com/great-magician-01/timeline/internal/modules/social/http"
 	socialrepo "github.com/great-magician-01/timeline/internal/modules/social/repo"
@@ -35,6 +37,7 @@ import (
 	"github.com/great-magician-01/timeline/internal/platform/clock"
 	"github.com/great-magician-01/timeline/internal/platform/config"
 	"github.com/great-magician-01/timeline/internal/platform/db"
+	"github.com/great-magician-01/timeline/internal/platform/eventbus"
 	platformjobs "github.com/great-magician-01/timeline/internal/platform/jobs"
 	platformlogging "github.com/great-magician-01/timeline/internal/platform/logging"
 	platformsettings "github.com/great-magician-01/timeline/internal/platform/settings"
@@ -56,6 +59,7 @@ const (
 	logModuleAI      = "ai"
 	logModuleAgent   = "agent"
 	logModuleAdmin   = "admin"
+	logModuleRealtime = "realtime"
 )
 
 // 延迟绑定包装：content/social/media/notice/agent 之间存在构造环，
@@ -103,6 +107,11 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 	jobRunner := platformjobs.NewRunner(readiness, ids,
 		moduleLog(logModuleJobs), clk)
 	jobsAdapter := jobsAdapter{pool: pool, runner: jobRunner}
+
+	// 进程内事件总线：SSE 实时推送的单一事件源，notice/dm 经 realtimeAdapter 发布，
+	// modules/realtime 经同一实例订阅；收到退出信号与优雅关闭时由 App 关闭。
+	notifyBroker := eventbus.New()
+	realtimePublish := realtimeAdapter{broker: notifyBroker}
 
 	// admin 只读 read-model：同时服务 admin 审核/概览与 auth 个人主页统计。
 	adminReadModel := adminrepo.NewReadModel(pool)
@@ -175,6 +184,7 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Comments:  socialApp,
 		Notices:   noticerepo.NewNotificationRepo(pool),
 		Mentions:  noticerepo.NewMentionRepo(pool),
+		Realtime:  realtimePublish,
 	})
 
 	// ── dm ──
@@ -187,6 +197,7 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Relations:     socialApp,
 		Conversations: dmrepo.NewConversationRepo(pool),
 		Messages:      dmrepo.NewMessageRepo(pool),
+		Realtime:      realtimePublish,
 	})
 
 	// ── media ──
@@ -270,15 +281,16 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 
 	// ── HTTP handlers + 路由 ──
 	handlers := router.Deps{
-		Auth:    authhttp.New(authApp),
-		Content: contenthttp.New(contentApp),
-		Social:  socialhttp.New(socialApp, moduleLog(logModuleSocial)),
-		Notice:  noticehttp.New(noticeApp, moduleLog(logModuleNotice)),
-		DM:      dmhttp.New(dmApp, moduleLog(logModuleDM)),
-		Media:   mediahttp.New(mediaApp),
-		AI:      aihttp.New(aiApp),
-		Agent:   agenthttp.New(agentApp, moduleLog(logModuleAgent)),
-		Admin:   adminhttp.New(adminApp),
+		Auth:     authhttp.New(authApp),
+		Content:  contenthttp.New(contentApp),
+		Social:   socialhttp.New(socialApp, moduleLog(logModuleSocial)),
+		Notice:   noticehttp.New(noticeApp, moduleLog(logModuleNotice)),
+		DM:       dmhttp.New(dmApp, moduleLog(logModuleDM)),
+		Media:    mediahttp.New(mediaApp),
+		AI:       aihttp.New(aiApp),
+		Agent:    agenthttp.New(agentApp, moduleLog(logModuleAgent)),
+		Admin:    adminhttp.New(adminApp),
+		Realtime: realtimehttp.New(realtimeapp.New(realtimeapp.Deps{Broker: notifyBroker}), moduleLog(logModuleRealtime)),
 	}
 	router.Register(engine, handlers, readiness)
 
@@ -292,5 +304,5 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 				return 0, 0, err
 			}
 			return status.HumanUsers, status.SuperAdmins, nil
-		}, nil), nil
+		}, func() { notifyBroker.Close() }), nil
 }

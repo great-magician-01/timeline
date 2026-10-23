@@ -2,6 +2,7 @@ package testkit
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -250,6 +251,18 @@ func (c *Client) RawGET(path string) (int, string, []byte) {
 	head := make([]byte, 16)
 	n, _ := io.ReadFull(resp.Body, head)
 	return resp.StatusCode, resp.Header.Get("Content-Type"), head[:n]
+}
+
+// OpenStream 打开一条流式连接（SSE）并返回原始响应；调用方递增读取流，
+// 读完或测试结束时关闭响应体与 cancel。走当前会话 Cookie（GET 无需 CSRF）。
+func (c *Client) OpenStream(ctx context.Context, path string) (*http.Response, error) {
+	c.t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	return c.client.Do(req)
 }
 
 // DefaultUserPassword 是集成测试普通用户密码。

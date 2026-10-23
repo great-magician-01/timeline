@@ -15,8 +15,9 @@ type Route struct {
 	Handler func(Deps) gin.HandlerFunc
 }
 
-// Routes 返回全部业务路由（132 条，基线 b6fed97 + 私信 11 条 + 置顶 3 条 + 收藏 7 条
-// + 主页横幅移除 1 条；新增业务接口时同步维护并更新 routes_test.go 的数量断言）。
+// Routes 返回全部业务路由（133 条，基线 b6fed97 + 私信 11 条 + 置顶 3 条 + 收藏 7 条
+// + 主页横幅移除 1 条 + 实时事件流 1 条；新增业务接口时同步维护并更新 routes_test.go
+// 的数量断言）。
 func Routes() []Route {
 	return []Route{
 		// ---------- 公开 / 可选会话 ----------
@@ -39,6 +40,7 @@ func Routes() []Route {
 		{http.MethodGet, "/timeline/following", Login, func(d Deps) gin.HandlerFunc { return d.Content.FollowingTimeline }},
 		{http.MethodGet, "/notifications", Login, func(d Deps) gin.HandlerFunc { return d.Notice.List }},
 		{http.MethodGet, "/notifications/unread-count", Login, func(d Deps) gin.HandlerFunc { return d.Notice.UnreadCount }},
+		{http.MethodGet, "/events", Login, func(d Deps) gin.HandlerFunc { return d.Realtime.Events }},
 		{http.MethodGet, "/dm/unread-count", Login, func(d Deps) gin.HandlerFunc { return d.DM.UnreadCount }},
 		{http.MethodGet, "/dm/conversations", Login, func(d Deps) gin.HandlerFunc { return d.DM.ListConversations }},
 		{http.MethodGet, "/dm/conversations/:id", Login, func(d Deps) gin.HandlerFunc { return d.DM.ConversationDetail }},

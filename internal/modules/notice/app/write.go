@@ -5,12 +5,16 @@ import (
 	"time"
 
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
+	"github.com/great-magician-01/timeline/internal/platform/db"
 	"github.com/great-magician-01/timeline/internal/shared/contracts"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
 
 // CreateNotification 写入一条通知（contracts.NoticeService）。
 // 以下情况静默跳过：接收者就是动作发起者、接收者不存在/停用/AI、幂等键重复。
+// 实际写入成功后经 db.AfterCommit 推送实时提示信号：调用方（social/content/agent）
+// 通常在自身事务内调用本方法，AfterCommit 保证信号发出时数据必然已提交；
+// 事务外调用时信号立即发出。幂等跳过不发信号，避免客户端幽灵红点。
 func (s *Service) CreateNotification(ctx context.Context, in contracts.NotificationInput) error {
 	if in.RecipientID <= 0 || in.ActorID <= 0 || in.RecipientID == in.ActorID || in.IdempotencyKey == "" {
 		return nil
@@ -31,7 +35,7 @@ func (s *Service) CreateNotification(ctx context.Context, in contracts.Notificat
 	}
 	postID := in.PostID
 	commentID := in.CommentID
-	return s.deps.Notices.Insert(ctx, model.Notification{
+	inserted, err := s.deps.Notices.Insert(ctx, model.Notification{
 		ID:             id,
 		RecipientID:    in.RecipientID,
 		ActorID:        in.ActorID,
@@ -44,6 +48,15 @@ func (s *Service) CreateNotification(ctx context.Context, in contracts.Notificat
 		IdempotencyKey: in.IdempotencyKey,
 		CreatedAt:      s.eventTime(in.At),
 	})
+	if err != nil || !inserted {
+		return err
+	}
+	if s.deps.Realtime != nil {
+		db.AfterCommit(ctx, func(context.Context) {
+			s.deps.Realtime.PublishNotification(in.RecipientID)
+		})
+	}
+	return nil
 }
 
 // RebuildMentions 按当前正文重建提及记录（contracts.NoticeService）。
