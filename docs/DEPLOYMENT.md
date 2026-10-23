@@ -1,9 +1,9 @@
 # Timeline Docker 单机部署
 
 > **文档状态**：部署基线，与当前实现同步  
-> **文档版本**：0.4.5  
-> **最近更新**：2026-10-19  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.25.0  
+> **文档版本**：0.4.6  
+> **最近更新**：2026-10-23  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.31.0  
 > **关联文档**：[接口设计](API.md)、[数据模型设计](DATA_MODEL.md)、[验收用例](ACCEPTANCE.md)  
 > **用途**：部署脚本与 Compose 实现、运维操作和验收用例的依据
 
@@ -221,6 +221,9 @@ services:
 3. `COOKIE_SECURE` 必须与实际访问协议一致：HTTPS 环境保持 `true`；纯 HTTP 内网部署必须设为 `false`，否则浏览器不会保存会话 Cookie。
 4. 无论哪种方式，生产环境不允许通过公网明文 HTTP 暴露应用。
 5. 经过反向代理时，`TRUSTED_PROXIES` 必须只填写实际代理的 IP 或 CIDR，应用才会采用 `X-Forwarded-For` / `X-Real-IP` 中的客户端地址用于日志与限频；留空可防伪造，但代理拓扑下所有访客会被视为同一个代理 IP，可能共同触发限频。禁止配置 `0.0.0.0/0` 或 `::/0`，否则任何访客都能伪造 IP 绕过限频。
+6. **SSE 长连接（`GET /api/v1/events`）**：登录用户通过该端点接收通知与私信的实时信号（`text/event-stream`），属于 HTTP 长连接；应用每 25 秒发送一次心跳注释帧，并设置每用户并发 ≤3 条、全局 ≤2000 条连接上限防滥用，超限返回 503，客户端自动回退轮询兜底。
+7. **反向代理超时与缓冲**：应用已在 SSE 响应中设置 `X-Accel-Buffering: no`，nginx 等反向代理无需再关闭 `proxy_buffering`；但 `proxy_read_timeout`（nginx 默认 60 秒）必须大于心跳间隔 25 秒，否则空闲长连接会被代理提前掐断、客户端反复重连。
+8. **单实例前提**：实时事件总线在应用进程内存中，不跨实例广播。**不支持多实例负载均衡部署下的 SSE**——多实例时用户的订阅与事件发布可能落在不同实例，实时信号丢失（客户端轮询兜底，但实时性退化）。未来水平扩展需替换事件总线实现（如 PostgreSQL `LISTEN/NOTIFY` 或 Redis pub/sub），应用端口与前端不变。
 
 ## 8. 数据持久化与备份
 
@@ -287,7 +290,7 @@ backups/20261017-030000/
 
 ## 9. 升级与回滚
 
-1. 升级：设置新的 `IMAGE_TAG` 后执行 `docker compose build app && docker compose up -d app`；`IMAGE_TAG` 同时作为镜像标签与 `APP_VERSION` 注入应用，启动日志的 `version` 字段可用于确认版本。启动时应用自动对外部数据库执行迁移，期间服务短暂不可用（单机部署可接受）。
+1. 升级：设置新的 `IMAGE_TAG` 后执行 `docker compose build app && docker compose up -d app`；`IMAGE_TAG` 同时作为镜像标签与 `APP_VERSION` 注入应用，启动日志的 `version` 字段可用于确认版本。启动时应用自动对外部数据库执行迁移，期间服务短暂不可用（单机部署可接受）。重启时应用收到退出信号会**先断开全部 SSE 长连接再执行 HTTP 优雅关闭**（`stop_grace_period: 30s` 内完成，不会被长连接拖满）；对在线用户表现为实时信号短暂中断后自动断线重连，轮询兜底不受影响。
 2. 镜像通过 `IMAGE_TAG` 标记版本；回滚时指定上一版本标签重新构建/启动。
 3. 迁移约定：每个版本的迁移脚本应尽量与上一版本兼容（先加列后删列、分版本迁移），保证回滚旧镜像后旧代码可以运行；破坏性迁移必须单独记录并在升级说明中标注。
 4. 升级前先做一次完整备份（第 8 章脚本），确认 `db.sql.gz`、`uploads.tar.gz` 与 `encryption-key.txt` 均已生成且非空。
@@ -368,3 +371,4 @@ backups/20261017-030000/
 | 2026-10-17 | 0.3.5 | 与实现同步：Dockerfile 预创建并授权 `/data/uploads`、`/data/logs`，新增 `APP_VERSION` 版本注入；Compose 增加 `build.args`、`env_file`、`TRUSTED_PROXIES` 与 `json-file` 日志轮转，示例与真实文件一致；新增 `prepare.sh`；备份参数化 `PG_CLIENT_IMAGE`、增加 `encryption-key.txt` 与产物校验；恢复增加目标库版本检查、确认提示、附件属主/权限恢复与旧目录保留（避免直接 `rm -rf`）；固定端口 5070、确定默认保护阈值与备份保留建议；需求基线更新至 0.22.1。 |
 | 2026-10-16 | 0.3.2 | 端口统一为 5070（宿主机映射与容器内监听一致）；构建镜像锁定 `golang:1.25-alpine`；compose 与环境变量表新增 `LOG_FORMAT`；数据库不可达时保持运行并以 `/readyz` 反映状态；检查清单补充 schema 授权命令。 |
 | 2026-10-19 | 0.4.5 | 需求基线更新至 0.25.0（私信）：§9 升级说明新增 `0021_direct_messages`（新增 `users.dm_policy` 快速默认列与私信会话/消息两表，无回填、无 `CONCURRENTLY`、对旧二进制向后兼容）；§10 日志模块标签补 `[dm]`；部署结构、端口、环境变量与备份流程不变。 |
+| 2026-10-23 | 0.4.6 | 需求基线更新至 0.31.0（SSE 实时推送）：§7 新增三条部署注意事项——SSE 长连接（`GET /api/v1/events`，25 秒心跳、每用户 ≤3/全局 ≤2000 连接上限）、反向代理 `proxy_read_timeout` 须大于 25 秒心跳（应用已带 `X-Accel-Buffering: no`，无需改 `proxy_buffering`）、不支持多实例负载均衡部署 SSE（事件总线在进程内存中，单实例前提；扩展路径为 PostgreSQL `LISTEN/NOTIFY` 或 Redis pub/sub）；§9 升级说明补「收到退出信号先断开 SSE 再优雅关闭，重启对在线用户表现为断线重连」。部署结构、端口、环境变量与迁移不变（本轮无新增迁移）。 |

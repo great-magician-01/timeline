@@ -1,15 +1,15 @@
 # Timeline 后端目标架构
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.4.3  
+> **文档版本**：0.5.0  
 > **最近更新**：2026-10-23  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.30.0  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.31.0  
 > **关联文档**：[`DATA_MODEL.md`](DATA_MODEL.md)、[`WORKFLOWS.md`](WORKFLOWS.md)、[`API.md`](API.md)、[`DEPLOYMENT.md`](DEPLOYMENT.md)  
 > **用途**：后端分层、依赖边界、数据所有权与架构守卫的权威说明；改造过程细节见仓库根目录 `CODE_QUALITY_REFACTOR_PLAN.md`（过程文档，非长期权威）
 
 ## 1. 目标与原则
 
-目标形态是**模块化单体（modular monolith）**：领域边界清晰、依赖方向可静态强制、HTTP/业务/SQL/事务/时间各自归位，同时保持现有 `/api/v1` 契约与权限行为不变。不拆微服务，不引入消息队列/事件总线。
+目标形态是**模块化单体（modular monolith）**：领域边界清晰、依赖方向可静态强制、HTTP/业务/SQL/事务/时间各自归位，同时保持现有 `/api/v1` 契约与权限行为不变。不拆微服务，不引入外部消息队列；跨模块实时事件使用进程内 `platform/eventbus` 信号总线（无业务语义、单实例前提，见 §5），不承担业务编排。
 
 九条原则：
 
@@ -31,15 +31,16 @@ internal/
 ├── app/                            # 组合根：唯一允许 import 全部模块的地方
 │   ├── app.go / wire.go            # App、依赖装配与迁移后初始化状态日志（Bootstrap）
 │   ├── readers.go                  # 跨模块只读查询适配（概览/统计）
-│   ├── adapters.go                 # 平台端口适配器（jobs/audit 等）
+│   ├── adapters.go                 # 平台端口适配器（jobs/audit/realtime 等）
 │   └── jobs.go                     # 作业处理器与周期任务注册
 ├── platform/                       # 技术基座（无业务语义；任何层可依赖）
-│   ├── clock/ db/ id/ logging/     # 时钟（唯一 time.Now 来源）、连接池/事务/就绪状态、雪花 ID、日志
+│   ├── clock/ db/ id/ logging/     # 时钟（唯一 time.Now 来源）、连接池/事务/AfterCommit 提交后回调、雪花 ID、日志
 │   ├── migrate/                    # 迁移器 v2（支持 no-transaction 指令）
 │   ├── storage/ ratelimit/         # 本地附件卷、单实例固定窗口限频
 │   ├── apperr/                     # 领域错误 Kind/Error/构造器
 │   ├── jobs/ audit/ settings/      # 分别拥有 background_jobs / admin_audit_logs / system_settings
 │   ├── websearch/ aiclient/        # 受控联网搜索、OpenAI 兼容模型客户端（出站适配器）
+│   ├── eventbus/                   # 进程内按用户事件总线：SSE 实时信号（无业务语义技术基座；单实例前提；非阻塞投递、缓冲 16 满/无订阅者即丢弃；每用户并发 ≤3、全局 ≤2000 连接）
 │   └── config/
 ├── shared/                         # 共享内核（无 IO）
 │   ├── model/ access/ contracts/   # 跨上下文数据结构、纯授权策略、跨模块发布语言
@@ -58,17 +59,20 @@ internal/
     ├── social/   # 关注/申请、点赞、评论、转发
     ├── notice/   # 通知、提及
     ├── dm/       # 1:1 私信会话、消息、已读、撤回（管理后台不可见）
+    ├── realtime/ # SSE 实时推送通道（GET /api/v1/events）：特例，仅 app+http 两层——纯传输通道，无 SQL、无状态机，故无 domain/repo
     ├── media/    # 附件、衍生文件、清理
     ├── ai/       # 预设、AI 身份/行为、记忆、运行时
     ├── agent/    # 调度、决策、动作、调用记录、AI 管理接口
     └── admin/    # 审核/概览/任务/审计查询（编排型上下文，无自有实体）
 ```
 
+**进程生命周期与 SSE 关闭**：`cmd/server` 启动完整 handler 后调用 `App.Start(ctx)` 布防退出信号监听；ctx 取消（SIGTERM/SIGINT）时先 `eventbus.Broker.Close()` 断开全部 SSE 订阅，再由 main 执行 `http.Server.Shutdown`，长连接不会拖满优雅关闭窗口；关闭回调经 `sync.Once` 幂等（与 `App.Close()` 共用同一入口）。
+
 各层只做/绝不做：
 
 | 位置 | 只做 | 绝不做 |
 | --- | --- | --- |
-| `platform/*` | 通用技术能力（时钟、DB、事务、ID、日志、存储、限流、配置、迁移、外部客户端） | 业务规则、HTTP 路由 |
+| `platform/*` | 通用技术能力（时钟、DB、事务、ID、日志、存储、限流、配置、迁移、事件总线、外部客户端） | 业务规则、HTTP 路由 |
 | `shared/*` | 共享类型、纯策略、contracts、游标、富文本纯函数 | SQL、IO、Gin、依赖 modules |
 | `modules/*/domain` | 实体不变式、状态机、纯校验与策略 | SQL、IO、Gin、依赖其它模块 |
 | `modules/*/app` | 用例编排、事务边界、时钟取时、端口调用、审计/通知/入队协作 | SQL、Gin、`net/http`、`pgx` |
@@ -77,6 +81,8 @@ internal/
 | `transport/router` | 路由表、策略组、路径/方法注册 | 业务逻辑、SQL |
 | `server` | Gin 引擎、全局中间件、健康检查、前端托管 | 业务路由、服务构造 |
 | `app` | 构造全部依赖、装配端口、注册作业 | 业务规则、SQL |
+
+`modules/realtime` 是模块四层划分的唯一特例：它是纯传输通道（SSE 信号分发），没有实体、状态机与任何 SQL，因此不设 `domain`/`repo` 层，仅保留 `app`（包装 `platform/eventbus` 的 Broker，把每用户/全局连接超限错误映射为领域 `unavailable`）与 `http`（SSE 协议：`text/event-stream`、`Cache-Control: no-cache`、`X-Accel-Buffering: no`、首行 `retry: 3000`、每 25 秒 `: ping` 心跳、`event:`/`data:` 帧、雪花 ID 字符串化）。
 
 ## 3. 依赖方向与允许 import
 
@@ -107,6 +113,7 @@ cmd/server ──▶ internal/app
 | `modules/ai` | `model_providers`、`ai_profiles`、`ai_model_settings`、`ai_behavior_settings`、`ai_memories`、`ai_memory_sources` |
 | `modules/agent` | `ai_tasks`、`ai_task_memory_refs`、`ai_call_logs`、`ai_action_counters` |
 | `modules/admin` | 无自有实体；只读 read-model 跨表 JOIN/聚合，不写任何表 |
+| `modules/realtime` | 无自有实体：进程内事件总线与 SSE 通道，不读写任何表 |
 | `platform/jobs` | `background_jobs` |
 | `platform/audit` | `admin_audit_logs` |
 | `platform/settings` | `system_settings` |
@@ -118,7 +125,9 @@ cmd/server ──▶ internal/app
 
 - 消费者在 `modules/<x>/app/port.go` 定义窄接口（如 `content/app` 的 `PostReader`、`social/app` 的 `Notifier`、`auth/app` 的 `UserWriter`）；生产者由组合根传入，不反向 import。
 - 跨模块命令/查询/结果结构放 `shared/contracts`（如 `ActorPostInput`、`CommentInput`、`NotificationInput`、`AuditEntry`、`JobEnqueue`、`SystemSettings`）；跨模块读取端口同样内嵌在发布接口里（如 `SocialService` 内嵌 `RelationReader` 与 `BookmarkReader`，content 经后者读取收藏 refs、social 持有收藏表）。
-- 平台端口同样以接口注入：`platform/jobs.Runner`（入队/领取）、`platform/audit.Writer`、`platform/settings.Reader/Writer`、`platform/clock.Clock`。
+- 平台端口同样以接口注入：`platform/jobs.Runner`（入队/领取）、`platform/audit.Writer`、`platform/settings.Reader/Writer`、`platform/clock.Clock`；`shared/contracts.RealtimePublisher`（`PublishNotification(recipientID)` / `PublishDM(userID, conversationID)`）由组合根以 `realtimeAdapter` 适配 `platform/eventbus` 注入，notice 与 dm 模块 app 消费（模式同 audit/jobs 适配器）。
+- 实时推送链路（发布-订阅）：notice `CreateNotification`（实际写入且接收者为活跃人类时发布，幂等跳过不发）与 dm `SendMessage`/`RecallMessage`（成功后向会话双方发布，撤回幂等重放不发）在用例中经 `db.AfterCommit` 注册回调，事务提交成功后调用 `RealtimePublisher` 把 `{Kind, ConversationID}` 信号投递到 `platform/eventbus`，由 `modules/realtime/http` 的 `GET /api/v1/events` SSE 订阅消费；回滚或提交失败不发布。事件总线是信号语义（缓冲满/无订阅者即丢弃），客户端保留轮询兜底。
+- **单实例边界**：`platform/eventbus` 的订阅与投递都在进程内存中，不跨实例广播——SSE 实时推送不支持多实例负载均衡部署。未来水平扩展时替换 Broker 实现（如 PostgreSQL `LISTEN/NOTIFY` 或 Redis pub/sub），`RealtimePublisher` 消费端口与 SSE 协议不变。
 - 模块间**禁止**直接 `SELECT/UPDATE` 对方表；`admin/repo/read_model.go` 是只读例外，且可见性/权限条件由 app 传入。
 
 ## 6. 事务、错误与时间规范
@@ -126,6 +135,7 @@ cmd/server ──▶ internal/app
 **事务**
 
 - 唯一入口：`platform/db.TxManager.WithTx(ctx, fn)`；ctx 内传播事务，嵌套调用合并为外层事务。
+- 提交后回调：`db.AfterCommit(ctx, fn)` 在事务内注册回调，Commit 成功后按注册顺序执行（嵌套事务共享同一队列）；回滚或提交失败不执行，无事务时立即执行。回调 ctx 不随请求取消，契约是「不得阻塞、不得 panic」，用于「写库成功后对外发布事件」（如 notice/dm 的实时信号）。
 - app 用例是事务边界：注册初始化、发帖（帖子+草稿+版本+附件+标签+搜索+通知+作业）、评论/点赞（事件+计数+通知）、用户停用、AI 动作、管理员授权等。
 - handler/http 不出现 `pool.Begin/Commit/Rollback`；repo 通过 `db.ExecutorFrom(ctx, pool)` 自动复用当前事务或连接池。
 
@@ -153,14 +163,14 @@ cmd/server ──▶ internal/app
 | --- | --- | --- |
 | `Public` | `Ready` | `/healthz`、`/readyz`、`GET /auth/config` 等无需身份的入口 |
 | `Optional` | `Ready → ResolveSession` | 公开 GET 与 `GET /auth/csrf`（游客可读，登录用户带 viewer_state） |
-| `Login` | `… → RequireLogin` | 已登录只读：`/auth/me`、`/me/*`、通知、关注申请、关注时间线 |
+| `Login` | `… → RequireLogin` | 已登录只读：`/auth/me`、`/me/*`、通知、关注申请、关注时间线、SSE 事件流（`GET /api/v1/events`） |
 | `HumanWrite` | `… → RequireLogin → RequireCSRF` | 业务写 POST |
 | `AdminRead` | `… → RequireLogin → RequireAdmin` | 管理后台 GET |
 | `AdminWrite` | `AdminRead → RequireCSRF` | 普通管理 POST |
 | `SuperAdminWrite` | `AdminWrite → RequireSuperAdmin` | `grant-admin` / `revoke-admin`（CSRF 在超管校验之前，保持现有错误语义） |
 | `GuestWrite` | `Ready → GuestCSRF` | `POST /auth/register`、`POST /auth/login` |
 
-`ResolveSession` 每请求最多查一次会话并把 `model.Viewer`/`model.Session` 放入上下文；`RequireLogin/Admin/SuperAdmin` 只读上下文不查库。路由表是纯数据，`routes_test.go` 无数据库断言总数、Method+Path 唯一、非 GET 必须写策略、`/admin` 必须是 Admin/SuperAdmin 策略等。
+`ResolveSession` 每请求最多查一次会话并把 `model.Viewer`/`model.Session` 放入上下文；`RequireLogin/Admin/SuperAdmin` 只读上下文不查库。路由表是纯数据，`routes_test.go` 无数据库断言总数、Method+Path 唯一、非 GET 必须写策略、`/admin` 必须是 Admin/SuperAdmin 策略等。当前路由基线共 133 条（GET 53 / POST 80）。
 
 ## 8. 架构守卫
 
@@ -183,6 +193,7 @@ cmd/server ──▶ internal/app
 ## 9. 迁移状态
 
 - 迁移文件按文件名追加执行，记录于 `timeline.schema_migrations`；仓库当前包含 `0001`–`0024` 迁移文件（是否已应用以部署记录为准；`0024_user_banner` 为 users 横幅列与 `attachments_purpose_check` 放宽，普通事务、无回填）。
+- SSE 实时推送（`platform/eventbus` + `modules/realtime`）为进程内存结构与 SSE 通道，不涉及任何表结构变更，本轮无新增迁移（`0001`–`0024` 不变）。
 - 迁移器 v2（`platform/migrate`）支持首行 `-- timeline:no-transaction`：该文件语句不包事务，用于 `CREATE INDEX CONCURRENTLY`；此类迁移必须幂等（`IF NOT EXISTS`），失败后按顺序人工核对重跑，迁移器不自动回滚。`CONCURRENTLY` 失败留下的 INVALID 索引处置见 `DEPLOYMENT.md` 第 6 章。
 - `0011_drop_time_defaults`：移除 43 个业务时间列的 `DEFAULT now()`，`schema_migrations.applied_at` 为唯一白名单；必须在应用侧“所有写路径显式传时间”上线后执行。
 - `0012_add_avatar_attachment_id`：只加 `users.avatar_attachment_id` 与索引，不回填；回填完成前清理 SQL 不得依赖该列非空。
@@ -201,8 +212,9 @@ cmd/server ──▶ internal/app
 
 ## 10. 当前改造进度（refactor 分支）
 
-- 目标架构已全部落地并接管运行路径：`cmd/server`（进程生命周期）→ `internal/app`（组合根）→ `transport/router`（声明式路由）→ `modules/*` 九域四层；`platform/*`、`shared/*`（model/access/contracts/page/richtext/format/view）、`transport/{httpx,middleware}`、slim `internal/server`、`internal/testkit` 集成测试脚手架、迁移器 v2 与架构守卫均已完成。旧 `internal/*` 业务包已从仓库删除，集成测试迁移到 testkit + `internal/server`/模块 `http` harness。
-- 迁移：`0001`–`0021` 已追加（`0016` 头像回填与不匹配索引清理；`0017`–`0020` 为 SQL 最简原则改造的查询索引、冗余计数表与作者类型快照列；`0021` 为私信会话/消息与 `users.dm_policy`）；新树 SQL 不再使用 `now()`/`CURRENT_DATE`/`::date`/`interval` 等数据库时间权威。
+- 目标架构已全部落地并接管运行路径：`cmd/server`（进程生命周期）→ `internal/app`（组合根）→ `transport/router`（声明式路由）→ `modules/*` 九域四层（外加 `realtime` 仅 app+http 的实时推送特例）；`platform/*`、`shared/*`（model/access/contracts/page/richtext/format/view）、`transport/{httpx,middleware}`、slim `internal/server`、`internal/testkit` 集成测试脚手架、迁移器 v2 与架构守卫均已完成。旧 `internal/*` 业务包已从仓库删除，集成测试迁移到 testkit + `internal/server`/模块 `http` harness。
+- 迁移：`0001`–`0024` 已追加（`0016` 头像回填与不匹配索引清理；`0017`–`0020` 为 SQL 最简原则改造的查询索引、冗余计数表与作者类型快照列；`0021` 为私信会话/消息与 `users.dm_policy`；`0022`–`0024` 为置顶列、收藏两表与用户横幅列）；新树 SQL 不再使用 `now()`/`CURRENT_DATE`/`::date`/`interval` 等数据库时间权威。
+- 新增 SSE 实时推送（2026-10-23）：`platform/db.AfterCommit` 提交后回调、`platform/eventbus` 进程内按用户事件总线、`shared/contracts.RealtimePublisher` 端口与 `modules/realtime`（仅 app+http）承载 Login 策略的 `GET /api/v1/events`；notice/dm 在事务提交后发布实时信号，前端保留轮询兜底；单实例前提（不支持多实例负载均衡 SSE，扩展路径为替换 Broker 实现），无新增迁移。
 - 架构守卫：`go test ./internal/architecture` 全绿；扫描范围含新树、`cmd/`、`internal/server` 与 `internal/testkit` 显式例外，新增 `cmd/server` import 白名单、事务原语与遗留符号规则（详见第 8 章）。
 - 本次行为修复（审查问题）：AI 候选范围/目标作者二次授权、任务失败自动重试与 reconcile、记忆沉淀合法值与来源失效复核、`model_override`、联网搜索有限工具轮次、`global_public` 候选与评论/回复开关语义、停机二次校验与暂停范围、发帖限频兜底、搜索 trigram 查询形态、附件/引帖校验事务化、附件清理两步端口流程与头像兜底、作业 Reactivate/人工重试 500/GetJob 404、bootstrap `/api` 503、路由注册竞态、审计单写、资料统计口径、登录标识索引写法、架构守卫扩展与 `0016` 迁移。
 - 待完成：SQL/索引性能验证（`EXPLAIN`、对账任务）；完整 P0/SEC 人工验收与部署机复演（`docs/ACCEPTANCE.md`、`docs/DEPLOYMENT.md`）。
@@ -230,3 +242,4 @@ cmd/server ──▶ internal/app
 | 2026-10-19 | 0.4.0 | 需求基线更新至 0.25.0，新增私信模块：§2 目录结构新增 `modules/dm`（会话/消息/已读/撤回，管理后台不可见）；§4 数据所有权新增 `dm_conversations`、`dm_messages` 归 dm，`users.dm_policy` 归 auth（dm 只经 UserReader/RelationReader 读取，不向其它模块暴露能力）；§9 迁移状态补 `0021_direct_messages`（普通事务、无回填）；§10 八域改九域、迁移范围到 0021。 |
 | 2026-10-21 | 0.4.2 | 需求基线更新至 0.27.0，新增收藏：§4 数据所有权补 `bookmarks`/`bookmark_folders` 归 social（content 仅经 `BookmarkReader` 读 refs 组装列表，不触收藏表）；§5 端口说明补 `SocialService` 内嵌 `BookmarkReader` 先例；§9 迁移范围 0001–0023 并补 `0022_post_pinned`（上轮置顶未记录）与 `0023_bookmarks` 两条说明。 |
 | 2026-10-23 | 0.4.3 | 需求基线更新至 0.30.0，新增个人主页横幅：§4 数据所有权补 `users.banner_attachment_id`（media 经 `UserWriter.SetBanner` 双写、auth 提供 ClearBanner 移除用例）；§9 迁移范围 0001–0024 并补 `0024_user_banner` 说明（users 横幅列 + `attachments_purpose_check` 放宽，清理候选固定 `purpose='post'` 无需清理侧改动）。 |
+| 2026-10-23 | 0.5.0 | 需求基线更新至 0.31.0，新增 SSE 实时推送：§1 原则微调（不引入外部消息队列，进程内 eventbus 仅作信号通道）；§2 platform 树补 `eventbus`（进程内按用户事件总线：无业务语义、单实例前提、缓冲满/无订阅者即丢弃、每用户 ≤3/全局 ≤2000 连接）与 `db` 的 `AfterCommit` 注释，模块树新增 `modules/realtime`（仅 app+http 特例：纯传输通道无 SQL 无状态机），并补进程生命周期（`App.Start` 布防退出信号、先断 SSE 再 `http.Server.Shutdown`、`sync.Once` 幂等关闭）；§4 补 realtime 无自有实体；§5 补 notice/dm → AfterCommit → `RealtimePublisher` → eventbus → SSE 订阅的发布-订阅链路与单实例边界（不支持多实例负载均衡，扩展路径替换 Broker：LISTEN/NOTIFY 或 Redis，端口不变）；§6 事务补 AfterCommit 契约；§7 路由基线 133 条（GET 53/POST 80）、Login 补 `/api/v1/events`；§9 注明无新增迁移；§10 进度同步。 |
