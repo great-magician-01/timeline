@@ -1,9 +1,9 @@
 # Timeline 项目文档索引
 
 > **文档状态**：持续更新  
-> **文档版本**：0.1.19  
+> **文档版本**：0.1.20  
 > **最近更新**：2026-10-24  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.31.0  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.32.0  
 > **用途**：文档入口、版本索引与当前实现状态
 
 所有需求与设计决策以本目录文档为准，聊天记录不作为最终依据。各文档版本与更新日期见各自文件头部，变更历史见各自文末。
@@ -31,17 +31,17 @@
 
 （版本号以各文档头部为准；更新任何文档时同步此列表。）
 
-- 需求基线版本：`REQUIREMENTS.md` 0.31.0（全局约束：数据库无外键、全量逻辑删除、业务接口仅 GET/POST；默认保护阈值已确定；AI 联网搜索使用全局独立加密密钥；账号角色仍为 `user`/`admin`，新增 `is_super_admin` 标记：空库首个注册用户自动成为唯一超级管理员，超管可授权/撤销管理员，普通管理员不能操作超管账号；业务时间由应用生成显式传参、数据库不提供业务时间默认值；ERROR 级别日志自动附加完整调用栈（text 记录行后多行缩进、json `stack` 字段），HTTP 请求与后台作业/周期任务 panic 被恢复并记录完整栈；新增私信：1:1 双人会话、`dm_policy` 四档接收策略默认所有人、纯文本无附件且正文上限 2000 字（超限或来源超 64KiB 返回 400）、AI 双向不参与、管理后台不可见、轮询更新、2 分钟撤回、单侧隐藏；新增收藏（§10.8）：仅帖子可收藏、完全私有、支持收藏夹分组（≤20 个）、删除夹归还默认、列表按可见性过滤；主题扩展为多主题：内置浅色/深色 + EVA 配色主题（初号机/凌波丽/明日香），偏好仅存本地；新增表情选取（§6.1）：发帖/编辑帖编辑器、首页快速发布、评论与回复、转发引用附言、私信输入提供表情选取面板（中文分类浏览，最近使用仅存本地 IndexedDB），emoji 随正文走既有清洗与渲染管线；新增个人主页横幅（§5）：`purpose=banner` 附件写回 `banner_url`、可移除回退默认占位、附件公开可读；新增 SSE 实时推送：登录用户 `GET /api/v1/events` 事件流，通知/私信在事务提交后经进程内事件总线推送实时信号（单实例前提，不支持多实例负载均衡 SSE），前端实时信号 + 轮询兜底）
-- 页面与权限：0.1.26（U-07 通知中心与 U-12 私信对话补「SSE 实时信号 + 轮询兜底」；横幅、表情选取与置顶、私信、收藏条目保持）
-- 状态机与流程：0.12.0（新增 SSE 实时推送：通知/私信实时信号与轮询兜底流程；既有状态机保持）
-- 后端架构：0.5.0（新增 SSE 实时推送：`platform/eventbus` 进程内按用户事件总线、`db.AfterCommit` 提交后回调、`modules/realtime` 仅 app+http 特例、notice/dm 经 `RealtimePublisher` 发布；路由基线 133 条（GET 53/POST 80）；单实例边界：不支持多实例负载均衡 SSE，扩展路径为替换 Broker 实现；数据所有权与迁移 `0001`–`0024` 不变）
-- 数据模型：0.13.0（§6.1 补 `banner_url`/`banner_attachment_id`；§6.9 补 `purpose` 枚举含 `banner`；收藏两表与置顶、私信条目保持）
-- 接口设计：0.12.0（新增 `GET /api/v1/events` SSE 事件流（Login）；横幅与收藏等接口条目保持）
+- 需求基线版本：`REQUIREMENTS.md` 0.32.0（全局约束：数据库无外键、全量逻辑删除、业务接口仅 GET/POST；默认保护阈值已确定；AI 联网搜索使用全局独立加密密钥；账号角色仍为 `user`/`admin`，新增 `is_super_admin` 标记：空库首个注册用户自动成为唯一超级管理员，超管可授权/撤销管理员，普通管理员不能操作超管账号；业务时间由应用生成显式传参、数据库不提供业务时间默认值；ERROR 级别日志自动附加完整调用栈（text 记录行后多行缩进、json `stack` 字段），HTTP 请求与后台作业/周期任务 panic 被恢复并记录完整栈；新增私信：1:1 双人会话、`dm_policy` 四档接收策略默认所有人、纯文本无附件且正文上限 2000 字（超限或来源超 64KiB 返回 400）、AI 双向不参与、管理后台不可见、轮询更新、2 分钟撤回、单侧隐藏；新增收藏（§10.8）：仅帖子可收藏、完全私有、支持收藏夹分组（≤20 个）、删除夹归还默认、列表按可见性过滤；主题扩展为多主题：内置浅色/深色 + EVA 配色主题（初号机/凌波丽/明日香），偏好仅存本地；新增表情选取（§6.1）：发帖/编辑帖编辑器、首页快速发布、评论与回复、转发引用附言、私信输入提供表情选取面板（中文分类浏览，最近使用仅存本地 IndexedDB），emoji 随正文走既有清洗与渲染管线；新增个人主页横幅（§5）：`purpose=banner` 附件写回 `banner_url`、可移除回退默认占位、附件公开可读；新增 SSE 实时推送：登录用户 `GET /api/v1/events` 事件流，通知/私信/群聊在事务提交后经进程内事件总线推送实时信号（单实例前提，不支持多实例负载均衡 SSE），前端实时信号 + 轮询兜底；新增群聊（§10.9）：与私信并存的独立域、独立导航与未读徽章、建群（群名 1–30 字、初始成员 0–20、群主名额每人 ≤20）、成员上限 200、拉人矩阵（停用/`dm_policy=none` 拒绝、AI 可入）、两级角色（群主改名/拉人/踢人/转让/解散，成员发言/退出/隐藏）、群主退出前须转让或解散、解散只读保留、消息规则复用私信（2000 字/64KiB/2 分钟撤回）、成员级已读游标与隐藏指针、发送与建群/拉人共享 60 次/10 分钟限频、管理后台不可见、AI 可被拉群但不能建群或发起群写操作（群发言按 `allow_group_message` 默认关 + 间隔调度））
+- 页面与权限：0.1.27（新增 U-14 群聊列表、U-15 群聊对话、U-16 群成员管理，§3.2 导航补群聊入口、§6/§8 补群聊权限行与核对点；A-12 补群聊发言开关）
+- 状态机与流程：0.13.0（新增「11. 群聊会话与消息」：群/成员/消息状态、已读游标与隐藏指针、AI 群聊任务；原 11–14 章顺延为 12–15）
+- 后端架构：0.6.0（新增 `modules/group` 四层模块、`shared/chat` 公共限制包、eventbus Kind `group`、`contracts/group.go` 三端口与 `PublishGroup`；路由基线 149 条（GET 58/POST 91）；迁移 `0001`–`0025`）
+- 数据模型：0.14.0（新增 §6.35–§6.37 群聊三表、`ai_behavior_settings.allow_group_message`、`ai_tasks` 新触发/动作枚举、§8 第 20 条群聊索引、§9 群状态映射）
+- 接口设计：0.13.0（新增第 11 章群聊接口 16 条、SSE `group` 事件、限频补群聊；原 11–17 章顺延为 12–18）
 - Docker 部署：0.4.7（§7 新增 SSE 长连接部署注意事项：`proxy_read_timeout` 须大于 25 秒心跳、应用已带 `X-Accel-Buffering: no`、不支持多实例负载均衡 SSE；§9 补先断 SSE 再优雅关闭；§4 同步 CI 的 PostgreSQL 17 集成测试与前端 Vitest，CI 不启动应用容器）
-- 验收用例：0.8.0（新增 SSE 实时推送用例组：实时信号接收、断线重连与轮询兜底；表情选取、收藏、置顶、私信与横幅条目保持）
-- 设计令牌：0.5.0（§9.3 新增个人主页头部横幅结构要点、§10 审计表补横幅行；表情选取器规范与 EVA 扩展配色主题保持）
+- 验收用例：0.9.0（新增「12. 群聊（GROUP）」用例组 GROUP-01～12 与 SEC-12 群聊隐私边界；原 12–22 章顺延为 13–23）
+- 设计令牌：0.6.0（§9.4 新增群聊占位头像与成员管理模式、§10 审计表补群聊行）
 - 已产出实现文件：`.env.example`（部署配置模板）、`Dockerfile`、`docker-compose.yml`、`deploy/scripts/`、`.github/workflows/ci.yml`、`demo/`（主页样式演示五版 + 总览 + 图标候选 + `logo.svg`，E 版为选定方向）
-- 编码实现：V1 全部功能范围已落地（账号、内容与附件、社交互动、发现、AI 配置与自主社交、AI 联网搜索、管理后台、后台作业、前端全部页面），并新增私信（1:1 会话、`dm_policy` 四档接收策略、未读轮询徽章、会话列表/对话页、2 分钟撤回、单侧隐藏；AI 双向不参与、管理后台不可见）与收藏（私有阅读清单、收藏夹分组、独立 `/bookmarks` 页）、表情选取（五处文本输入位置的表情面板，引入 `emoji-picker-element` 与本地数据包 `emoji-picker-element-data`，纯前端变更）与个人主页横幅（`purpose=banner` 附件上传后同事务写回 `banner_url`、`POST /users/me/banner/delete` 移除、横幅附件公开可读、主页头部横幅区与设置页横幅卡片），并新增 SSE 实时推送（`GET /api/v1/events` 登录用户事件流；通知/私信经 `db.AfterCommit` + 进程内事件总线在事务提交后发布信号；前端 `web/src/composables/realtime.ts` 订阅、轮询保留兜底；单实例前提，无新增迁移）。`migrations/` 按文件名顺序追加执行，开发库已应用现有迁移（至 `0024`）。默认 Go 测试、`go vet`、`npm run build` 与隔离 schema 集成测试（账号、内容、CSRF 路由覆盖、全局 AI 开关、AI 管理、私信 `TestDMIntegration`、置顶 `TestPinIntegration`、收藏 `TestBookmarkIntegration`、横幅 `TestBannerIntegration`）已通过；`TestBootstrapIntegration`、`TestAdminGrantIntegration` 与 `TestRequireSuperAdminRoleMatrix` 单测继续通过。
+- 编码实现：V1 全部功能范围已落地（账号、内容与附件、社交互动、发现、AI 配置与自主社交、AI 联网搜索、管理后台、后台作业、前端全部页面），并新增私信（1:1 会话、`dm_policy` 四档接收策略、未读轮询徽章、会话列表/对话页、2 分钟撤回、单侧隐藏；AI 双向不参与、管理后台不可见）与收藏（私有阅读清单、收藏夹分组、独立 `/bookmarks` 页）、表情选取（五处文本输入位置的表情面板，引入 `emoji-picker-element` 与本地数据包 `emoji-picker-element-data`，纯前端变更）与个人主页横幅（`purpose=banner` 附件上传后同事务写回 `banner_url`、`POST /users/me/banner/delete` 移除、横幅附件公开可读、主页头部横幅区与设置页横幅卡片），并新增 SSE 实时推送（`GET /api/v1/events` 登录用户事件流；通知/私信/群聊经 `db.AfterCommit` + 进程内事件总线在事务提交后发布信号；前端 `web/src/composables/realtime.ts` 订阅、轮询保留兜底；单实例前提）与群聊（独立 `modules/group` 四层模块与 `/groups` 三个前端页面、群列表/对话/成员管理、SSE `group` 事件 + 30 秒轮询徽章、AI 可入群与群发言开关）。`migrations/` 按文件名顺序追加执行，开发库已应用现有迁移（至 `0025`）。默认 Go 测试、`go vet`、`npm run build` 与隔离 schema 集成测试（账号、内容、CSRF 路由覆盖、全局 AI 开关、AI 管理、私信 `TestDMIntegration`、置顶 `TestPinIntegration`、收藏 `TestBookmarkIntegration`、横幅 `TestBannerIntegration`、群聊 `TestGroupIntegration`）已通过；`TestBootstrapIntegration`、`TestAdminGrantIntegration` 与 `TestRequireSuperAdminRoleMatrix` 单测继续通过。
 - 测试与 CI（2026-10-24）：前端新增 Vitest `npm test`，覆盖 SSE 启动防重、停止关闭、幂等与重建及错误生命周期，并修复 `realtime.ts` 连接句柄遮蔽导致的停止泄漏；GitHub Actions 新增独立 PostgreSQL 17 集成任务，预装 `pg_trgm` 后无缓存串行执行全部 Go 测试，前端任务增加 `npm test`，应用镜像构建依赖全部测试任务。此处仅记录实现与 CI 配置，托管 CI 结果以实际运行记录为准。
 - 后端结构改造（`refactor/target-architecture` 分支）：已按 `docs/ARCHITECTURE.md` 完成——`cmd/server` 只保留进程生命周期，业务装配在 `internal/app` 组合根，路由由 `transport/router` 声明式注册，九个业务模块按 `domain/app/repo/http` 四层实现（外加 `realtime` 仅 app+http 的实时推送通道）；`platform/*`、`shared/*`（model/access/contracts/page/richtext/format/view/search）、迁移器 v2、架构守卫 `internal/architecture`（覆盖新树、`cmd/`、`internal/server`，`internal/testkit` 为显式测试基础设施例外）与 `ARCHITECTURE.md` 已建立，`migrations/0011–0021` 已追加；旧 `internal/*` 业务包已从仓库删除，集成测试迁移到 `internal/testkit` + `internal/server`/模块 `http` harness。后端审查修复项、SQL 最简原则改造与私信模块均已落地并补默认测试与集成测试。
 - 未完成：`docs/ACCEPTANCE.md` 中 P0 清单的完整人工验收（含本轮新增的初始化与角色授权用例）。开发机已用临时 PostgreSQL 实例完成 Docker 镜像构建、容器启动、健康检查/前端托管/基础 API 冒烟，以及一次备份/恢复演练（含附件属主修正）；部署机仍应按 `docs/DEPLOYMENT.md` 第 11 章复演。
@@ -83,3 +83,4 @@
 | 2026-10-23 | 0.1.17 | 新增个人主页横幅：需求基线 0.30.0（§5 用户资料补横幅）；迁移 `0024_user_banner`（users 横幅两列 + `attachments_purpose_check` 加 banner）；后端架构 0.4.3、数据模型 0.13.0、接口 0.11.0（`POST /users/me/banner/delete` 与 `purpose=banner`）、页面权限 0.1.25、验收 0.7.0（MEDIA-07/08）、设计令牌 0.5.0（§9.3）；前端设置页横幅卡片与主页横幅区，`AGENTS.md` 0.2.9 与 `migrations/README.md` 同步。 |
 | 2026-10-23 | 0.1.18 | 新增 SSE 实时推送索引同步：需求基线 0.31.0；后端架构 0.5.0（`platform/eventbus`、`db.AfterCommit`、`modules/realtime` 仅 app+http、路由基线 133 条、单实例边界）、接口 0.12.0（`GET /api/v1/events`）、页面权限 0.1.26（U-07/U-12 补实时信号 + 轮询兜底）、Docker 部署 0.4.6（SSE 反向代理与单实例注意事项、先断 SSE 再优雅关闭）、流程 0.12.0 与验收 0.8.0（SSE 实时推送相关更新）；数据模型 0.13.0 与设计令牌 0.5.0 不变（SSE 无表结构与前端令牌变更）；编码实现状态补 SSE 说明。 |
 | 2026-10-24 | 0.1.19 | 测试与 CI 同步：前端修复 SSE 连接句柄遮蔽并新增 Vitest 生命周期回归测试；GitHub Actions 新增独立 PostgreSQL 17 集成任务（预装 `pg_trgm`、无缓存串行全量 Go 测试）、前端 `npm test` 与镜像构建门控；`DEPLOYMENT.md` 0.4.7、`AGENTS.md` 0.3.1、根目录与 `web/` README 已同步。需求、API、数据模型与部署结构不变，托管 CI 结果以实际运行记录为准。 |
+| 2026-10-24 | 0.1.20 | 新增群聊索引同步：需求基线 0.32.0（§10.9 群聊需求）；迁移 `0025_group_chat`（群聊三表 + AI 群聊开关/任务枚举扩展）；后端架构 0.6.0（`modules/group` 四层、`shared/chat`、`contracts/group.go` 三端口、路由基线 149 条）、数据模型 0.14.0（§6.35–§6.37）、接口 0.13.0（第 11 章群聊接口 16 条与 SSE `group` 事件，原 11–17 章顺延）、页面权限 0.1.27（U-14/U-15/U-16）、流程 0.13.0（§11 群聊会话与 AI 群任务，原 11–14 章顺延）、验收 0.9.0（GROUP-01～12 + SEC-12，原 12–22 章顺延）、设计令牌 0.6.0（§9.4）；`AGENTS.md` 0.3.3 与 `migrations/README.md`（`0025_group_chat`）同步。 |

@@ -21,19 +21,33 @@ import (
 // 写进响应头，便于断言中间件是否放行。路由注册只需要方法值可求值，不真正执行业务。
 type stubHandler struct{}
 
-func (stubHandler) CSRF(c *gin.Context)                    { c.Header("X-Handler", "reached") }
-func (stubHandler) Config(c *gin.Context)                  { c.Header("X-Handler", "reached") }
-func (stubHandler) Register(c *gin.Context)                { c.Header("X-Handler", "reached") }
-func (stubHandler) Login(c *gin.Context)                   { c.Header("X-Handler", "reached") }
-func (stubHandler) Me(c *gin.Context)                      { c.Header("X-Handler", "reached") }
-func (stubHandler) Logout(c *gin.Context)                  { c.Header("X-Handler", "reached") }
-func (stubHandler) ChangePassword(c *gin.Context)          { c.Header("X-Handler", "reached") }
-func (stubHandler) UpdateProfile(c *gin.Context)           { c.Header("X-Handler", "reached") }
-func (stubHandler) DeleteBanner(c *gin.Context)            { c.Header("X-Handler", "reached") }
-func (stubHandler) FollowSettings(c *gin.Context)          { c.Header("X-Handler", "reached") }
-func (stubHandler) UpdateFollowSettings(c *gin.Context)    { c.Header("X-Handler", "reached") }
-func (stubHandler) DMSettings(c *gin.Context)              { c.Header("X-Handler", "reached") }
-func (stubHandler) UpdateDMSettings(c *gin.Context)        { c.Header("X-Handler", "reached") }
+func (stubHandler) CSRF(c *gin.Context)                 { c.Header("X-Handler", "reached") }
+func (stubHandler) Config(c *gin.Context)               { c.Header("X-Handler", "reached") }
+func (stubHandler) Register(c *gin.Context)             { c.Header("X-Handler", "reached") }
+func (stubHandler) Login(c *gin.Context)                { c.Header("X-Handler", "reached") }
+func (stubHandler) Me(c *gin.Context)                   { c.Header("X-Handler", "reached") }
+func (stubHandler) Logout(c *gin.Context)               { c.Header("X-Handler", "reached") }
+func (stubHandler) ChangePassword(c *gin.Context)       { c.Header("X-Handler", "reached") }
+func (stubHandler) UpdateProfile(c *gin.Context)        { c.Header("X-Handler", "reached") }
+func (stubHandler) DeleteBanner(c *gin.Context)         { c.Header("X-Handler", "reached") }
+func (stubHandler) FollowSettings(c *gin.Context)       { c.Header("X-Handler", "reached") }
+func (stubHandler) UpdateFollowSettings(c *gin.Context) { c.Header("X-Handler", "reached") }
+func (stubHandler) DMSettings(c *gin.Context)           { c.Header("X-Handler", "reached") }
+func (stubHandler) UpdateDMSettings(c *gin.Context)     { c.Header("X-Handler", "reached") }
+
+// GroupHandlers 桩方法（群聊独有接口；ListMessages/SendMessage/RecallMessage/
+// MarkRead/UnreadCount 已由 DM 桩方法提供）。
+func (stubHandler) ListGroups(c *gin.Context)              { c.Header("X-Handler", "reached") }
+func (stubHandler) CreateGroup(c *gin.Context)             { c.Header("X-Handler", "reached") }
+func (stubHandler) GroupDetail(c *gin.Context)             { c.Header("X-Handler", "reached") }
+func (stubHandler) GroupMembers(c *gin.Context)            { c.Header("X-Handler", "reached") }
+func (stubHandler) HideGroup(c *gin.Context)               { c.Header("X-Handler", "reached") }
+func (stubHandler) RenameGroup(c *gin.Context)             { c.Header("X-Handler", "reached") }
+func (stubHandler) Invite(c *gin.Context)                  { c.Header("X-Handler", "reached") }
+func (stubHandler) RemoveMember(c *gin.Context)            { c.Header("X-Handler", "reached") }
+func (stubHandler) TransferOwner(c *gin.Context)           { c.Header("X-Handler", "reached") }
+func (stubHandler) LeaveGroup(c *gin.Context)              { c.Header("X-Handler", "reached") }
+func (stubHandler) DissolveGroup(c *gin.Context)           { c.Header("X-Handler", "reached") }
 func (stubHandler) SearchUsers(c *gin.Context)             { c.Header("X-Handler", "reached") }
 func (stubHandler) GetProfile(c *gin.Context)              { c.Header("X-Handler", "reached") }
 func (stubHandler) GrantAdmin(c *gin.Context)              { c.Header("X-Handler", "reached") }
@@ -240,6 +254,7 @@ func newTestDeps(auth *fakeAuth) Deps {
 		Social:   stubHandler{},
 		Notice:   stubHandler{},
 		DM:       stubHandler{},
+		Group:    stubHandler{},
 		Media:    stubHandler{},
 		AI:       stubHandler{},
 		Agent:    stubHandler{},

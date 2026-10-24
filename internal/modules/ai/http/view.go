@@ -94,6 +94,7 @@ type aiBehaviorResponse struct {
 	AllowQuote           bool            `json:"allow_quote"`
 	AllowAIToAI          bool            `json:"allow_ai_to_ai"`
 	AllowWebSearch       bool            `json:"allow_web_search"`
+	AllowGroupMessage    bool            `json:"allow_group_message"`
 	CandidateScopeType   string          `json:"candidate_scope_type"`
 	CandidateScopeParams json.RawMessage `json:"candidate_scope_params"`
 	RateLimits           json.RawMessage `json:"rate_limits"`
@@ -184,6 +185,7 @@ func behaviorView(settings domain.BehaviorSettings, updatedAt time.Time) aiBehav
 		AllowQuote:           settings.AllowQuote,
 		AllowAIToAI:          settings.AllowAIToAI,
 		AllowWebSearch:       settings.AllowWebSearch,
+		AllowGroupMessage:    settings.AllowGroupMessage,
 		CandidateScopeType:   settings.CandidateScopeType,
 		CandidateScopeParams: domain.JSONOrEmpty(settings.CandidateScopeParams),
 		RateLimits:           domain.JSONOrEmpty(settings.RateLimits),

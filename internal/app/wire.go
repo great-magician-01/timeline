@@ -23,6 +23,9 @@ import (
 	dmapp "github.com/great-magician-01/timeline/internal/modules/dm/app"
 	dmhttp "github.com/great-magician-01/timeline/internal/modules/dm/http"
 	dmrepo "github.com/great-magician-01/timeline/internal/modules/dm/repo"
+	groupapp "github.com/great-magician-01/timeline/internal/modules/group/app"
+	grouphttp "github.com/great-magician-01/timeline/internal/modules/group/http"
+	grouprepo "github.com/great-magician-01/timeline/internal/modules/group/repo"
 	mediaapp "github.com/great-magician-01/timeline/internal/modules/media/app"
 	mediahttp "github.com/great-magician-01/timeline/internal/modules/media/http"
 	noticeapp "github.com/great-magician-01/timeline/internal/modules/notice/app"
@@ -55,6 +58,7 @@ const (
 	logModuleSocial   = "social"
 	logModuleNotice   = "notice"
 	logModuleDM       = "dm"
+	logModuleGroup    = "group"
 	logModuleMedia    = "media"
 	logModuleAI       = "ai"
 	logModuleAgent    = "agent"
@@ -70,6 +74,10 @@ type lazySocial struct{ contracts.SocialService }
 type lazyMedia struct{ contracts.MediaService }
 type lazyNotice struct{ contracts.NoticeService }
 type lazyAgent struct{ contracts.AgentService }
+
+// lazyGroupAITrigger 解开 group → agent 的构造环：group 模块先持占位端口，
+// agent 构造完成后回填真实实现（运行期首调用在消息提交回调阶段）。
+type lazyGroupAITrigger struct{ contracts.GroupAITrigger }
 
 // globalAIAdapter 把 agent app 的全局开关能力适配为 admin 的 GlobalAIHalter。
 type globalAIAdapter struct{ agent *agentapp.Service }
@@ -122,6 +130,7 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 	noticeLazy := &lazyNotice{}
 	agentLazy := &lazyAgent{}
 	tasksLazy := &lazyTaskReader{}
+	groupAITriggerLazy := &lazyGroupAITrigger{}
 
 	// ── auth ──
 	authApp := authapp.New(authapp.Deps{
@@ -200,6 +209,21 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Realtime:      realtimePublish,
 	})
 
+	// ── group ──
+	// 群聊只依赖 auth（账号/摘要）与实时总线；AI 触发端口经惰性包装在 agent
+	// 构造完成后回填（群消息 @提及 投递 AI 回复任务）。
+	groupApp := groupapp.New(groupapp.Deps{
+		Clock:     clk,
+		IDs:       ids,
+		Tx:        tx,
+		Users:     authApp,
+		Groups:    grouprepo.NewConversationRepo(pool),
+		Members:   grouprepo.NewMemberRepo(pool),
+		Messages:  grouprepo.NewMessageRepo(pool),
+		Realtime:  realtimePublish,
+		AITrigger: groupAITriggerLazy,
+	})
+
 	// ── media ──
 	mediaApp := mediaapp.New(mediaapp.Deps{
 		Pools:    readiness,
@@ -247,6 +271,8 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		AI:             aiApp,
 		Notices:        noticeApp,
 		Users:          authApp,
+		Groups:         groupApp,
+		GroupWriter:    groupApp,
 		Jobs:           jobsAdapter,
 		Audit:          auditAdapter,
 		Settings:       settingsRead,
@@ -278,6 +304,8 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 	noticeLazy.NoticeService = noticeApp
 	agentLazy.AgentService = agentApp
 	tasksLazy.TaskReader = aiTaskReaderAdapter{agent: agentApp}
+	// 群聊 @提及 触发端口：group → agent 的构造环由惰性包装解开。
+	groupAITriggerLazy.GroupAITrigger = agentApp
 
 	// ── HTTP handlers + 路由 ──
 	handlers := router.Deps{
@@ -286,6 +314,7 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Social:   socialhttp.New(socialApp, moduleLog(logModuleSocial)),
 		Notice:   noticehttp.New(noticeApp, moduleLog(logModuleNotice)),
 		DM:       dmhttp.New(dmApp, moduleLog(logModuleDM)),
+		Group:    grouphttp.New(groupApp, moduleLog(logModuleGroup)),
 		Media:    mediahttp.New(mediaApp),
 		AI:       aihttp.New(aiApp),
 		Agent:    agenthttp.New(agentApp, moduleLog(logModuleAgent)),

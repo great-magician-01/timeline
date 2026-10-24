@@ -1,6 +1,6 @@
 # 数据库迁移
 
-> **最近更新**：2026-10-23（新增 `0024_user_banner`）
+> **最近更新**：2026-10-24（新增 `0025_group_chat`）
 > 权威设计见 [`docs/DATA_MODEL.md`](../docs/DATA_MODEL.md) 与 [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) §9；部署侧执行/回滚见 [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md) 第 6、9 章。
 
 ## 约定
@@ -33,6 +33,7 @@
 | `0022_post_pinned` | 普通事务：`timeline.posts` 新增 `pinned_at`/`pinned_sort` 个人主页置顶列与 `posts_pinned_check` CHECK 约束（两列同空同非空、顺序 1..3、仅 `status='published'` 允许置顶）；无回填、无新索引（置顶查询复用 `posts_author_published`），置顶写入不修改 `updated_at`，删除帖子由应用在同一 UPDATE 中清空两列 |
 | `0023_bookmarks` | 普通事务：`timeline.bookmark_folders`（收藏夹，`deleted_at` 逻辑删除）与 `timeline.bookmarks`（收藏，`is_active` 逻辑失效、`folder_id` NULL = 默认收藏）两张新表 + 配套部分索引；`(user_id, post_id)` 唯一索引非部分以支持 upsert 复活；无回填、无 `CONCURRENTLY` |
 | `0024_user_banner` | 普通事务：`"user".users` 新增 `banner_url`（`NOT NULL DEFAULT ''`）与 `banner_attachment_id`（可空）个人主页横幅列；`attachments_purpose_check` 重建为 `('post','avatar','banner')`（先 DROP 再同名 ADD）；无回填、不建 `banner_attachment_id` 索引（清理候选固定 `purpose='post'`，无按列查询方） |
+| `0025_group_chat` | 普通事务：群聊三表——`timeline.group_conversations`（群主、`last_message_id` 指针、`status` CHECK `active|dissolved`）、`timeline.group_members`（`role` CHECK `owner|member`、成员级已读游标 `last_read_message_id` 与隐藏指针 `hidden_message_id`、`left_at` 逻辑删除；UNIQUE`(group_id, user_id)` + 两个 `left_at IS NULL` 部分索引）、`timeline.group_messages`（`content_format` CHECK 固定 `richtext`、`status` CHECK `published|recalled`、`(group_id, id DESC)` 索引）；`ai_behavior_settings` 加 `allow_group_message`（默认 FALSE）；`ai_tasks` 的 `trigger_type`/`action_type` CHECK 扩展 `group_mention`/`group_schedule`/`group_message`（DROP+ADD 同名约束）；无外键、无业务时间默认值、无物理删除、无回填、无 `CONCURRENTLY` |
 
 ## 新增迁移的评审规则
 

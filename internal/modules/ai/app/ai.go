@@ -414,7 +414,7 @@ func (s *Service) UpdateAIBehavior(
 		}
 		if err := s.writeAudit(txCtx, adminID, contracts.AuditActionAIBehaviorUpdate, targetAI, &aiID,
 			map[string]any{"candidate_scope_type": final.CandidateScopeType,
-				"allow_web_search": final.AllowWebSearch}, at); err != nil {
+				"allow_web_search": final.AllowWebSearch, "allow_group_message": final.AllowGroupMessage}, at); err != nil {
 			return err
 		}
 		settings = final

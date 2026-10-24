@@ -75,9 +75,15 @@ export function useCursorList<T, P extends Record<string, unknown>>(options: Cur
     return load(false)
   }
 
+  /** 把新条目插入列表头部（本地创建等场景，不改变分页游标）。 */
+  function prepend(item: T): void {
+    items.value = [item, ...items.value]
+    loaded.value = true
+  }
+
   onMounted(() => {
     if (options.immediate !== false) void load(true)
   })
 
-  return { items, loading, loadingMore, hasMore, error, loaded, reload, loadMore }
+  return { items, loading, loadingMore, hasMore, error, loaded, reload, loadMore, prepend }
 }

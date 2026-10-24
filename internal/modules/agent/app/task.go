@@ -51,6 +51,8 @@ type promptInput struct {
 	LongTerm   []contracts.Memory
 	Liked      []contracts.LikedPostRef
 	Followees  []contracts.FolloweeRef
+	// Group 是群聊任务的上下文（群名 + 最近消息）；非群聊任务为 nil。
+	Group *groupPromptContext
 }
 
 // maxTaskAttempts 是可恢复任务的最大执行次数（与作业层 MaxAttempts 语义一致）。
@@ -476,6 +478,28 @@ func (s *Service) executeAction(ctx context.Context, rt contracts.Runtime, task 
 		outcome.Summary = fmt.Sprintf("转发了帖子 %s（当前计数 %d）", apiID(postID), count)
 		outcome.MemoryNote = "转发了一条公开帖子"
 		return outcome, nil
+	case domain.ActionGroupMessage:
+		// AI 代发群消息：与人类发送同一校验与渲染管线（group app 内部路径）。
+		// 首期群消息不写入分层记忆，只记录任务结果。
+		if s.deps.GroupWriter == nil {
+			return outcome, apperr.Internal("群消息写入依赖未装配")
+		}
+		messageID, err := s.deps.GroupWriter.WriteFromAI(ctx, contracts.GroupMessageInput{
+			GroupID:       target.ID,
+			SenderID:      rt.AIID,
+			ContentFormat: "markdown",
+			ContentSource: decision.Content,
+		})
+		if err != nil {
+			return outcome, err
+		}
+		groupID := target.ID
+		outcome.ResultRefType = domain.RefGroup
+		outcome.ResultRefID = &messageID
+		outcome.TargetType = domain.RefGroup
+		outcome.TargetID = &groupID
+		outcome.Summary = "在群聊 " + apiID(groupID) + " 发言（message_id=" + apiID(messageID) + "）"
+		return outcome, nil
 	default:
 		return outcome, apperr.Validation("不支持的动作")
 	}
@@ -483,13 +507,15 @@ func (s *Service) executeAction(ctx context.Context, rt contracts.Runtime, task 
 
 // taskActionAllowed 判断触发类型与动作的组合是否允许：
 // 管理端生成与定时原创是内容生成任务，只允许产出原创帖/引用帖（noop 在上游处理）；
-// 提及与评论触发只允许被动回复类动作。
+// 提及与评论触发只允许被动回复类动作；群聊任务（@提及/自主发言）只允许群消息。
 func taskActionAllowed(task repo.Task, action string) bool {
 	switch task.TriggerType {
 	case domain.TriggerManual, domain.TriggerSchedule:
 		return action == domain.ActionOriginalPost || action == domain.ActionQuote
 	case domain.TriggerMention, domain.TriggerComment:
 		return action == domain.ActionReply || action == domain.ActionComment || action == domain.ActionLike
+	case domain.TriggerGroupMention, domain.TriggerGroupSchedule:
+		return action == domain.ActionGroupMessage
 	default:
 		return true
 	}
@@ -524,6 +550,16 @@ func (s *Service) buildPrompt(ctx context.Context, task repo.Task, rt contracts.
 		}
 		excerpt, _ := s.deps.Content.GetPostExcerpt(ctx, post.ID)
 		prompt.Event = "事件来源帖子（post_id=" + apiID(post.ID) + "）：\n" + truncateRunes(excerpt, 800)
+	case task.TriggerRefType == domain.RefGroup && task.TriggerRefID != nil:
+		// 群聊任务（@提及/自主发言）：任务执行时重新授权成员资格与群状态。
+		if s.deps.Groups == nil {
+			return prompt, nil, apperr.Internal("群聊上下文依赖未装配")
+		}
+		group, err := s.buildGroupPrompt(ctx, *task.TriggerRefID)
+		if err != nil {
+			return prompt, nil, err
+		}
+		prompt.Group = &group
 	}
 	// 候选内容（主动互动）。
 	if task.TriggerType == domain.TriggerProactive {
@@ -624,6 +660,9 @@ func (s *Service) assemblePrompts(rt contracts.Runtime, prompt promptInput) (str
 				firstNonEmpty(candidate.AuthorName, candidate.Username) + "：" + truncateRunes(candidate.Summary, 200) + "\n")
 		}
 		user.WriteString("\n")
+	}
+	if prompt.Group != nil {
+		user.WriteString(groupPromptSection(*prompt.Group) + "\n\n")
 	}
 	if len(prompt.Recent) > 0 || len(prompt.LongTerm) > 0 {
 		user.WriteString("【你的记忆】\n")
@@ -962,7 +1001,7 @@ func actionCatalog(behavior contracts.BehaviorSettings) string {
 	for _, action := range []string{
 		domain.ActionOriginalPost, domain.ActionQuote, domain.ActionComment, domain.ActionReply,
 		domain.ActionLike, domain.ActionUnlike, domain.ActionFollow, domain.ActionUnfollow,
-		domain.ActionRepost, domain.ActionNoop,
+		domain.ActionRepost, domain.ActionGroupMessage, domain.ActionNoop,
 	} {
 		if domain.ActionAllowed(behavior, action) {
 			actions = append(actions, action)

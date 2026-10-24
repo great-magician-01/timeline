@@ -41,6 +41,8 @@ type BehaviorSettings struct {
 	AllowQuote         bool
 	AllowAIToAI        bool
 	AllowWebSearch     bool
+	// AllowGroupMessage 控制群聊自主发言（被 @ 回复沿用 AllowPassiveReply）。
+	AllowGroupMessage bool
 
 	CandidateScopeType   string
 	CandidateScopeParams json.RawMessage

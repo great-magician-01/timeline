@@ -39,6 +39,9 @@ type BehaviorSettings struct {
 	AllowQuote         bool
 	AllowAIToAI        bool
 	AllowWebSearch     bool
+	// AllowGroupMessage 控制群聊自主发言（被 @ 回复沿用 AllowPassiveReply）；
+	// 默认 false，成本由管理员显式开启承担。
+	AllowGroupMessage bool
 
 	CandidateScopeType   string
 	CandidateScopeParams json.RawMessage

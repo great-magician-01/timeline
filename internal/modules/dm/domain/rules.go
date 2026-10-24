@@ -8,21 +8,24 @@ import (
 	"unicode/utf8"
 
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
+	"github.com/great-magician-01/timeline/internal/shared/chat"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
 
+// 聊天文本限制与私信/群聊共享（shared/chat 单一来源），本包保留同名导出供既有调用方
+// 与测试使用；校验文案保持私信域的具体表述。
 const (
 	// RecallWindow 是发送者撤回自己消息的时间窗（应用侧 Clock 比较）。
-	RecallWindow = 2 * time.Minute
+	RecallWindow = chat.RecallWindow
 	// PreviewRunes 是会话列表最后消息预览的最大字符数（按 rune 截断）。
-	PreviewRunes = 50
+	PreviewRunes = chat.PreviewRunes
 	// RecalledPreview 是已撤回消息在会话列表中的预览文案。
-	RecalledPreview = "消息已撤回"
+	RecalledPreview = chat.RecalledPreview
 	// MaxMessageRunes 是私信正文的最大字符数（按清洗后纯文本的 rune 计）。
-	MaxMessageRunes = 2000
+	MaxMessageRunes = chat.MaxMessageRunes
 	// MaxMessageSourceBytes 是私信 content_source 的原始体积上限（字节），
 	// 在渲染清洗前快速拒绝超大请求，避免无谓的解析与清洗开销。
-	MaxMessageSourceBytes = 64 << 10
+	MaxMessageSourceBytes = chat.MaxMessageSourceBytes
 )
 
 // NormalizePair 把任意方向的两位成员 ID 规范化为 (user_a_id, user_b_id) = (较小, 较大)，

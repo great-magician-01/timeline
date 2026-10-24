@@ -198,6 +198,7 @@ func behaviorSettingsToContracts(settings domain.BehaviorSettings) contracts.Beh
 		AllowQuote:           settings.AllowQuote,
 		AllowAIToAI:          settings.AllowAIToAI,
 		AllowWebSearch:       settings.AllowWebSearch,
+		AllowGroupMessage:    settings.AllowGroupMessage,
 		CandidateScopeType:   settings.CandidateScopeType,
 		CandidateScopeParams: settings.CandidateScopeParams,
 		RateLimits:           settings.RateLimits,
