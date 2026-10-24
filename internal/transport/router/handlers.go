@@ -21,6 +21,7 @@ type Deps struct {
 	Social   SocialHandlers
 	Notice   NoticeHandlers
 	DM       DMHandlers
+	Group    GroupHandlers
 	Media    MediaHandlers
 	AI       AIHandlers
 	Agent    AgentHandlers
@@ -131,6 +132,26 @@ type DMHandlers interface {
 	ListMessages(c *gin.Context)
 	SendMessage(c *gin.Context)
 	RecallMessage(c *gin.Context)
+}
+
+// GroupHandlers 覆盖群聊：群与成员管理、消息、已读、隐藏与解散。
+type GroupHandlers interface {
+	ListGroups(c *gin.Context)
+	CreateGroup(c *gin.Context)
+	GroupDetail(c *gin.Context)
+	GroupMembers(c *gin.Context)
+	ListMessages(c *gin.Context)
+	SendMessage(c *gin.Context)
+	RecallMessage(c *gin.Context)
+	MarkRead(c *gin.Context)
+	HideGroup(c *gin.Context)
+	RenameGroup(c *gin.Context)
+	Invite(c *gin.Context)
+	RemoveMember(c *gin.Context)
+	TransferOwner(c *gin.Context)
+	LeaveGroup(c *gin.Context)
+	DissolveGroup(c *gin.Context)
+	UnreadCount(c *gin.Context)
 }
 
 // RealtimeHandlers 覆盖 SSE 实时推送通道。

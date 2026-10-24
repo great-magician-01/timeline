@@ -402,6 +402,12 @@ type flowTasks struct {
 }
 
 func (f *flowTasks) InsertTask(_ context.Context, in repo.TaskInsert) (bool, error) {
+	// 与唯一幂等键索引一致：同键已存在时不再插入（返回 inserted=false）。
+	for _, existing := range f.inserted {
+		if existing.IdempotencyKey == in.IdempotencyKey {
+			return false, nil
+		}
+	}
 	f.inserted = append(f.inserted, in)
 	if f.insertErr != nil {
 		return false, f.insertErr
@@ -791,21 +797,23 @@ func notFoundError(message string) error {
 // ===== 组合夹具 =====
 
 type flowFixture struct {
-	clk      *clock.Fake
-	ids      *fakeIDs
-	tx       *fakeTx
-	content  *flowContent
-	social   *flowSocial
-	ai       *flowAI
-	users    *flowUsers
-	tasks    *flowTasks
-	counters *flowCounters
-	jobs     *flowJobs
-	callLogs *flowCallLogs
-	settings *flowSettings
-	audit    *flowAudit
-	notices  *flowNotices
-	svc      *Service
+	clk         *clock.Fake
+	ids         *fakeIDs
+	tx          *fakeTx
+	content     *flowContent
+	social      *flowSocial
+	ai          *flowAI
+	users       *flowUsers
+	tasks       *flowTasks
+	counters    *flowCounters
+	jobs        *flowJobs
+	callLogs    *flowCallLogs
+	settings    *flowSettings
+	audit       *flowAudit
+	notices     *flowNotices
+	groups      *flowGroups
+	groupWriter *flowGroupWriter
+	svc         *Service
 }
 
 func newFlowFixture() *flowFixture {
@@ -838,6 +846,12 @@ func newFlowFixture() *flowFixture {
 		settings: &flowSettings{fakeSettings: &fakeSettings{values: contracts.SystemSettings{AIGlobalEnabled: true}}},
 		audit:    &flowAudit{fakeAudit: &fakeAudit{}},
 		notices:  &flowNotices{},
+		groups: &flowGroups{
+			members:  map[string]bool{},
+			snapshots: map[int64]contracts.GroupSnapshot{},
+			groupsOf: map[int64][]int64{},
+		},
+		groupWriter: &flowGroupWriter{},
 	}
 	f.svc = New(Deps{
 		Clock:          f.clk,
@@ -852,12 +866,55 @@ func newFlowFixture() *flowFixture {
 		AI:             f.ai,
 		Notices:        f.notices,
 		Users:          f.users,
+		Groups:         f.groups,
+		GroupWriter:    f.groupWriter,
 		Jobs:           f.jobs,
 		Audit:          f.audit,
 		Settings:       f.settings,
 		SettingsWriter: f.settings,
 	})
 	return f
+}
+
+// ===== 群聊端口 fake（contracts.GroupReader / contracts.GroupMessageWriter）=====
+
+type flowGroups struct {
+	contracts.GroupReader
+	members   map[string]bool                  // "groupID:userID" → 是否有效成员
+	snapshots map[int64]contracts.GroupSnapshot // groupID → 快照
+	groupsOf  map[int64][]int64                 // userID → 群 ID 列表
+}
+
+func (f *flowGroups) IsMemberActive(_ context.Context, groupID, userID int64) (bool, error) {
+	return f.members[apiID(groupID)+":"+apiID(userID)], nil
+}
+
+func (f *flowGroups) Snapshot(_ context.Context, groupID, _ int64, _ int) (contracts.GroupSnapshot, error) {
+	snapshot, ok := f.snapshots[groupID]
+	if !ok {
+		return contracts.GroupSnapshot{}, apperr.NotFound("群聊不存在")
+	}
+	return snapshot, nil
+}
+
+func (f *flowGroups) ListActiveGroupIDs(_ context.Context, userID int64) ([]int64, error) {
+	return f.groupsOf[userID], nil
+}
+
+type flowGroupWriter struct {
+	contracts.GroupMessageWriter
+	writes []contracts.GroupMessageInput
+	nextID int64
+	err    error
+}
+
+func (f *flowGroupWriter) WriteFromAI(_ context.Context, in contracts.GroupMessageInput) (int64, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+	f.nextID++
+	f.writes = append(f.writes, in)
+	return f.nextID, nil
 }
 
 // enableAI 准备一个启用中的 AI 账号与运行时配置。

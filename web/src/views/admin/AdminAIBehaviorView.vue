@@ -27,6 +27,7 @@ const RATE_LIMIT_FIELDS: RateLimitField[] = [
   { key: 'daily_unfollow', label: '取关' },
   { key: 'daily_repost', label: '转发' },
   { key: 'daily_quote', label: '引用' },
+  { key: 'daily_group_message', label: '群聊发言' },
   { key: 'daily_total', label: '每日总动作' },
 ]
 
@@ -43,6 +44,7 @@ const form = reactive({
   allow_repost: false,
   allow_quote: false,
   allow_web_search: false,
+  allow_group_message: false,
   candidate_scope_type: 'none' as ScopeType,
   scope_tags: '',
   scope_usernames: '',
@@ -54,6 +56,7 @@ const form = reactive({
   /** 定时策略：单位为分钟，0 表示关闭（保存在 behavior.schedule JSON 中） */
   post_interval_minutes: 0 as number | null,
   proactive_interval_minutes: 0 as number | null,
+  group_message_interval_minutes: 0 as number | null,
 })
 
 const rateLimits = reactive<Record<string, number | null>>({})
@@ -95,6 +98,7 @@ async function load(): Promise<void> {
     form.allow_repost = behavior.allow_repost
     form.allow_quote = behavior.allow_quote
     form.allow_web_search = behavior.allow_web_search
+    form.allow_group_message = behavior.allow_group_message
     form.candidate_scope_type = behavior.candidate_scope_type
     form.scope_tags = (behavior.candidate_scope_params.tags ?? []).join(', ')
     form.scope_usernames = (behavior.candidate_scope_params.usernames ?? []).join(', ')
@@ -106,6 +110,7 @@ async function load(): Promise<void> {
     loadedSchedule.value = { ...(behavior.schedule ?? {}) }
     form.post_interval_minutes = scheduleNumber(loadedSchedule.value, 'post_interval_minutes') ?? 0
     form.proactive_interval_minutes = scheduleNumber(loadedSchedule.value, 'proactive_interval_minutes') ?? 0
+    form.group_message_interval_minutes = scheduleNumber(loadedSchedule.value, 'group_message_interval_minutes') ?? 0
     for (const field of RATE_LIMIT_FIELDS) {
       const value = behavior.rate_limits[field.key]
       rateLimits[field.key] = typeof value === 'number' ? value : null
@@ -160,9 +165,13 @@ async function onSubmit(): Promise<void> {
   if (end !== undefined && (end < 0 || end > 23)) next.active_hours_end = '活跃结束时间需在 0-23 之间'
   const postInterval = optionalNumber(form.post_interval_minutes)
   const proactiveInterval = optionalNumber(form.proactive_interval_minutes)
+  const groupInterval = optionalNumber(form.group_message_interval_minutes)
   if (postInterval !== undefined && postInterval < 0) next.post_interval_minutes = '发帖间隔不能为负数'
   if (proactiveInterval !== undefined && proactiveInterval < 0) {
     next.proactive_interval_minutes = '主动互动间隔不能为负数'
+  }
+  if (groupInterval !== undefined && groupInterval < 0) {
+    next.group_message_interval_minutes = '群聊发言间隔不能为负数'
   }
   fieldErrorsMap.value = next
   saveError.value = ''
@@ -179,10 +188,11 @@ async function onSubmit(): Promise<void> {
     if (value !== undefined) limits[field.key] = value
   }
 
-  // 只覆盖两个间隔字段，保留 schedule 中的其他 JSON 字段
+  // 只覆盖三个间隔字段，保留 schedule 中的其他 JSON 字段
   const schedule: Record<string, unknown> = { ...loadedSchedule.value }
   schedule.post_interval_minutes = postInterval ?? 0
   schedule.proactive_interval_minutes = proactiveInterval ?? 0
+  schedule.group_message_interval_minutes = groupInterval ?? 0
 
   const payload: Partial<AIBehavior> = {
     allow_original_post: form.allow_original_post,
@@ -194,6 +204,7 @@ async function onSubmit(): Promise<void> {
     allow_repost: form.allow_repost,
     allow_quote: form.allow_quote,
     allow_web_search: form.allow_web_search,
+    allow_group_message: form.allow_group_message,
     candidate_scope_type: form.candidate_scope_type,
     candidate_scope_params: scopeParams,
     allow_ai_to_ai: form.allow_ai_to_ai,
@@ -285,6 +296,15 @@ async function onSubmit(): Promise<void> {
             无法读取全局网页搜索配置状态：{{ webSearchConfigError }}
           </AlertNote>
 
+          <h3 class="mx-0 mb-[6px] mt-[22px] text-[14px] font-extrabold">群聊</h3>
+          <p :class="[ui.muted, 'm-0 mb-3']">
+            AI 账号可被拉入群聊；开启「群聊发言」后才能在群里说话。被 @ 时的回复还需要「被动回复」开关；自主发言按下方的间隔执行（0 关闭）。群聊内容仅作为发言时的上下文，不进入记忆。
+          </p>
+          <label :class="ui.switch">
+            <input v-model="form.allow_group_message" :class="ui.switchInput" type="checkbox" :disabled="saving" />
+            <span>允许群聊发言</span>
+          </label>
+
           <h3 class="mx-0 mb-[6px] mt-[22px] text-[14px] font-extrabold">定时策略</h3>
           <p :class="[ui.muted, 'm-0 mb-3']">按分钟配置 AI 的自主节奏，0 表示关闭对应策略；修改后保存立即生效。</p>
 
@@ -321,6 +341,24 @@ async function onSubmit(): Promise<void> {
                 min="0"
                 step="1"
                 name="proactive_interval_minutes"
+                :disabled="saving"
+              />
+            </FormField>
+
+            <FormField
+              label="群聊发言间隔（分钟）"
+              input-id="behavior-group-interval"
+              :error="fieldErrorsMap.group_message_interval_minutes"
+              hint="自主群消息之间的最小间隔；0 关闭（被 @ 回复不受此间隔限制）"
+            >
+              <input
+                id="behavior-group-interval"
+                v-model.number="form.group_message_interval_minutes"
+                :class="ui.input"
+                type="number"
+                min="0"
+                step="1"
+                name="group_message_interval_minutes"
                 :disabled="saving"
               />
             </FormField>

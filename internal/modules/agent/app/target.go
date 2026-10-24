@@ -5,6 +5,7 @@ import (
 
 	"github.com/great-magician-01/timeline/internal/modules/agent/domain"
 	"github.com/great-magician-01/timeline/internal/modules/agent/repo"
+	"github.com/great-magician-01/timeline/internal/platform/apperr"
 	"github.com/great-magician-01/timeline/internal/shared/contracts"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
@@ -101,6 +102,23 @@ func (s *Service) validateTarget(
 	switch decision.Action {
 	case domain.ActionOriginalPost:
 		return targetRef{}, "", nil
+	case domain.ActionGroupMessage:
+		// 群消息目标就是任务来源群：执行时重新授权成员资格与群状态
+		// （docs/REQUIREMENTS.md：任务执行时重新授权）。
+		if task.TriggerRefType != domain.RefGroup || task.TriggerRefID == nil {
+			return targetRef{}, "群聊任务缺少目标群", nil
+		}
+		if s.deps.Groups == nil {
+			return targetRef{}, "", apperr.Internal("群聊上下文依赖未装配")
+		}
+		member, err := s.deps.Groups.IsMemberActive(ctx, *task.TriggerRefID, rt.AIID)
+		if err != nil {
+			return targetRef{}, "", err
+		}
+		if !member {
+			return targetRef{}, "该 AI 已不是群成员", nil
+		}
+		return targetRef{Type: domain.RefGroup, ID: *task.TriggerRefID}, "", nil
 	case domain.ActionFollow, domain.ActionUnfollow:
 		targetID, err := domain.ParseTargetID(derefString(decision.TargetID))
 		if err != nil {

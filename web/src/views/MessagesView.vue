@@ -55,8 +55,13 @@ async function removeConversation(item: DMConversation): Promise<void> {
   <div :class="[ui.constrain]">
     <div :class="[ui.stack]">
       <section :class="[ui.card, ui.cardPad]">
-        <h1 :class="[ui.pageHead, ui.pageTitle]">私信</h1>
-        <p :class="[ui.pageDesc]">与其他用户一对一对话。你可以在账号设置中调整谁能给你发私信。</p>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h1 :class="[ui.pageHead, ui.pageTitle, 'mb-0!']">私信</h1>
+          <RouterLink :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" to="/groups">
+            <AppIcon name="users" :size="15" /> 群聊
+          </RouterLink>
+        </div>
+        <p :class="[ui.pageDesc]">与其他用户一对一对话。你可以在账号设置中调整谁能给你发私信；多人对话请使用群聊。</p>
       </section>
 
       <AlertNote v-if="actionError" kind="error">{{ actionError }}</AlertNote>

@@ -117,6 +117,24 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '私信对话', requiresAuth: true },
   },
   {
+    path: '/groups',
+    name: 'groups',
+    component: () => import('../views/GroupsView.vue'),
+    meta: { title: '群聊', requiresAuth: true },
+  },
+  {
+    path: '/groups/:groupId',
+    name: 'group-thread',
+    component: () => import('../views/GroupThreadView.vue'),
+    meta: { title: '群聊对话', requiresAuth: true },
+  },
+  {
+    path: '/groups/:groupId/members',
+    name: 'group-members',
+    component: () => import('../views/GroupMembersView.vue'),
+    meta: { title: '群成员', requiresAuth: true },
+  },
+  {
     path: '/login',
     name: 'login',
     component: () => import('../views/LoginView.vue'),

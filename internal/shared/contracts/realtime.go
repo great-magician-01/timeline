@@ -3,7 +3,7 @@ package contracts
 // RealtimePublisher 是向在线用户推送实时提示信号的窄端口。
 //
 // 实现方：组合根用 platform/eventbus 的进程内总线适配（单实例部署前提）；
-// 消费者：notice（通知写入）、dm（私信发送/撤回）。
+// 消费者：notice（通知写入）、dm（私信发送/撤回）、group（群聊发送/撤回/成员变更）。
 //
 // 事件只作提示信号、不携带内容载荷：客户端收到后通过常规只读接口自行拉取，
 // 可见性与数据一致性都由既有接口保证。在事务内调用时须经 db.AfterCommit 注册，
@@ -15,4 +15,8 @@ type RealtimePublisher interface {
 
 	// PublishDM 通知会话一方：会话有新消息或撤回，应重新拉取该会话。
 	PublishDM(userID, conversationID int64)
+
+	// PublishGroup 通知群成员：其所在的群有更新（新消息、撤回或成员变更），
+	// 应重新拉取群列表或该群会话。群 ID 复用事件载荷的会话 ID 字段。
+	PublishGroup(userID, groupID int64)
 }

@@ -21,6 +21,7 @@ var validRateLimitActions = map[string]bool{
 	"daily_unfollow":      true,
 	"daily_repost":        true,
 	"daily_quote":         true,
+	"daily_group_message": true,
 	"daily_total":         true,
 }
 
@@ -46,6 +47,7 @@ type BehaviorPatch struct {
 	AllowQuote           *bool
 	AllowAIToAI          *bool
 	AllowWebSearch       *bool
+	AllowGroupMessage    *bool
 	CandidateScopeType   *string
 	CandidateScopeParams json.RawMessage
 	RateLimits           json.RawMessage
@@ -88,6 +90,9 @@ func ApplyBehaviorPatch(base BehaviorSettings, in BehaviorPatch) BehaviorSetting
 	}
 	if in.AllowWebSearch != nil {
 		out.AllowWebSearch = *in.AllowWebSearch
+	}
+	if in.AllowGroupMessage != nil {
+		out.AllowGroupMessage = *in.AllowGroupMessage
 	}
 	if in.CandidateScopeType != nil {
 		out.CandidateScopeType = strings.TrimSpace(*in.CandidateScopeType)

@@ -44,6 +44,7 @@ func (s *Service) RunScheduler(ctx context.Context) {
 		}
 		s.scheduleOriginalPost(ctx, rt, now)
 		s.scheduleProactive(ctx, rt, now)
+		s.scheduleGroupMessage(ctx, rt, now)
 		s.scanMentionTriggers(ctx, rt, now)
 		s.scanCommentTriggers(ctx, rt, now)
 		// 调度巡检复核记忆来源：来源已删除/转非公开时停用相关记忆，避免继续注入上下文。
