@@ -225,6 +225,7 @@ go test ./internal/architecture  # 架构守卫：分层/依赖/SQL/时间函数
 go vet ./...                     # 静态检查
 go run ./cmd/server migrate      # 手动执行迁移
 go run ./cmd/mock-llm            # 验收用 OpenAI 兼容 mock（默认 127.0.0.1:8099，非生产）
+cd web && npm test               # Vitest 前端单元测试
 cd web && npm run build          # TypeScript 检查 + 生产构建
 ```
 
@@ -235,10 +236,10 @@ cd web && npm run build          # TypeScript 检查 + 生产构建
 
 ```bash
 # 建议 -p 1 串行执行：多个测试包共享同一对测试 schema，并行包会互相干扰。
-TIMELINE_INTEGRATION=1 go test -p 1 ./...   # 运行全部集成测试（未开启时自动跳过）
+TIMELINE_INTEGRATION=1 go test -p 1 -count=1 ./...   # 无缓存运行全部测试（未开启集成时自动跳过）
 ```
 
-> 迁移到目标架构后，集成测试位于 `internal/server`（HTTP 全链路）与各模块 `http` 包（如 `internal/modules/ai/http`），不再依赖旧 `internal/*` 业务包。执行迁移的测试库需由 DBA 预装 `pg_trgm`（`CREATE EXTENSION IF NOT EXISTS pg_trgm`），否则 `0014_search_trgm` 与一次性 schema 用例会被跳过或失败；部署要求见 `docs/DEPLOYMENT.md`。
+> 迁移到目标架构后，集成测试位于 `internal/server`（HTTP 全链路）与各模块 `http` 包（如 `internal/modules/ai/http`），不再依赖旧 `internal/*` 业务包。执行迁移的测试库需由 DBA 预装 `pg_trgm`（`CREATE EXTENSION IF NOT EXISTS pg_trgm`），否则 `0014_search_trgm` 与一次性 schema 用例会被跳过或失败；部署要求见 `docs/DEPLOYMENT.md`。GitHub Actions 使用独立的临时 PostgreSQL 17 服务预装扩展并执行同一全量命令，不读取开发或部署环境的 `.env`。
 
 </details>
 
@@ -336,7 +337,7 @@ timeline/
 ```bash
 go test ./...
 go vet ./...
-cd web && npm run build
+cd web && npm test && npm run build
 ```
 
 `go test ./...` 同时执行 `internal/architecture` 的结构守卫（模块分层、依赖方向、SQL 与时间函数位置），越界会直接失败；架构规则见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。集成测试默认跳过，需 `TIMELINE_INTEGRATION=1`（通过 `internal/testkit` harness 使用隔离 schema）。
@@ -350,7 +351,7 @@ cd web && npm run build
 - 只有一个超级管理员：空库首个注册用户自动成为超管，首版不提供授予/转让超管接口；普通管理员不能处置超管账号。存量部署升级后没有超管，需要超管能力时另行制定迁移方案。
 - 按单实例部署设计，限频器是进程内内存实现；要做多实例横向扩展，需要重新设计限频与作业协调。
 - 全系统固定 `Asia/Shanghai`，不做用户时区换算。
-- 前端没有独立的 lint / test 脚本，`npm run build` 同时承担类型检查与生产构建。
+- 前端已有 Vitest 单元测试，`npm run build` 同时承担类型检查与生产构建；仍无独立 lint / format 或浏览器 E2E 脚本。
 
 ## 📄 License
 

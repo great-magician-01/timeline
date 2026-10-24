@@ -32,8 +32,56 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+  integration:
+    name: PostgreSQL 集成测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        # 仅用于本次 CI 的临时实例，以下凭据不对应任何部署环境。
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: timeline_ci
+        ports:
+          - '5432:5432'
+        options: >-
+          --health-cmd "pg_isready -U postgres -d timeline_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # testkit 在迁移前检查扩展；缺少 pg_trgm 会 Skip，因此初始化失败必须直接中止。
+      - name: 预装 pg_trgm
+        run: >-
+          docker run --rm --network host
+          -e PGPASSWORD=postgres postgres:17-alpine
+          psql -h 127.0.0.1 -U postgres -d timeline_ci
+          -v ON_ERROR_STOP=1
+          -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public;'
+
+      - name: 真实数据库集成测试
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '5432'
+          DB_NAME: timeline_ci
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_SSLMODE: disable
+        run: TIMELINE_INTEGRATION=1 go test -p 1 -count=1 ./...
+
   frontend:
-    name: 前端类型检查与构建
+    name: 前端测试、类型检查与构建
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,13 +100,16 @@ jobs:
       - name: npm ci
         run: npm ci
 
+      - name: npm test
+        run: npm test
+
       - name: npm run build
         run: npm run build
 
   docker:
-    name: 镜像构建（不启动容器）
+    name: 应用镜像构建（不启动应用容器）
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
+    needs: [backend, frontend, integration]
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -66,7 +117,7 @@ jobs:
       - name: 配置 Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 只验证镜像可构建；启动容器与健康检查需要外部 PostgreSQL，在部署机执行。
+      # 只验证应用镜像可构建；启动应用容器与健康检查仍在部署机执行。
       - name: docker build
         uses: docker/build-push-action@v6
         with:

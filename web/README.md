@@ -7,6 +7,7 @@
 ```bash
 npm ci
 npm run dev       # Vite 开发服务器，/api 等路径代理到 localhost:5070
+npm test          # Vitest 单元测试
 npm run build     # vue-tsc 类型检查并构建到 dist
 npm run preview   # 预览构建产物
 ```
