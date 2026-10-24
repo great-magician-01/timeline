@@ -19,6 +19,8 @@ const (
 	KindNotification = "notification"
 	// KindDM 私信会话有更新（新消息或撤回），双方应重新拉取。
 	KindDM = "dm"
+	// KindGroup 群聊有更新（新消息、撤回或成员变更），成员应重新拉取。
+	KindGroup = "group"
 )
 
 // 连接与投递参数。v1 为代码常量不做配置化：SSE 连接是长寿命资源，
@@ -36,7 +38,7 @@ const (
 // Event 是推送给客户端的最小提示信号；不含任何内容载荷。
 type Event struct {
 	Kind string
-	// ConversationID 仅 Kind=DM 时有效；通知事件不携带载荷细节。
+	// ConversationID 仅 Kind=DM/Group 时有效（群聊为群 ID）；通知事件不携带载荷细节。
 	ConversationID int64
 }
 

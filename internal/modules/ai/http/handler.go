@@ -88,6 +88,7 @@ type behaviorInputDTO struct {
 	AllowQuote           *bool           `json:"allow_quote"`
 	AllowAIToAI          *bool           `json:"allow_ai_to_ai"`
 	AllowWebSearch       *bool           `json:"allow_web_search"`
+	AllowGroupMessage    *bool           `json:"allow_group_message"`
 	CandidateScopeType   *string         `json:"candidate_scope_type"`
 	CandidateScopeParams json.RawMessage `json:"candidate_scope_params"`
 	RateLimits           json.RawMessage `json:"rate_limits"`
@@ -111,6 +112,7 @@ func (in behaviorInputDTO) patch() domain.BehaviorPatch {
 		AllowQuote:           in.AllowQuote,
 		AllowAIToAI:          in.AllowAIToAI,
 		AllowWebSearch:       in.AllowWebSearch,
+		AllowGroupMessage:    in.AllowGroupMessage,
 		CandidateScopeType:   in.CandidateScopeType,
 		CandidateScopeParams: in.CandidateScopeParams,
 		RateLimits:           in.RateLimits,

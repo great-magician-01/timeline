@@ -27,6 +27,11 @@ func (f *fakeRealtime) PublishDM(userID, conversationID int64) {
 	f.dmConvIDs = append(f.dmConvIDs, conversationID)
 }
 
+func (f *fakeRealtime) PublishGroup(userID, groupID int64) {
+	_ = userID
+	_ = groupID
+}
+
 func (f *fakeIDs) Next() (int64, error) {
 	f.next++
 	return f.next, nil

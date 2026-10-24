@@ -213,6 +213,11 @@ func (f *fakeRealtime) PublishDM(userID, conversationID int64) {
 	f.dmConvIDs = append(f.dmConvIDs, conversationID)
 }
 
+func (f *fakeRealtime) PublishGroup(userID, groupID int64) {
+	_ = userID
+	_ = groupID
+}
+
 // fakeNotices 实现 app.NotificationRepo。
 type fakeNotices struct {
 	rows []model.Notification

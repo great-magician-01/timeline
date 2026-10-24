@@ -11,7 +11,7 @@ import (
 // allActions 是行为策略里全部可配置动作；用于遍历 ActionAllowed 的开关映射。
 var allActions = []string{
 	ActionOriginalPost, ActionComment, ActionReply, ActionLike, ActionUnlike,
-	ActionFollow, ActionUnfollow, ActionRepost, ActionQuote,
+	ActionFollow, ActionUnfollow, ActionRepost, ActionQuote, ActionGroupMessage,
 }
 
 // fullBehavior 返回所有动作都开启的行为策略。
@@ -25,6 +25,7 @@ func fullBehavior() contracts.BehaviorSettings {
 		AllowUnfollow:      true,
 		AllowRepost:        true,
 		AllowQuote:         true,
+		AllowGroupMessage:  true,
 	}
 }
 

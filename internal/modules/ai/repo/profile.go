@@ -131,13 +131,13 @@ func (s *Store) GetBehavior(ctx context.Context, aiID int64) (domain.BehaviorSet
 		       allow_follow, allow_unfollow, allow_repost, allow_quote,
 		       candidate_scope_type, candidate_scope_params, allow_ai_to_ai, rate_limits,
 		       cooldown_seconds, active_hours_start, active_hours_end, schedule,
-		       max_reply_depth, allow_web_search, updated_at
+		       max_reply_depth, allow_web_search, allow_group_message, updated_at
 		FROM ai_behavior_settings WHERE ai_id = $1`, aiID,
 	).Scan(&settings.AllowOriginalPost, &settings.AllowActiveComment, &settings.AllowPassiveReply,
 		&settings.AllowLike, &settings.AllowFollow, &settings.AllowUnfollow, &settings.AllowRepost,
 		&settings.AllowQuote, &settings.CandidateScopeType, &scopeParams, &settings.AllowAIToAI,
 		&rateLimits, &settings.CooldownSeconds, &settings.ActiveHoursStart, &settings.ActiveHoursEnd,
-		&schedule, &settings.MaxReplyDepth, &settings.AllowWebSearch, &updatedAt)
+		&schedule, &settings.MaxReplyDepth, &settings.AllowWebSearch, &settings.AllowGroupMessage, &updatedAt)
 	if err != nil {
 		return domain.BehaviorSettings{}, time.Time{}, normalizeNotFound(err)
 	}
@@ -154,8 +154,9 @@ func (s *Store) UpsertBehavior(ctx context.Context, aiID int64, settings domain.
 			ai_id, allow_original_post, allow_active_comment, allow_passive_reply, allow_like,
 			allow_follow, allow_unfollow, allow_repost, allow_quote, candidate_scope_type,
 			candidate_scope_params, allow_ai_to_ai, rate_limits, cooldown_seconds,
-			active_hours_start, active_hours_end, schedule, max_reply_depth, allow_web_search, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+			active_hours_start, active_hours_end, schedule, max_reply_depth, allow_web_search,
+			allow_group_message, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 		ON CONFLICT (ai_id) DO UPDATE SET
 			allow_original_post = EXCLUDED.allow_original_post,
 			allow_active_comment = EXCLUDED.allow_active_comment,
@@ -175,13 +176,14 @@ func (s *Store) UpsertBehavior(ctx context.Context, aiID int64, settings domain.
 			schedule = EXCLUDED.schedule,
 			max_reply_depth = EXCLUDED.max_reply_depth,
 			allow_web_search = EXCLUDED.allow_web_search,
+			allow_group_message = EXCLUDED.allow_group_message,
 			updated_at = EXCLUDED.updated_at`,
 		aiID, settings.AllowOriginalPost, settings.AllowActiveComment, settings.AllowPassiveReply,
 		settings.AllowLike, settings.AllowFollow, settings.AllowUnfollow, settings.AllowRepost,
 		settings.AllowQuote, settings.CandidateScopeType, domain.JSONOrEmpty(settings.CandidateScopeParams),
 		settings.AllowAIToAI, domain.JSONOrEmpty(settings.RateLimits), settings.CooldownSeconds,
 		settings.ActiveHoursStart, settings.ActiveHoursEnd, domain.JSONOrEmpty(settings.Schedule),
-		settings.MaxReplyDepth, settings.AllowWebSearch, at)
+		settings.MaxReplyDepth, settings.AllowWebSearch, settings.AllowGroupMessage, at)
 	return err
 }
 

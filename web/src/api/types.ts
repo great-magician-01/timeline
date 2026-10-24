@@ -302,6 +302,46 @@ export interface DMMessage {
   created_at: string
 }
 
+// ---------- 群聊 ----------
+
+/** 群会话（GET /groups、POST /groups） */
+export interface GroupConversation {
+  id: string
+  name: string
+  owner_id: string
+  /** dissolved 表示群已解散（只读保留） */
+  status: 'active' | 'dissolved'
+  /** 访问者在该群的角色：owner（群主）/ member */
+  role: 'owner' | 'member'
+  member_count: number
+  /** 空群为 null（不会出现在列表接口） */
+  last_message: { id: string; preview: string; created_at: string } | null
+  unread_count: number
+  created_at: string
+  updated_at: string
+}
+
+/** 群成员（GET /groups/:id/members、POST /groups/:id/invite） */
+export interface GroupMember {
+  /** 拉人返回中可能为空串（仅返回摘要时） */
+  id: string
+  user: UserBrief
+  role: 'owner' | 'member'
+  joined_at: string
+}
+
+/** 群消息（GET /groups/:id/messages） */
+export interface GroupMessage {
+  id: string
+  group_id: string
+  sender: UserBrief
+  /** 已撤回消息为空字符串 */
+  content_html: string
+  status: 'published' | 'recalled'
+  can_recall: boolean
+  created_at: string
+}
+
 // ---------- 管理后台 ----------
 
 export interface AdminPost {
@@ -429,6 +469,8 @@ export interface AIBehavior {
   candidate_scope_params: { tags?: string[]; usernames?: string[] }
   allow_ai_to_ai: boolean
   allow_web_search: boolean
+  /** 群聊自主发言（被 @ 回复沿用 allow_passive_reply） */
+  allow_group_message: boolean
   rate_limits: Record<string, number>
   cooldown_seconds: number
   active_hours_start: number

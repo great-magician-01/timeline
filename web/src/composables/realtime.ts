@@ -1,19 +1,22 @@
 // SSE 实时提示信号（docs/REQUIREMENTS.md）：登录后连接 GET /api/v1/events，
-// 事件只携带种类（notification/dm）与私信会话 ID，不携带内容载荷；
+// 事件只携带种类（notification/dm/group）与会话/群 ID，不携带内容载荷；
 // 收到信号后复用各 store 的既有只读接口拉取，可见性与一致性由服务端保证。
 // 现有轮询保留为降级兜底：连接失败或断开期间数据仍按 30s 轮询刷新。
 import { readonly, ref } from 'vue'
 import { refreshDMUnreadCount } from '../stores/messages'
+import { refreshGroupUnreadCount } from '../stores/groups'
 import { refreshUnreadCount } from '../stores/notifications'
 
 export interface RealtimeSignal {
-  kind: 'notification' | 'dm'
+  kind: 'notification' | 'dm' | 'group'
   conversationId: string | null
 }
 
-// 对话页等局部视图按会话 ID 订阅私信信号；回调注册表代替引入事件库
+// 对话页等局部视图按会话/群 ID 订阅私信与群聊信号；回调注册表代替引入事件库
 type DMListener = (signal: RealtimeSignal) => void
 const dmListeners = new Set<DMListener>()
+type GroupListener = (signal: RealtimeSignal) => void
+const groupListeners = new Set<GroupListener>()
 
 const connected = ref(false)
 let source: EventSource | null = null
@@ -27,20 +30,25 @@ export function onDMSignal(listener: DMListener): () => void {
   }
 }
 
+/** 订阅群聊信号（新消息/撤回/成员变更）；返回取消函数。 */
+export function onGroupSignal(listener: GroupListener): () => void {
+  groupListeners.add(listener)
+  return () => {
+    groupListeners.delete(listener)
+  }
+}
+
 export const realtimeConnected = readonly(connected)
 
-function dispatch(kind: RealtimeSignal['kind'], data: string): void {
-  let conversationId: string | null = null
-  if (data) {
-    try {
-      const payload = JSON.parse(data) as { conversation_id?: string }
-      conversationId = payload.conversation_id ?? null
-    } catch {
-      // 载荷异常时仍按无会话信号处理
-    }
+function parseConversationId(data: string): string | null {
+  if (!data) return null
+  try {
+    const payload = JSON.parse(data) as { conversation_id?: string }
+    return payload.conversation_id ?? null
+  } catch {
+    // 载荷异常时仍按无会话信号处理
+    return null
   }
-  const signal: RealtimeSignal = { kind, conversationId }
-  for (const listener of dmListeners) listener(signal)
 }
 
 /** 建立 SSE 连接；重复调用安全。仅登录用户有意义（服务端 Login 策略）。 */
@@ -58,7 +66,12 @@ export function startRealtime(): void {
   current.addEventListener('dm', (event) => {
     const data = 'data' in event ? String((event as MessageEvent).data) : ''
     void refreshDMUnreadCount()
-    dispatch('dm', data)
+    dispatch(dmListeners, 'dm', data)
+  })
+  current.addEventListener('group', (event) => {
+    const data = 'data' in event ? String((event as MessageEvent).data) : ''
+    void refreshGroupUnreadCount()
+    dispatch(groupListeners, 'group', data)
   })
   current.onerror = () => {
     connected.value = false
@@ -66,6 +79,15 @@ export function startRealtime(): void {
     // 会话过期等永久失败会关闭（CLOSED），此时停止避免无效重试，轮询兜底。
     if (current.readyState === EventSource.CLOSED) stopRealtime()
   }
+}
+
+function dispatch(
+  listeners: Set<(signal: RealtimeSignal) => void>,
+  kind: RealtimeSignal['kind'],
+  data: string,
+): void {
+  const signal: RealtimeSignal = { kind, conversationId: parseConversationId(data) }
+  for (const listener of listeners) listener(signal)
 }
 
 /** 关闭 SSE 连接；登出或会话过期时由 App 调用。 */

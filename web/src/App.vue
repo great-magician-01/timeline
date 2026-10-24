@@ -9,6 +9,7 @@ import ThemePicker from './components/ThemePicker.vue'
 import { authState } from './stores/auth'
 import { startRealtime, stopRealtime } from './composables/realtime'
 import { messageState, startMessagePolling, stopMessagePolling } from './stores/messages'
+import { groupState, startGroupPolling, stopGroupPolling } from './stores/groups'
 import { notificationState, startNotificationPolling, stopNotificationPolling } from './stores/notifications'
 import { registrationOpen } from './stores/site'
 
@@ -20,7 +21,7 @@ interface NavEntry {
 
 const route = useRoute()
 
-// 通知与私信未读轮询只对登录用户开启（两个独立接口、独立徽章）；
+// 通知、私信与群聊未读轮询只对登录用户开启（三个独立接口、独立徽章）；
 // SSE 实时信号与轮询并存：信号降低延迟，轮询作为断线兜底
 watch(
   () => authState.user?.id,
@@ -28,10 +29,12 @@ watch(
     if (id) {
       startNotificationPolling()
       startMessagePolling()
+      startGroupPolling()
       startRealtime()
     } else {
       stopNotificationPolling()
       stopMessagePolling()
+      stopGroupPolling()
       stopRealtime()
     }
   },
@@ -40,13 +43,15 @@ watch(
 onUnmounted(() => {
   stopNotificationPolling()
   stopMessagePolling()
+  stopGroupPolling()
   stopRealtime()
 })
 
-/** 主导航未读徽章：通知与私信各自独立 */
+/** 主导航未读徽章：通知、私信与群聊各自独立 */
 function navBadge(to: string): number {
   if (to === '/notifications') return notificationState.unread
   if (to === '/messages') return messageState.unread
+  if (to === '/groups') return groupState.unread
   return 0
 }
 
@@ -65,6 +70,7 @@ const mainNav = computed<NavEntry[]>(() => {
       { label: '发布', to: '/compose', icon: 'pencil' },
       { label: '通知', to: '/notifications', icon: 'bell' },
       { label: '私信', to: '/messages', icon: 'message' },
+      { label: '群聊', to: '/groups', icon: 'users' },
       { label: '关注申请', to: '/follow-requests', icon: 'user-plus' },
       { label: '我的收藏', to: '/bookmarks', icon: 'bookmark' },
       { label: '草稿', to: '/drafts', icon: 'file-text' },
@@ -110,6 +116,7 @@ const tabNav = computed<NavEntry[]>(() => {
     { label: '通知', to: '/notifications', icon: 'bell' },
     { label: '私信', to: '/messages', icon: 'message' },
   ]
+  // 底部标签栏最多 6 项：群聊入口并入私信页顶部的次级导航，移动端从侧栏进入
   if (isAdmin.value) items.push({ label: '管理', to: '/admin/overview', icon: 'shield' })
   return items
 })

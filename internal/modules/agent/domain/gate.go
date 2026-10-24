@@ -28,6 +28,10 @@ func ActionAllowed(behavior contracts.BehaviorSettings, action string) bool {
 		return behavior.AllowRepost
 	case ActionQuote:
 		return behavior.AllowQuote
+	case ActionGroupMessage:
+		// 群聊发言独立开关：自主群发言按 allow_group_message 判断；
+		// 被 @ 回复在 ActionAllowedForTrigger 叠加 allow_passive_reply。
+		return behavior.AllowGroupMessage
 	case ActionNoop:
 		return true
 	default:
@@ -39,6 +43,7 @@ func ActionAllowed(behavior contracts.BehaviorSettings, action string) bool {
 //   - 被提及与收到新评论时发表的评论属于“被动回复”，按 allow_passive_reply 判断；
 //   - 主动浏览候选内容时发表的评论属于“主动评论”，按 allow_active_comment 判断；
 //   - 回复（reply）始终按 allow_passive_reply 判断；
+//   - 群消息 @提及 触发的 group_message 属于被动行为（需同时开启群聊发言与被动回复）；
 //   - 定时原创只允许原创/引用，主动互动只允许在候选范围内可执行的动作。
 func ActionAllowedForTrigger(behavior contracts.BehaviorSettings, trigger, action string) bool {
 	switch action {
@@ -51,6 +56,10 @@ func ActionAllowedForTrigger(behavior contracts.BehaviorSettings, trigger, actio
 		}
 	case ActionReply:
 		return behavior.AllowPassiveReply
+	case ActionGroupMessage:
+		// 被 @ 回复属于被动行为；自主群发言在调度侧直接检查 AllowGroupMessage
+		// （proactive 触发的群消息不经此处投递）。
+		return behavior.AllowPassiveReply && behavior.AllowGroupMessage
 	}
 	if !ActionAllowed(behavior, action) {
 		return false

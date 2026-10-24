@@ -114,6 +114,10 @@ type Deps struct {
 	AI      AIService
 	Notices contracts.NoticeService
 	Users   contracts.UserReader
+	// Groups 读取群聊上下文与成员资格（group 实现）；GroupWriter 代发群消息。
+	// 群聊任务（@提及/自主发言）执行时依赖；未注入时群聊任务按配置错误拒绝。
+	Groups      contracts.GroupReader
+	GroupWriter contracts.GroupMessageWriter
 
 	Jobs  contracts.JobsQueue
 	Audit contracts.AuditWriter

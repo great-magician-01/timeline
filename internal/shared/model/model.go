@@ -80,6 +80,24 @@ const (
 	DMMessageStatusRecalled  = "recalled"
 )
 
+// 群聊会话状态（与 group_conversations.status 的 CHECK 约束一致）。
+const (
+	GroupStatusActive    = "active"
+	GroupStatusDissolved = "dissolved"
+)
+
+// 群成员角色（与 group_members.role 的 CHECK 约束一致）。
+const (
+	GroupRoleOwner  = "owner"
+	GroupRoleMember = "member"
+)
+
+// 群消息状态（与 group_messages.status 的 CHECK 约束一致）。
+const (
+	GroupMessageStatusPublished = "published"
+	GroupMessageStatusRecalled  = "recalled"
+)
+
 // 通知类型（与 notices.type 的 CHECK 约束一致）。
 const (
 	NoticeTypePostLike      = "post_like"
@@ -367,3 +385,55 @@ func (m DMMessage) Recalled() bool { return m.Status == DMMessageStatusRecalled 
 
 // Read 表示接收方已读。
 func (m DMMessage) Read() bool { return m.ReadAt != nil }
+
+// GroupConversation 对应 timeline.group_conversations。OwnerID 是现任群主；
+// LastMessageID 为空表示尚无消息，兼作列表排序键；Dissolved 表示群已解散。
+type GroupConversation struct {
+	ID            int64
+	Name          string
+	OwnerID       int64
+	LastMessageID *int64
+	Status        string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// Dissolved 表示群已解散（只读保留，不能再发言或变更成员）。
+func (g GroupConversation) Dissolved() bool { return g.Status == GroupStatusDissolved }
+
+// GroupMember 对应 timeline.group_members。LeftAt 为空表示有效成员；
+// LastReadMessageID 是成员级已读游标；HiddenMessageID 是会话隐藏指针，
+// 群的 last_message_id 超过它时会话在列表重新出现。
+type GroupMember struct {
+	ID                int64
+	GroupID           int64
+	UserID            int64
+	Role              string
+	LastReadMessageID *int64
+	HiddenMessageID   *int64
+	JoinedAt          time.Time
+	LeftAt            *time.Time
+}
+
+// Active 表示该成员资格当前有效（未退出、未被移除）。
+func (m GroupMember) Active() bool { return m.LeftAt == nil }
+
+// IsOwner 表示该成员是群主。
+func (m GroupMember) IsOwner() bool { return m.Role == GroupRoleOwner }
+
+// GroupMessage 对应 timeline.group_messages；撤回只置 Status，正文列保留。
+type GroupMessage struct {
+	ID            int64
+	GroupID       int64
+	SenderID      int64
+	ContentFormat string
+	ContentSource string
+	ContentHTML   string
+	PlainText     string
+	Status        string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// Recalled 表示消息已被发送者撤回。
+func (m GroupMessage) Recalled() bool { return m.Status == GroupMessageStatusRecalled }

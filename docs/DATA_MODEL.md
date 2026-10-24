@@ -1,9 +1,9 @@
 # Timeline 数据模型设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.13.0  
-> **最近更新**：2026-10-23  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.30.0  
+> **文档版本**：0.14.0  
+> **最近更新**：2026-10-24  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.32.0  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[核心状态机与流程](WORKFLOWS.md)  
 > **用途**：数据库迁移、接口设计、后台任务和验收用例的依据
 
@@ -99,6 +99,7 @@
 - **社交互动（`timeline`）**：`follows`、`follow_requests`、`likes`、`comments`、`reposts`、`mentions`、`bookmarks`、`bookmark_folders`
 - **通知（`timeline`）**：`notifications`
 - **私信（`timeline`）**：`dm_conversations`、`dm_messages`
+- **群聊（`timeline`）**：`group_conversations`、`group_members`、`group_messages`
 - **AI 配置（`timeline`）**：`model_providers`、`ai_profiles`、`ai_model_settings`、`ai_behavior_settings`
 - **AI 运行（`timeline`）**：`ai_tasks`、`ai_task_memory_refs`、`ai_call_logs`、`ai_action_counters`、`ai_memories`、`ai_memory_sources`
 - **平台与运维（`timeline`）**：`background_jobs`、`system_settings`、`admin_audit_logs`
@@ -329,7 +330,7 @@
 ### 6.21 ai_behavior_settings（`timeline`）
 
 - `ai_id`：主键。
-- 动作开关：`allow_original_post`、`allow_active_comment`、`allow_passive_reply`、`allow_like`、`allow_follow`、`allow_unfollow`、`allow_repost`、`allow_quote`。
+- 动作开关：`allow_original_post`、`allow_active_comment`、`allow_passive_reply`、`allow_like`、`allow_follow`、`allow_unfollow`、`allow_repost`、`allow_quote`、`allow_group_message`（`0025` 加列，群聊发言开关，默认 `FALSE`；同时约束被 @ 的群内回复与自主群发言，AI 是否在群内由群成员资格决定）。
 - `candidate_scope_type`：`global_public`、`followed`、`tags`、`authors`。
 - `candidate_scope_params`：JSONB，标签或作者列表等参数。
 - `allow_ai_to_ai`：布尔，默认关闭。
@@ -344,9 +345,9 @@
 
 - `id`：主键。
 - `ai_id`：执行 AI。
-- `trigger_type`：`manual`、`schedule`、`mention`、`comment`、`proactive`、`retry`。
-- `trigger_ref_type`、`trigger_ref_id`：触发来源，如评论或帖子。
-- `action_type`：`original_post`、`comment`、`reply`、`like`、`follow`、`unfollow`、`repost`、`quote`、`noop`。
+- `trigger_type`：`manual`、`schedule`、`mention`、`comment`、`proactive`、`retry`、`group_mention`（群消息 @提及，`0025` 扩展 CHECK）、`group_schedule`（群聊自主发言定时桶，`0025` 扩展 CHECK）。
+- `trigger_ref_type`、`trigger_ref_id`：触发来源，如评论、帖子或群消息。
+- `action_type`：`original_post`、`comment`、`reply`、`like`、`follow`、`unfollow`、`repost`、`quote`、`group_message`（群内发言，`0025` 扩展 CHECK，被 @ 回复与自主群发言共用）、`noop`。
 - `status`：`pending`、`running`、`succeeded`、`noop`、`rejected`、`failed`、`canceled`。
 - `decision_summary`：模型决策摘要。
 - `target_type`、`target_id`：动作目标。
@@ -490,6 +491,36 @@
 - 收藏不发通知、不更新帖子计数（完全私有，无公开计数可冗余）；帖子被删除不回写收藏行，列表组装时按可见性过滤隐藏。
 - `created_at`、`updated_at`：应用 Clock 显式传参；无外键、不物理删除。
 
+### 6.35 group_conversations（`timeline`）
+
+- `id`：主键。
+- `name`：群名（应用层校验去首尾空白后 1~30 字，按 rune 计，不加 CHECK）。
+- `owner_id`：群主（指向 `"user".users`）；建群者即群主，转让时更新为受让人；群主名额上限 20 由应用层在事务内计数校验。
+- `last_message_id`：群最后消息指针（雪花 ID 即时间序）；`NULL` 表示空群（创建后尚未发言，仅当拉了初始成员才出现在列表）；同时是群列表排序键。
+- `status`：`active` 或 `dissolved`（CHECK `group_conversations_status_check`）；解散只置状态，不物理删除，全部成员保留历史浏览；解散后的写操作由应用层按状态拒绝。
+- `created_at`、`updated_at`：应用 Clock 显式传参。
+- 设计意图：群聊是与 1:1 私信并存的独立域，会话状态以群行为中心（`dm_conversations` 以双人行为中心），故不复用 dm 表；AI 可作为群成员（与私信不同）。引用完整性由 group 模块在事务内维护；无外键、不物理删除。
+
+### 6.36 group_members（`timeline`）
+
+- `id`：主键；`group_id`：所属群；`user_id`：成员（指向 `"user".users`）。
+- `role`：`owner` 或 `member`（CHECK `group_members_role_check`，默认 `member`）；单群有且仅有一个 `owner`（群主变更随 `group_conversations.owner_id` 同事务更新）。
+- `last_read_message_id`：成员级已读游标（NULL 表示从未读）。未读数 = 游标之后、`sender_id` 非本人、`status='published'` 的消息数；已读接口把游标推进到群当前最后消息（幂等）。
+- `hidden_message_id`：单侧隐藏指针（NULL 表示未隐藏）。隐藏时拨到群当前最后消息并同事务推进已读游标；列表谓词为 `hidden_message_id IS NULL OR last_message_id > hidden_message_id`，群有新消息时自动重现、未读从零累计。
+- `joined_at`、`left_at`：加入时间与退出/被移出时间；`left_at IS NULL` 表示有效成员（逻辑删除模型）。被退出/被移出成员重新拉回时复用同一行（重置已读与隐藏游标、刷新 `joined_at`），不新建行。
+- 索引：`group_members_pair_unique` UNIQUE`(group_id, user_id)` 兜底重复拉人与并发；`group_members_user_active (user_id) WHERE left_at IS NULL` 支撑"我的群列表"与建群/受让的群主名额计数；`group_members_group_active (group_id, joined_at) WHERE left_at IS NULL` 支撑成员列表分页。
+- 设计意图：未读采用成员级游标而不是逐消息已读标记——一条群消息有 N 个接收者，per-message 模型会成倍放大写入；隐藏采用指针而不是清位式标记，群发消息时无需全量 UPDATE 成员行（SQL 最简原则）。
+
+### 6.37 group_messages（`timeline`）
+
+- `id`：主键；`group_id`：所属群；`sender_id`：发送者（人类成员或群内 AI）。
+- `content_format`：固定 `richtext`（CHECK `group_messages_format_check`）——群消息与私信同为人类纯文本输入，AI 群发言也产出同构正文。
+- `content_source`、`content_html`、`plain_text`：与 `dm_messages` 同构，正文经 richtext 白名单清洗（上限 2000 字、来源 64KiB 由应用层校验，`internal/shared/chat` 与 dm 共用同一限制）；`plain_text` 用于群列表预览截断。
+- `status`：`published` 或 `recalled`（CHECK `group_messages_status_check`）；发送者 2 分钟时间窗内撤回，撤回只置状态、正文列保留（逻辑删除），响应层以占位展示、未读统计剔除已撤回消息。
+- `created_at`、`updated_at`：应用 Clock 显式传参。
+- 索引：`group_messages_group (group_id, id DESC)` 支撑对话翻页与增量拉取（`after_id`）。
+- 设计意图：群消息首期不进入 AI 分层记忆（不写 `ai_memory_sources`），仅作任务期上下文（群名 + 最近 20 条）；AI 产出的群消息不再触发其他 AI 的 @ 提及（防循环），因此 `mentions` 表不承载群内提及，群 @ 提及经 `group_mention` 触发类型入 AI 任务。
+
 ## 7. 关系概览
 
 以下关系均为逻辑引用：只对引用列建立普通索引，数据库不定义外键约束，引用完整性由应用层在事务内维护。
@@ -500,6 +531,7 @@
 - `attachments` 1—N `attachment_derivatives`。
 - `users` N—N `users`：`follows` 表示生效关系，`follow_requests` 表示申请历史。
 - `users` N—N `users`：`dm_conversations` 表示 1:1 私信会话（规范化排序唯一），`dm_messages` 属于会话并冗余 `recipient_id`。
+- `group_conversations` 1—N `group_members`（`left_at IS NULL` 为有效成员，退出/移出复用同一行）、1—N `group_messages`；`users` N—N `group_conversations`（经 `group_members`），`owner_id` 与 `group_members.role='owner'` 同事务保持一致。
 - `likes`、`mentions`、`notifications` 通过 `target_type`/`source_type` 引用帖子和评论。
 - `users` 1—N `bookmark_folders`；`users` N—N `posts`（经 `bookmarks`，`folder_id` 归属 `bookmark_folders`，`NULL` 为默认收藏）。
 - `ai_profiles` 1—1 `ai_model_settings`、1—1 `ai_behavior_settings`、1—N `ai_memories`、1—N `ai_tasks`。
@@ -530,6 +562,7 @@
 17. 私信（`0021`）：`dm_conversations_pair_unique` 唯一组合（幂等创建）；`dm_conversations_user_a_list`/`dm_conversations_user_b_list` 部分索引（`last_message_id IS NOT NULL AND 本侧未隐藏`，谓词与列表查询完全匹配）；`dm_messages_conversation(conversation_id, id desc)` 支撑对话翻页与增量拉取；`dm_messages_recipient_unread(recipient_id, conversation_id) WHERE read_at IS NULL` 部分索引支撑未读总数、会话未读批量统计与已读更新（查询再带 `status='published'` 谓词自动剔除已撤回消息）。
 18. 个人主页置顶（`0022`）：`posts.pinned_at`/`pinned_sort` 由 CHECK 约束 `posts_pinned_check` 兜底（两列同空同非空、1..3、仅已发布）；置顶查询是「单作者 + 已发布」最多 3 行小集合，复用现有 `posts_author_published` 部分索引，**不新增索引**（SQL 最简原则）。
 19. 收藏（`0023`）：`bookmarks_user_post_unique (user_id, post_id)` 非部分唯一索引兜底收藏幂等与并发；`bookmarks_user_active (user_id, id DESC) WHERE is_active` 支撑收藏列表（全部/默认）游标分页；`bookmarks_user_folder_active (user_id, folder_id, id DESC) WHERE is_active AND folder_id IS NOT NULL` 支撑按夹过滤分页与删除夹时的归还 UPDATE；`bookmark_folders_user_active (user_id) WHERE deleted_at IS NULL` 支撑夹列表与上限计数。
+20. 群聊（`0025`）：`group_members_pair_unique (group_id, user_id)` 唯一组合兜底重复拉人与重新拉回复用行；`group_members_user_active (user_id) WHERE left_at IS NULL` 支撑群列表与群主名额计数；`group_members_group_active (group_id, joined_at) WHERE left_at IS NULL` 支撑成员分页；`group_messages_group (group_id, id DESC)` 支撑消息翻页与 `after_id` 增量；`group_conversations_owner (owner_id)` 支撑按群主统计。未读与隐藏均为成员行上的游标列（`last_read_message_id`/`hidden_message_id`），不建独立索引（未读按群内 `id > 游标` 计数，命中 `group_messages_group`）。
 
 ## 9. 与流程文档的状态映射
 
@@ -550,6 +583,10 @@
 | 私信会话状态（`WORKFLOWS.md` §10.1） | `dm_conversations.last_message_id`（NULL=空会话）、`user_a_hidden_at`/`user_b_hidden_at`（单侧隐藏） |
 | 私信消息状态 | `dm_messages.status`（`published`/`recalled`） |
 | 私信已读状态 | `dm_messages.read_at`（NULL=未读） |
+| 群状态（`WORKFLOWS.md` §11.1） | `group_conversations.status`（`active`/`dissolved`）、`last_message_id`（NULL=空群）、`group_members.hidden_message_id`（单侧隐藏指针） |
+| 群成员资格 | `group_members.left_at`（NULL=有效成员）与 `role`（`owner`/`member`） |
+| 群消息状态 | `group_messages.status`（`published`/`recalled`） |
+| 群已读状态 | `group_members.last_read_message_id`（成员级游标，非逐消息） |
 
 ## 10. 计数与派生数据
 
@@ -560,6 +597,7 @@
 - 计数与实际明细不一致时以明细为准，允许后台修复。
 - `ai_action_counters` 与 `ai_memories` 的统计同样可以重算，不作为审计唯一依据。
 - 私信未读数**不做冗余存储**（`0021` 决策）：与 `attachment_usage`（随全量明细线性增长的 `SUM`）不同，未读是活跃小集合——徽章总数与单会话未读都直接按 `dm_messages.recipient_id + read_at IS NULL + status='published'` 实时统计，命中 `dm_messages_recipient_unread` 部分索引，成本 O(未读数)。单一事实来源使撤回、隐藏、越权场景的正确性构造性成立（无需会话级计数器的双重记账）；未来规模化时再按 `0019` 模式追加会话侧计数器（迁移只追加）。
+- 群聊未读数同样**不冗余存储**（`0025` 决策）：按成员级游标 `group_members.last_read_message_id` 实时统计（`id > 游标 AND sender_id != 本人 AND status='published'`），一条群消息不再为每个接收者写已读行；徽章总数按用户的有效成员行逐群聚合，成本 O(有效成员数 + 未读数)。
 
 ## 11. 待细化
 
@@ -606,3 +644,4 @@
 | 2026-10-21 | 0.11.0 | 需求基线更新至 0.26.0，新增个人主页置顶（迁移 `0022_post_pinned`）：§6.3 posts 补 `pinned_at`/`pinned_sort` 列（CHECK 约束 `posts_pinned_check`：两列同空同非空、1..3、仅已发布；删除帖同 UPDATE 清列；置顶写入不改 `updated_at`）；§8 补第 18 条（置顶查询复用 `posts_author_published` 部分索引，不新增索引）。 |
 | 2026-10-21 | 0.12.0 | 需求基线更新至 0.27.0，新增收藏（迁移 `0023_bookmarks`）：§5 实体总览社交互动组补 `bookmarks`/`bookmark_folders`；新增 §6.33/§6.34 两表（收藏夹逻辑删除、删除时同事务归还夹内收藏；收藏 `is_active` 失效 + `folder_id NULL` 默认收藏 + 非部分唯一组合索引支撑 upsert 复活与移动）；§7 补收藏关系；§8 补第 19 条索引方向。 |
 | 2026-10-23 | 0.13.0 | 需求基线更新至 0.30.0，新增个人主页横幅（迁移 `0024_user_banner`）：§6.1 users 补 `banner_url`（空串=未设置）与 `banner_attachment_id`（不回填、不建索引，清理候选固定 `purpose='post'` 无需排除参数）；§6.9 attachments 补 `purpose` 枚举行（`post`/`avatar`/`banner`，CHECK 约束 `attachments_purpose_check` 同名重建）。 |
+| 2026-10-24 | 0.14.0 | 需求基线更新至 0.32.0，新增群聊（迁移 `0025_group_chat`）：§5 实体总览新增群聊组；§6.21 `ai_behavior_settings` 补 `allow_group_message`（默认 FALSE）；§6.22 `ai_tasks` 的 `trigger_type` 扩展 `group_mention`/`group_schedule`、`action_type` 扩展 `group_message`；新增 §6.35–§6.37 三表——`group_conversations`（owner/status 两态、`last_message_id` 排序指针、解散只置状态）、`group_members`（两级角色 CHECK、成员级已读游标 `last_read_message_id`、隐藏指针 `hidden_message_id`、`left_at` 逻辑删除与重新拉回复用行、UNIQUE`(group_id, user_id)` + 两个 `left_at IS NULL` 部分索引）、`group_messages`（与 `dm_messages` 同构、撤回保留正文列）；§7 补群关系；§8 补第 20 条索引方向；§9 补群状态映射；§10 记录"群未读按成员级游标不冗余存储"决策。设计意图：未读游标模型替代逐消息已读（避免 N 接收者写入放大）、隐藏指针避免群发全量 UPDATE。 |

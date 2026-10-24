@@ -29,6 +29,10 @@ const (
 	TriggerComment   = "comment"
 	TriggerProactive = "proactive"
 	TriggerRetry     = "retry"
+	// TriggerGroupMention 群消息 @提及 触发（group app 提交后经端口投递）。
+	TriggerGroupMention = "group_mention"
+	// TriggerGroupSchedule 群聊自主发言的定时触发（独立于主动互动的间隔桶）。
+	TriggerGroupSchedule = "group_schedule"
 )
 
 // AI 可执行动作（与 ai_tasks.action_type 一致）。
@@ -43,6 +47,8 @@ const (
 	ActionRepost       = "repost"
 	ActionQuote        = "quote"
 	ActionNoop         = "noop"
+	// ActionGroupMessage 群聊发言：被 @ 回复与自主群发言共用（产出落到群消息）。
+	ActionGroupMessage = "group_message"
 )
 
 // 结果/目标引用类型。
@@ -52,6 +58,7 @@ const (
 	RefUser    = "user"
 	RefTask    = "ai_task"
 	RefAI      = "ai"
+	RefGroup   = "group"
 )
 
 // 任务失败类型（写入 ai_tasks.error 的前缀）。
@@ -98,7 +105,7 @@ var ErrInvalidDecision = errors.New("模型输出不是合法决策")
 func ValidAction(action string) bool {
 	switch action {
 	case ActionOriginalPost, ActionComment, ActionReply, ActionLike, ActionUnlike,
-		ActionFollow, ActionUnfollow, ActionRepost, ActionQuote, ActionNoop:
+		ActionFollow, ActionUnfollow, ActionRepost, ActionQuote, ActionNoop, ActionGroupMessage:
 		return true
 	default:
 		return false
@@ -108,7 +115,8 @@ func ValidAction(action string) bool {
 // ValidTrigger 判断触发类型是否合法。
 func ValidTrigger(trigger string) bool {
 	switch trigger {
-	case TriggerManual, TriggerSchedule, TriggerMention, TriggerComment, TriggerProactive, TriggerRetry:
+	case TriggerManual, TriggerSchedule, TriggerMention, TriggerComment, TriggerProactive, TriggerRetry,
+		TriggerGroupMention, TriggerGroupSchedule:
 		return true
 	default:
 		return false
@@ -153,7 +161,7 @@ func ParseDecision(raw string) (Decision, error) {
 	}
 	// 只有产出正文的动作要求内容非空；点赞/关注等动作允许 content 为空。
 	switch decision.Action {
-	case ActionOriginalPost, ActionComment, ActionReply, ActionQuote:
+	case ActionOriginalPost, ActionComment, ActionReply, ActionQuote, ActionGroupMessage:
 		if strings.TrimSpace(decision.Content) == "" {
 			return Decision{}, ErrInvalidDecision
 		}
@@ -186,12 +194,12 @@ func DecisionSchema() map[string]any {
 				"type": "string",
 				"enum": []string{
 					ActionOriginalPost, ActionComment, ActionReply, ActionLike, ActionUnlike,
-					ActionFollow, ActionUnfollow, ActionRepost, ActionQuote, ActionNoop,
+					ActionFollow, ActionUnfollow, ActionRepost, ActionQuote, ActionNoop, ActionGroupMessage,
 				},
 			},
 			"content":     map[string]any{"type": "string"},
 			"reason":      map[string]any{"type": "string"},
-			"target_type": map[string]any{"type": "string", "enum": []string{RefPost, RefComment, RefUser, ""}},
+			"target_type": map[string]any{"type": "string", "enum": []string{RefPost, RefComment, RefUser, RefGroup, ""}},
 			"target_id":   map[string]any{"type": []string{"string", "null"}},
 		},
 		"required":             []string{"action", "content", "reason"},

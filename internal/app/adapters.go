@@ -105,6 +105,13 @@ func (a realtimeAdapter) PublishDM(userID, conversationID int64) {
 	a.broker.Publish(userID, eventbus.Event{Kind: eventbus.KindDM, ConversationID: conversationID})
 }
 
+func (a realtimeAdapter) PublishGroup(userID, groupID int64) {
+	if a.broker == nil {
+		return
+	}
+	a.broker.Publish(userID, eventbus.Event{Kind: eventbus.KindGroup, ConversationID: groupID})
+}
+
 // ===== platform/jobs → contracts.JobsQueue =====
 //
 // Enqueue/CancelPending 走 platform/jobs 的既有方法（ctx 携带事务时自动复用）；

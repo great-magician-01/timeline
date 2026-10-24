@@ -262,6 +262,7 @@ func TestAIAdminIntegration(t *testing.T) {
 
 	status, payload, raw = postJSON(t, client, "/api/v1/admin/ai/"+aiID+"/behavior", map[string]any{
 		"allow_like": true, "allow_ai_to_ai": true, "allow_web_search": true, "cooldown_seconds": 60,
+		"allow_group_message":    true,
 		"rate_limits":            map[string]any{"daily_like": 5, "daily_total": 10},
 		"candidate_scope_type":   "authors",
 		"candidate_scope_params": map[string]any{"usernames": []string{"alice"}},
@@ -272,6 +273,15 @@ func TestAIAdminIntegration(t *testing.T) {
 	}
 	if got := requiredBool(t, payload, "behavior", "allow_web_search"); !got {
 		t.Fatalf("联网搜索开关未保存: %s", raw)
+	}
+	if got := requiredBool(t, payload, "behavior", "allow_group_message"); !got {
+		t.Fatalf("群聊发言开关未保存: %s", raw)
+	}
+	// 群聊发言开关默认关闭：补丁不含该字段时保持 true（补丁语义），全量重读校验持久化。
+	status, payload, raw = getJSON(t, client, "/api/v1/admin/ai/"+aiID)
+	testkit.ExpectStatus(t, status, http.StatusOK, raw)
+	if got := requiredBool(t, payload, "ai", "behavior", "allow_group_message"); !got {
+		t.Fatalf("群聊发言开关未持久化: %s", raw)
 	}
 	status, _, raw = postJSON(t, client, "/api/v1/admin/ai/"+aiID+"/behavior",
 		map[string]any{"rate_limits": map[string]any{"daily_unknown": 1}})

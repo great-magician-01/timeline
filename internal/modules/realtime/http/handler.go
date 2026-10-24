@@ -109,7 +109,7 @@ func (h *Handler) Events(c *gin.Context) {
 
 // payloadFor 把总线事件转为 SSE data 载荷。
 func payloadFor(event eventbus.Event) streamPayload {
-	if event.Kind != eventbus.KindDM {
+	if event.Kind != eventbus.KindDM && event.Kind != eventbus.KindGroup {
 		return streamPayload{}
 	}
 	return streamPayload{ConversationID: format.FormatID(event.ConversationID)}
