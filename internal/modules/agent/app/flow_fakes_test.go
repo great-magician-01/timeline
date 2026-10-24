@@ -847,9 +847,9 @@ func newFlowFixture() *flowFixture {
 		audit:    &flowAudit{fakeAudit: &fakeAudit{}},
 		notices:  &flowNotices{},
 		groups: &flowGroups{
-			members:  map[string]bool{},
+			members:   map[string]bool{},
 			snapshots: map[int64]contracts.GroupSnapshot{},
-			groupsOf: map[int64][]int64{},
+			groupsOf:  map[int64][]int64{},
 		},
 		groupWriter: &flowGroupWriter{},
 	}
@@ -880,7 +880,7 @@ func newFlowFixture() *flowFixture {
 
 type flowGroups struct {
 	contracts.GroupReader
-	members   map[string]bool                  // "groupID:userID" → 是否有效成员
+	members   map[string]bool                   // "groupID:userID" → 是否有效成员
 	snapshots map[int64]contracts.GroupSnapshot // groupID → 快照
 	groupsOf  map[int64][]int64                 // userID → 群 ID 列表
 }
