@@ -47,23 +47,24 @@ function dispatch(kind: RealtimeSignal['kind'], data: string): void {
 export function startRealtime(): void {
   if (started || typeof EventSource === 'undefined') return
   started = true
-  const source = new EventSource('/api/v1/events')
-  source.onopen = () => {
+  const current = new EventSource('/api/v1/events')
+  source = current
+  current.onopen = () => {
     connected.value = true
   }
-  source.addEventListener('notification', () => {
+  current.addEventListener('notification', () => {
     void refreshUnreadCount()
   })
-  source.addEventListener('dm', (event) => {
+  current.addEventListener('dm', (event) => {
     const data = 'data' in event ? String((event as MessageEvent).data) : ''
     void refreshDMUnreadCount()
     dispatch('dm', data)
   })
-  source.onerror = () => {
+  current.onerror = () => {
     connected.value = false
     // 网络抖动时 EventSource 自动重连（readyState=CONNECTING）；
     // 会话过期等永久失败会关闭（CLOSED），此时停止避免无效重试，轮询兜底。
-    if (source.readyState === EventSource.CLOSED) stopRealtime()
+    if (current.readyState === EventSource.CLOSED) stopRealtime()
   }
 }
 

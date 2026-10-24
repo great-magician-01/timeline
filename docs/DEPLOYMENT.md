@@ -1,8 +1,8 @@
 # Timeline Docker 单机部署
 
 > **文档状态**：部署基线，与当前实现同步  
-> **文档版本**：0.4.6  
-> **最近更新**：2026-10-23  
+> **文档版本**：0.4.7  
+> **最近更新**：2026-10-24  
 > **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.31.0  
 > **关联文档**：[接口设计](API.md)、[数据模型设计](DATA_MODEL.md)、[验收用例](ACCEPTANCE.md)  
 > **用途**：部署脚本与 Compose 实现、运维操作和验收用例的依据
@@ -64,7 +64,7 @@
 ├── .env.example
 ├── .github/
 │   └── workflows/
-│       └── ci.yml            # Go 测试/vet、前端构建、镜像构建（不启动容器）
+│       └── ci.yml            # Go 测试/vet、PostgreSQL 集成、前端测试/构建、应用镜像构建
 ├── deploy/
 │   ├── data/
 │   │   ├── uploads/         # 附件与衍生文件，首次部署前由 prepare.sh 创建并赋权
@@ -75,6 +75,8 @@
 │       └── restore.sh
 └── ...
 ```
+
+GitHub Actions 将默认 Go 测试与静态检查、前端 Vitest/类型检查/生产构建、真实 PostgreSQL 17 集成测试和应用镜像构建分为独立任务。集成任务使用临时数据库服务，预装 `pg_trgm` 后以 `TIMELINE_INTEGRATION=1 go test -p 1 -count=1 ./...` 执行全部测试；应用镜像构建依赖这些任务通过。CI 不启动应用容器，也不改变上述 Compose 只管理应用、PostgreSQL 外部独立部署的形态，仍不能替代部署机上的容器与备份恢复验证。
 
 `docker-compose.yml` 当前内容（compose 只管理应用容器）：
 
@@ -372,3 +374,4 @@ backups/20261017-030000/
 | 2026-10-16 | 0.3.2 | 端口统一为 5070（宿主机映射与容器内监听一致）；构建镜像锁定 `golang:1.25-alpine`；compose 与环境变量表新增 `LOG_FORMAT`；数据库不可达时保持运行并以 `/readyz` 反映状态；检查清单补充 schema 授权命令。 |
 | 2026-10-19 | 0.4.5 | 需求基线更新至 0.25.0（私信）：§9 升级说明新增 `0021_direct_messages`（新增 `users.dm_policy` 快速默认列与私信会话/消息两表，无回填、无 `CONCURRENTLY`、对旧二进制向后兼容）；§10 日志模块标签补 `[dm]`；部署结构、端口、环境变量与备份流程不变。 |
 | 2026-10-23 | 0.4.6 | 需求基线更新至 0.31.0（SSE 实时推送）：§7 新增三条部署注意事项——SSE 长连接（`GET /api/v1/events`，25 秒心跳、每用户 ≤3/全局 ≤2000 连接上限）、反向代理 `proxy_read_timeout` 须大于 25 秒心跳（应用已带 `X-Accel-Buffering: no`，无需改 `proxy_buffering`）、不支持多实例负载均衡部署 SSE（事件总线在进程内存中，单实例前提；扩展路径为 PostgreSQL `LISTEN/NOTIFY` 或 Redis pub/sub）；§9 升级说明补「收到退出信号先断开 SSE 再优雅关闭，重启对在线用户表现为断线重连」。部署结构、端口、环境变量与迁移不变（本轮无新增迁移）。 |
+| 2026-10-24 | 0.4.7 | 同步 CI 验证范围：§4 说明 GitHub Actions 新增独立 PostgreSQL 17 集成任务（临时服务预装 `pg_trgm`，`TIMELINE_INTEGRATION=1 go test -p 1 -count=1 ./...`）、前端 Vitest 步骤及应用镜像构建门控；明确 CI 不启动应用容器、不改变外部 PostgreSQL 部署形态，仍不替代部署机验证。Compose、端口、环境变量与迁移不变。 |

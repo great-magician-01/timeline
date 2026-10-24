@@ -1,7 +1,7 @@
 # Timeline 项目指南
 
-> **文档版本**：0.3.0  
-> **最近更新**：2026-10-23  
+> **文档版本**：0.3.1  
+> **最近更新**：2026-10-24  
 > **关联文档**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（后端目标架构权威）、[`docs/README.md`](docs/README.md)（文档索引）
 
 本文件面向首次接触本仓库的 AI 编码代理。项目文档、代码注释和界面文案主要使用简体中文；修改代码和文档时沿用这一语言习惯。本文区分**当前已实现的行为**与**文档中的目标设计**，不要把设计清单误当成已经完成的功能。
@@ -25,7 +25,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 - 实时推送：`GET /api/v1/events` SSE 提示信号流（登录用户，每用户 ≤3 条、全局 ≤2000 条连接，25s 心跳）；事件只作提示信号、不携带内容载荷（`notification` 通知有更新 / `dm` 私信会话有更新，带会话 ID 字符串），notice/dm 在事务提交后（`platform/db.AfterCommit`）经进程内事件总线 `platform/eventbus` 发布；**单实例前提**，不支持多实例负载均衡；前端 EventSource 订阅、30 秒未读轮询保留为降级兜底。
 - 环境变量配置、双通道日志、雪花 ID 生成器、Docker/Compose、目录准备与备份恢复脚本，以及 GitHub Actions CI。
 
-验证状态：默认 Go 测试、`go vet`、`npm run build`、架构守卫（`go test ./internal/architecture`）与隔离 schema 集成测试已通过；私信功能补充的 domain/app 测试与 `TestDMIntegration`（发送/未读/已读/撤回/隐藏恢复/策略矩阵/AI 与停用拒绝/非成员 404/设置往返），置顶功能的 domain/app/repo 单测与 `TestPinIntegration`（置顶/取消/幂等/上限冲突/排序/权限/主页去重/可见性/删除联动），以及收藏功能的 domain/app/repo/http 单测与 `TestBookmarkIntegration`（收藏/取消/幂等、`viewer_state.bookmarked`、收藏夹 CRUD 与上限/属主 404、移动、删除夹归还默认、游客/停用拒绝、列表可见性过滤、后台无收藏路由）以及横幅功能的 domain/app/http 单测与 `TestBannerIntegration`（上传写回 `banner_url`、公开资料携带、游客读附件、替换、移除回空、非图片 400、游客写拒绝），实时推送的 `AfterCommit`/eventbus/notice 与 dm 发布点/`modules/realtime` app+http 单测与 `TestRealtimeIntegration`（游客 401、点赞触发通知信号、私信触发 dm 信号且会话 ID 字符串化、断线重连后事件继续送达）随 `go test ./...` 与 `TIMELINE_INTEGRATION=1 go test -p 1 ./...` 运行，迁移 `0021_direct_messages`、`0022_post_pinned`、`0023_bookmarks`、`0024_user_banner` 已在开发库实际应用。开发机已使用临时 PostgreSQL 实例完成 Docker 镜像构建、容器启动、健康检查、前端托管与基础 API 冒烟，并完成一次备份/恢复演练（含附件属主修正）。尚未执行：`docs/ACCEPTANCE.md` 中的完整 P0 人工验收（含本轮 DM-01～12、SEC-10/11 与 BK-01～07），以及部署机上的真实环境复演。
+验证状态：默认 Go 测试、`go vet`、`npm test`、`npm run build`、架构守卫（`go test ./internal/architecture`）与隔离 schema 集成测试已通过；私信功能补充的 domain/app 测试与 `TestDMIntegration`（发送/未读/已读/撤回/隐藏恢复/策略矩阵/AI 与停用拒绝/非成员 404/设置往返），置顶功能的 domain/app/repo 单测与 `TestPinIntegration`（置顶/取消/幂等/上限冲突/排序/权限/主页去重/可见性/删除联动），以及收藏功能的 domain/app/repo/http 单测与 `TestBookmarkIntegration`（收藏/取消/幂等、`viewer_state.bookmarked`、收藏夹 CRUD 与上限/属主 404、移动、删除夹归还默认、游客/停用拒绝、列表可见性过滤、后台无收藏路由）以及横幅功能的 domain/app/http 单测与 `TestBannerIntegration`（上传写回 `banner_url`、公开资料携带、游客读附件、替换、移除回空、非图片 400、游客写拒绝），实时推送的 `AfterCommit`/eventbus/notice 与 dm 发布点/`modules/realtime` app+http 单测与 `TestRealtimeIntegration`（游客 401、点赞触发通知信号、私信触发 dm 信号且会话 ID 字符串化、断线重连后事件继续送达）随 `go test ./...` 与 `TIMELINE_INTEGRATION=1 go test -p 1 -count=1 ./...` 运行，迁移 `0021_direct_messages`、`0022_post_pinned`、`0023_bookmarks`、`0024_user_banner` 已在开发库实际应用。开发机已使用临时 PostgreSQL 实例完成 Docker 镜像构建、容器启动、健康检查、前端托管与基础 API 冒烟，并完成一次备份/恢复演练（含附件属主修正）。尚未执行：`docs/ACCEPTANCE.md` 中的完整 P0 人工验收（含本轮 DM-01～12、SEC-10/11 与 BK-01～07），以及部署机上的真实环境复演。
 
 当前分支 `refactor/target-architecture` 已按 `docs/ARCHITECTURE.md` 完成目标架构接管与旧包清理：`cmd/server` → `internal/app`（组合根）→ `transport/router`（声明式路由）→ `modules/*`；旧 `internal/*` 业务包已从仓库删除，集成测试迁移到 `internal/testkit` + `internal/server`/模块 `http` harness，架构守卫覆盖新树、`internal/server`、`cmd/` 与 `internal/testkit` 例外，并新增 DB 原语/遗留符号规则；新功能只写在目标结构中。改造过程与迁移序列见 `CODE_QUALITY_REFACTOR_PLAN.md`（过程文档，非长期权威）。
 
@@ -43,12 +43,12 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 关键文件：
 
 - `go.mod` / `go.sum`：Go 版本与依赖。
-- `web/package.json`：前端脚本与依赖；目前没有 `test`、`lint` 或 `format` 脚本。
+- `web/package.json`：前端脚本与依赖；提供 Vitest `test` 脚本，目前没有 `lint` 或 `format` 脚本。
 - `web/vite.config.ts`：Vue 与 Tailwind 插件；开发代理将 `/api`、`/healthz`、`/readyz` 转发到 `http://localhost:5070`。
 - `web/tsconfig*.json`：TypeScript 项目引用和检查规则，包括未使用变量/参数检查。
 - `.env.example`：部署配置模板，真实凭据不得写入或提交。
 - `Dockerfile` / `docker-compose.yml`：多阶段镜像与单应用 Compose（外部 PostgreSQL）。
-- `.github/workflows/ci.yml`：CI（Go 测试/静态检查、前端构建、镜像构建）；不启动容器。
+- `.github/workflows/ci.yml`：CI（Go 测试/静态检查、PostgreSQL 集成测试、前端 Vitest/构建、应用镜像构建）；不启动应用容器。
 
 ## 3. 目录与模块划分
 
@@ -103,7 +103,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 - `docs/`：需求、页面权限、状态机、数据模型、API、部署、验收和设计系统的权威设计文档。
 - `demo/`：未接后端的静态视觉方案；`home-e-social.html` 是选定方向，`logo.svg` 是品牌图源。实现样式以 `docs/DESIGN_SYSTEM.md` 为准，而不是以 demo 为准。
 - `deploy/scripts/`：`prepare.sh`（创建并授权数据目录）、`backup.sh`（数据库 + 附件 + 加密密钥）、`restore.sh`（数据库 + 附件配套恢复）、`check-time-defaults.sql`（只读核查业务时间默认值，用法见 `docs/DEPLOYMENT.md`）。
-- `.github/workflows/ci.yml`：CI 流水线（Go 测试/`vet`、前端 `npm ci` + 构建、镜像构建）。
+- `.github/workflows/ci.yml`：CI 流水线（Go 测试/`vet`、PostgreSQL 集成测试、前端 `npm ci` + Vitest + 构建、应用镜像构建）。
 - `bin/`：本地编译产物，不是源码。
 
 ## 4. 构建、运行与检查
@@ -116,6 +116,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 cd web
 npm ci
 npm run dev       # Vite 开发服务器，默认地址由 Vite 输出
+npm test          # Vitest 前端单元测试
 npm run build     # TypeScript 检查 + 生产构建到 web/dist
 npm run preview   # 预览已构建前端
 ```
@@ -146,7 +147,7 @@ TIMELINE_INTEGRATION=1 go test ./internal/server -run 'TestBootstrapIntegration|
 TIMELINE_INTEGRATION=1 go test ./internal/modules/ai/http -run TestAIAdminIntegration -count=1 -v
 TIMELINE_INTEGRATION=1 go test ./internal/server -run TestRealtimeIntegration -count=1 -v
 # 全部集成测试（多个测试包共享同一对测试 schema，建议串行执行）
-TIMELINE_INTEGRATION=1 go test -p 1 ./...
+TIMELINE_INTEGRATION=1 go test -p 1 -count=1 ./...
 ```
 
 `go run ./cmd/server` 从当前工作目录查找 `.env`，因此应从仓库根目录启动。当前监听地址固定为 `:5070`；`.env.example` 中的 `APP_PORT` 是部署时的宿主机端口映射配置，不会改变 Go 代码的监听端口。
@@ -171,7 +172,7 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 
 - 运行镜像内已预创建 `/data/uploads` 与 `/data/logs`，属主 UID/GID 10001；宿主机目录由 `deploy/scripts/prepare.sh` 准备。
 - 镜像构建参数 `APP_VERSION` 默认 `dev`，Compose 传入 `IMAGE_TAG`；启动日志会输出 `version` 字段。
-- CI 只执行 `go test ./...`、`go vet ./...`、`npm ci && npm run build` 与 `docker build`，**不启动容器**，因此不替代部署机上的容器运行验证。
+- CI 执行 `go test ./...`、`go vet ./...`、独立 PostgreSQL 17 服务的全量集成测试、`npm ci && npm test && npm run build` 与应用 `docker build`；PostgreSQL service 仅用于测试，**不启动应用容器**，因此不替代部署机上的容器运行验证。
 
 ## 5. 代码与接口约定
 
@@ -204,7 +205,7 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 - 主题通过 `<html data-theme>` 切换，注册表在 `web/src/composables/theme.ts`（内置浅色/深色 + EVA 扩展配色主题 `eva-01`/`eva-rei`/`eva-asuka`，每套主题在 `tokens.css` 定义全部令牌），手动偏好存储在 `localStorage` 的 `tl-theme`；保留 `web/index.html` 中防止首帧闪白的内联脚本（按主题白名单校验，扩展主题时同步更新）。
 - 图标使用内联 SVG 或本地 SVG sprite，遵循 24×24 viewBox、圆头线框和 `currentColor` 规范；不要引入图标字体、位图图标或外链图标。
 - 遵循 `docs/DESIGN_SYSTEM.md` 的 GitHub 式按钮、4px 间距体系、880px 响应式断点和减少动效规则。
-- 前端没有独立 lint/format/test 命令，至少用 `npm run build` 验证 TypeScript 与 Vite 构建。
+- 前端使用 Vitest 补充无 DOM 依赖的 composable 测试，至少用 `npm test` 与 `npm run build` 验证单元测试、TypeScript 和 Vite 构建；目前没有独立 lint/format 或浏览器 E2E 脚本。
 
 ### API 与数据模型
 
@@ -229,14 +230,14 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 
 - 单元测试：雪花 ID、密码与令牌、注册/资料校验、固定窗口限频、游标与 JSON 约束、代理配置、迁移安全约束（无外键/无物理删除）、路由方法与健康检查、富文本清洗与 Markdown 渲染（含 XSS 用例）与 emoji 透传用例（`TestEmojiPassesThroughPipeline`）、附件类型嗅探与图片缩放、帖子 DTO 与时间游标、评论状态机与幂等键、私信权限矩阵/撤回窗口/预览截断/规范化与幂等（`internal/modules/dm/{domain,app}`）、实时推送：`internal/platform/db` 的 `AfterCommit` 表驱动用例（提交后按序执行、回滚/提交失败不执行、嵌套共享队列、无事务立即执行且 ctx 不随调用方取消）、`internal/platform/eventbus` 总线（投递与用户隔离、慢消费者丢弃不阻塞、单用户/全局连接上限、退订幂等、Close 广播、并发无 panic）、notice/dm 发布点行为（实际写入/撤回才发、幂等跳过与策略拒绝不发、nil 端口安全）、`modules/realtime` app（超限映射 `unavailable`）与 http（httptest 真流：响应头、retry 提示、事件格式与 ID 字符串化、503 超限、Close 结束连接）、AI 密钥加解密与生成参数解析、AI 决策解析与频率判断、网页搜索 URL/重试/结果裁剪/密钥脱敏、有限工具轮次与降级、搜索设置加密与校验、候选范围二次授权、空工具调用兼容与控制字符校验；ERROR 日志调用栈与 panic 恢复：`internal/platform/logging/stack_test.go`（首帧为业务调用点、跳过日志内部帧、深栈扩容、WARN/INFO/访问日志不附加、显式 stack 去重、WithAttrs/WithGroup）、`TestInitAutoStackOnError`（Init 后 text 记录后多行缩进栈与 json `stack` 字段）、`internal/transport/middleware/recovery_test.go`（panic 记录完整栈并返回 500 `internal_error`、已写出不覆盖、EPIPE/`ErrAbortHandler` 按 WARN 无栈、nil logger 回退）、`internal/server` 的 panic 全局接线用例与 `internal/platform/jobs` 的作业/周期任务 panic 栈断言。
 - 集成测试（默认跳过，需要测试 schema）：`TestAccountIntegration`（账号全链路）、`TestContentIntegration`（帖子/草稿/定时/版本/附件/可见性/时间线/关注/点赞/评论/转发/通知/标签/搜索/管理审核）、`TestAdminSettingsAndAttachmentIntegration`（系统设置即时生效、全局搜索密钥加密/清除、存储配额、附件审核/删除、用户统计、定时失败状态）、`TestBootstrapIntegration`（空库首注册超管、并发唯一超管、空库忽略注册开关的隔离 schema 用例）、`TestAdminGrantIntegration`（超管授权/撤销管理员、普通管理员越权与超管保护、审计与幂等）、`TestGlobalAISwitchIntegration`（全局 AI 开关即时生效、紧急停止取消待执行任务并暂停后台作业）、`TestAIAdminIntegration`（模型预设、AI 配置、`allow_web_search`、记忆、生成任务）、`TestDMIntegration`（私信创建幂等/发送/未读/已读/撤回/隐藏恢复/策略矩阵/AI 与停用拒绝/非成员 404/设置往返）、`TestPinIntegration`（置顶权限与幂等、3 条上限冲突、完整列表重排、草稿拒绝、主页 pinned_posts 与普通流去重、仅关注者置顶帖可见性、删除置顶帖自动失效）、`TestBookmarkIntegration`（收藏/取消/幂等、时间线与详情 `viewer_state.bookmarked`、收藏夹 CRUD 与第 21 个 409 `folder_limit`、他人夹 404、移动归属与 `folder_id` 三态过滤、删除夹归还默认、游客 401/停用 403、删帖与取关后列表过滤、管理后台无收藏路由）、`TestBannerIntegration`（横幅上传写回与公开资料携带、游客读横幅附件、替换覆盖、移除回空、非图片 400 `invalid_request`、游客写 401）、`TestRealtimeIntegration`（游客 401、点赞触发 notification 信号、私信触发 dm 信号且 `conversation_id` 字符串化、响应头与事件格式、断线重连后事件继续送达）。
-- 前端以 `npm run build`（`vue-tsc` + `vite`）作为类型与构建校验，没有独立 lint/test 脚本。
+- 前端以 Vitest（`npm test`）运行 composable 单元测试，当前覆盖 SSE 启动防重、停止关闭与幂等、停止/错误后的重建；以 `npm run build`（`vue-tsc` + `vite`）作为类型与构建校验，没有独立 lint 或浏览器 E2E 脚本。
 
 新增 Go 逻辑时，在对应包添加 `_test.go`，至少执行：
 
 ```bash
 go test ./...
 go vet ./...
-cd web && npm run build
+cd web && npm test && npm run build
 ```
 
 `docs/ACCEPTANCE.md` 是完整手工验收和开发自测清单：
@@ -309,3 +310,4 @@ cd web && npm run build
 | 2026-10-23 | 0.2.9 | 新增个人主页横幅：§1 功能清单账号条目补横幅上传/移除与公开可读、迁移范围 `0001`–`0024`；§6 测试清单补 `TestBannerIntegration` 与 domain/app/http 单测；新增迁移 `0024_user_banner`（users 加 `banner_url`/`banner_attachment_id`，`attachments_purpose_check` 重建为含 `banner`）；同步 `REQUIREMENTS.md` 0.30.0、`DATA_MODEL.md` 0.13.0、`ARCHITECTURE.md` 0.4.3、`API.md` 0.11.0、`PAGES_AND_PERMISSIONS.md` 0.1.25、`ACCEPTANCE.md` 0.7.0（MEDIA-07/08）、`DESIGN_SYSTEM.md` 0.5.0（§9.3）、`docs/README.md` 0.1.17 与 `migrations/README.md`。 |
 | 2026-10-22 | 0.2.8 | 新增表情选取：§1 内容条目补五处文本输入位置的表情选取面板（纯前端）；§6 测试清单补 richtext emoji 透传用例；前端引入 `emoji-picker-element`（懒加载分包）与本地数据包 `emoji-picker-element-data`（zh 注记、`data:` URL 注入，无 CDN 外链）；同步 `REQUIREMENTS.md` 0.29.0、`PAGES_AND_PERMISSIONS.md` 0.1.24、`WORKFLOWS.md` 0.11.0、`DESIGN_SYSTEM.md` 0.4.0（§9.2 表情选取器规范）、`ACCEPTANCE.md` 0.6.0（EMOJI 组，原章节顺延）与 `docs/README.md` 0.1.16。 |
 | 2026-10-23 | 0.3.0 | 新增 SSE 实时推送：§1 功能清单补实时推送条目（`GET /api/v1/events` 提示信号流、事件不携带内容载荷、单实例前提、轮询降级兜底）并把社交/私信条目的轮询描述改为实时 + 兜底；§3 platform 补 `eventbus` 与 `db.AfterCommit`、模块域补 `realtime`（唯一仅 app+http 的特例）；§4 集成测试命令补 `TestRealtimeIntegration`；§5 新增「实时事件只在提交后发布」分层约定；§6 测试清单补 AfterCommit/eventbus/发布点/realtime 单测与 `TestRealtimeIntegration`；同步 `REQUIREMENTS.md` 0.31.0、`API.md` 0.12.0、`ARCHITECTURE.md` 0.5.0、`DEPLOYMENT.md` 0.4.6、`PAGES_AND_PERMISSIONS.md` 0.1.26、`WORKFLOWS.md` 0.12.0、`ACCEPTANCE.md` 0.8.0（RT 组）与 `docs/README.md` 0.1.18。 |
+| 2026-10-24 | 0.3.1 | 修复前端 SSE 停止泄漏并补测试与 CI：`realtime.ts` 将实际连接保存到模块级句柄，新增 Vitest 生命周期回归测试（启动防重、停止关闭/幂等、重建与错误状态）；`web/package.json` 新增 `npm test`，§2/§4/§5/§6 同步前端测试命令。GitHub Actions 新增独立 PostgreSQL 17 集成任务（预装 `pg_trgm`、`TIMELINE_INTEGRATION=1 go test -p 1 -count=1 ./...`）和前端测试步骤，应用镜像构建依赖全部测试；CI 不启动应用容器。同步 `DEPLOYMENT.md` 0.4.7、`docs/README.md` 0.1.19 及根目录/`web/` README。 |
