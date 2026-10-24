@@ -1,6 +1,6 @@
 # Timeline 项目指南
 
-> **文档版本**：0.3.1  
+> **文档版本**：0.3.2  
 > **最近更新**：2026-10-24  
 > **关联文档**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（后端目标架构权威）、[`docs/README.md`](docs/README.md)（文档索引）
 
@@ -48,7 +48,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 - `web/tsconfig*.json`：TypeScript 项目引用和检查规则，包括未使用变量/参数检查。
 - `.env.example`：部署配置模板，真实凭据不得写入或提交。
 - `Dockerfile` / `docker-compose.yml`：多阶段镜像与单应用 Compose（外部 PostgreSQL）。
-- `.github/workflows/ci.yml`：CI（Go 测试/静态检查、PostgreSQL 集成测试、前端 Vitest/构建、应用镜像构建）；不启动应用容器。
+- `.github/workflows/ci.yml`：CI（Go gofmt/测试/vet、PostgreSQL 集成测试、前端 Vitest/构建、应用镜像构建）；不启动应用容器。
 
 ## 3. 目录与模块划分
 
@@ -172,13 +172,13 @@ docker compose up -d && docker compose ps    # 需外部 PostgreSQL 可达
 
 - 运行镜像内已预创建 `/data/uploads` 与 `/data/logs`，属主 UID/GID 10001；宿主机目录由 `deploy/scripts/prepare.sh` 准备。
 - 镜像构建参数 `APP_VERSION` 默认 `dev`，Compose 传入 `IMAGE_TAG`；启动日志会输出 `version` 字段。
-- CI 执行 `go test ./...`、`go vet ./...`、独立 PostgreSQL 17 服务的全量集成测试、`npm ci && npm test && npm run build` 与应用 `docker build`；PostgreSQL service 仅用于测试，**不启动应用容器**，因此不替代部署机上的容器运行验证。
+- CI 执行 gofmt 检查（对 `git ls-files '*.go'` 列出的全部 Go 文件运行 `gofmt -l`，存在未格式化文件即失败）、`go test ./...`、`go vet ./...`、独立 PostgreSQL 17 服务的全量集成测试、`npm ci && npm test && npm run build` 与应用 `docker build`；PostgreSQL service 仅用于测试，**不启动应用容器**，因此不替代部署机上的容器运行验证。
 
 ## 5. 代码与接口约定
 
 ### Go 与通用习惯
 
-- 遵循 `gofmt` 和标准 Go 包结构；修改后运行 `go test ./...` 与 `go vet ./...`。
+- 遵循 `gofmt`（CI 对全部纳入版本的 Go 文件执行 `gofmt -l` 门禁）和标准 Go 包结构；修改后运行 `go test ./...` 与 `go vet ./...`。
 - 保持现有小包划分和依赖方向，业务入口不要堆积到 `cmd/server/main.go`。
 - 注释、错误信息和面向用户的文案沿用现有简体中文风格；公开标识符和 API 字段仍使用既定英文命名。
 - 全系统固定使用 `Asia/Shanghai`，不增加用户时区换算。DSN 同时固定数据库会话时区和 `search_path=timeline,"user"`。
@@ -311,3 +311,4 @@ cd web && npm test && npm run build
 | 2026-10-22 | 0.2.8 | 新增表情选取：§1 内容条目补五处文本输入位置的表情选取面板（纯前端）；§6 测试清单补 richtext emoji 透传用例；前端引入 `emoji-picker-element`（懒加载分包）与本地数据包 `emoji-picker-element-data`（zh 注记、`data:` URL 注入，无 CDN 外链）；同步 `REQUIREMENTS.md` 0.29.0、`PAGES_AND_PERMISSIONS.md` 0.1.24、`WORKFLOWS.md` 0.11.0、`DESIGN_SYSTEM.md` 0.4.0（§9.2 表情选取器规范）、`ACCEPTANCE.md` 0.6.0（EMOJI 组，原章节顺延）与 `docs/README.md` 0.1.16。 |
 | 2026-10-23 | 0.3.0 | 新增 SSE 实时推送：§1 功能清单补实时推送条目（`GET /api/v1/events` 提示信号流、事件不携带内容载荷、单实例前提、轮询降级兜底）并把社交/私信条目的轮询描述改为实时 + 兜底；§3 platform 补 `eventbus` 与 `db.AfterCommit`、模块域补 `realtime`（唯一仅 app+http 的特例）；§4 集成测试命令补 `TestRealtimeIntegration`；§5 新增「实时事件只在提交后发布」分层约定；§6 测试清单补 AfterCommit/eventbus/发布点/realtime 单测与 `TestRealtimeIntegration`；同步 `REQUIREMENTS.md` 0.31.0、`API.md` 0.12.0、`ARCHITECTURE.md` 0.5.0、`DEPLOYMENT.md` 0.4.6、`PAGES_AND_PERMISSIONS.md` 0.1.26、`WORKFLOWS.md` 0.12.0、`ACCEPTANCE.md` 0.8.0（RT 组）与 `docs/README.md` 0.1.18。 |
 | 2026-10-24 | 0.3.1 | 修复前端 SSE 停止泄漏并补测试与 CI：`realtime.ts` 将实际连接保存到模块级句柄，新增 Vitest 生命周期回归测试（启动防重、停止关闭/幂等、重建与错误状态）；`web/package.json` 新增 `npm test`，§2/§4/§5/§6 同步前端测试命令。GitHub Actions 新增独立 PostgreSQL 17 集成任务（预装 `pg_trgm`、`TIMELINE_INTEGRATION=1 go test -p 1 -count=1 ./...`）和前端测试步骤，应用镜像构建依赖全部测试；CI 不启动应用容器。同步 `DEPLOYMENT.md` 0.4.7、`docs/README.md` 0.1.19 及根目录/`web/` README。 |
+| 2026-10-24 | 0.3.2 | 代码审查收尾：清理全仓 gofmt 漂移（`internal/app/wire.go` 常量与依赖块对齐、`content/http` DTO 对齐与 doc 注释规范化、`social/app` 限频常量与测试桩对齐、`shared/contracts/social.go` 字段对齐，共 7 个文件，纯格式变更无语义变化）；CI backend job 新增 gofmt 门禁步骤（对 `git ls-files '*.go'` 全部文件执行 `gofmt -l`，存在未格式化文件即失败）；§2/§4/§5 同步 CI 描述。 |

@@ -225,7 +225,7 @@ func (h *Handler) UnpinPost(c *gin.Context) {
 }
 
 // pinReorderBody 是置顶排序请求体：post_ids 必须给出当前全部置顶帖的完整有序列表
-//（首项最前），ID 以字符串传递（雪花 ID 精度）。
+// （首项最前），ID 以字符串传递（雪花 ID 精度）。
 type pinReorderBody struct {
 	PostIDs []string `json:"post_ids"`
 }

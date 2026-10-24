@@ -48,17 +48,17 @@ import (
 
 // 日志模块标签：业务模块名由组合根维护，platform/logging 只负责渲染与补齐列宽。
 const (
-	logModuleApp     = "app"
-	logModuleJobs    = "jobs"
-	logModuleAuth    = "auth"
-	logModuleContent = "content"
-	logModuleSocial  = "social"
-	logModuleNotice  = "notice"
-	logModuleDM      = "dm"
-	logModuleMedia   = "media"
-	logModuleAI      = "ai"
-	logModuleAgent   = "agent"
-	logModuleAdmin   = "admin"
+	logModuleApp      = "app"
+	logModuleJobs     = "jobs"
+	logModuleAuth     = "auth"
+	logModuleContent  = "content"
+	logModuleSocial   = "social"
+	logModuleNotice   = "notice"
+	logModuleDM       = "dm"
+	logModuleMedia    = "media"
+	logModuleAI       = "ai"
+	logModuleAgent    = "agent"
+	logModuleAdmin    = "admin"
 	logModuleRealtime = "realtime"
 )
 
@@ -158,18 +158,18 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 
 	// ── social ──
 	socialApp := socialapp.New(socialapp.Deps{
-		Clock:    clk,
-		IDs:      ids,
-		Tx:       tx,
-		Users:    authApp,
-		Posts:    contentApp,
-		Notices:  noticeLazy,
-		Audit:    auditWriter,
-		Follows:  socialrepo.NewFollowRepo(pool),
-		Requests: socialrepo.NewRequestRepo(pool),
-		Likes:    socialrepo.NewLikeRepo(pool),
-		Comments: socialrepo.NewCommentRepo(pool),
-		Reposts:  socialrepo.NewRepostRepo(pool),
+		Clock:     clk,
+		IDs:       ids,
+		Tx:        tx,
+		Users:     authApp,
+		Posts:     contentApp,
+		Notices:   noticeLazy,
+		Audit:     auditWriter,
+		Follows:   socialrepo.NewFollowRepo(pool),
+		Requests:  socialrepo.NewRequestRepo(pool),
+		Likes:     socialrepo.NewLikeRepo(pool),
+		Comments:  socialrepo.NewCommentRepo(pool),
+		Reposts:   socialrepo.NewRepostRepo(pool),
 		Bookmarks: socialrepo.NewBookmarkRepo(pool),
 		Folders:   socialrepo.NewBookmarkFolderRepo(pool),
 	})

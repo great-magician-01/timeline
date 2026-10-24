@@ -25,6 +25,16 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # 只检查纳入版本的 Go 文件（gofmt 对 LF/空白敏感，git ls-files 保证基线一致）。
+      - name: gofmt 检查
+        run: |-
+          files=$(git ls-files '*.go')
+          if [ -n "$files" ] && [ -n "$(gofmt -l $files)" ]; then
+            echo "以下文件未通过 gofmt："
+            gofmt -l $files
+            exit 1
+          fi
+
       # `go test ./...` 已包含 internal/architecture 结构守卫（Gin/SQL/time.Now 位置、模块互斥与依赖方向）。
       - name: go test
         run: go test ./...

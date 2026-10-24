@@ -161,9 +161,9 @@ func TestBookmarkPostFolderValidation(t *testing.T) {
 func TestBookmarkPostErrors(t *testing.T) {
 	boom := apperr.Internal("内部错误")
 	cases := []struct {
-		name string
-		ids  IDGenerator
-		tx   TxRunner
+		name  string
+		ids   IDGenerator
+		tx    TxRunner
 		setup func(*stubSet)
 	}{
 		{"ID 生成失败", errIDs{err: boom}, nil, func(*stubSet) {}},

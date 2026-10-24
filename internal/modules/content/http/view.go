@@ -33,17 +33,17 @@ type quotedPostResponse struct {
 
 // postBriefResponse 是时间线、搜索、标签聚合与嵌套引用共用的列表项 DTO。
 type postBriefResponse struct {
-	ID           string                    `json:"id"`
-	Kind         string                    `json:"kind"`
-	Author       view.UserBriefResponse    `json:"author"`
-	Visibility   string                    `json:"visibility"`
-	ContentHTML  string                    `json:"content_html"`
-	PublishedAt  *string                   `json:"published_at"`
-	RepostedAt   *string                   `json:"reposted_at,omitempty"`
-	Edited       bool                      `json:"edited"`
-	LikeCount    int                       `json:"like_count"`
-	CommentCount int                       `json:"comment_count"`
-	RepostCount  int                       `json:"repost_count"`
+	ID           string                 `json:"id"`
+	Kind         string                 `json:"kind"`
+	Author       view.UserBriefResponse `json:"author"`
+	Visibility   string                 `json:"visibility"`
+	ContentHTML  string                 `json:"content_html"`
+	PublishedAt  *string                `json:"published_at"`
+	RepostedAt   *string                `json:"reposted_at,omitempty"`
+	Edited       bool                   `json:"edited"`
+	LikeCount    int                    `json:"like_count"`
+	CommentCount int                    `json:"comment_count"`
+	RepostCount  int                    `json:"repost_count"`
 	// PinnedAt 非空表示帖子被作者置顶（个人主页顶部展示）；仅顶层帖子项返回。
 	PinnedAt    *string                   `json:"pinned_at,omitempty"`
 	CanPin      bool                      `json:"can_pin"`

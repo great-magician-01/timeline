@@ -107,8 +107,8 @@ type RepostEvent struct {
 
 // PostViewerStates 是访问者对一批帖子的互动状态。消费者：content（列表 viewer_state）。
 type PostViewerStates struct {
-	Liked     map[int64]bool
-	Reposted  map[int64]bool
+	Liked      map[int64]bool
+	Reposted   map[int64]bool
 	Bookmarked map[int64]bool
 }
 

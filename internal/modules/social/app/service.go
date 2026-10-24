@@ -16,12 +16,12 @@ import (
 
 // 限频参数（单实例内存限频；真正的幂等由数据库唯一约束与状态字段保证）。
 const (
-	commentLimit  = 30
-	commentWindow = 10 * time.Minute
-	likeLimit     = 240
-	likeWindow    = 10 * time.Minute
-	followLimit   = 60
-	followWindow  = time.Hour
+	commentLimit   = 30
+	commentWindow  = 10 * time.Minute
+	likeLimit      = 240
+	likeWindow     = 10 * time.Minute
+	followLimit    = 60
+	followWindow   = time.Hour
 	bookmarkLimit  = 240
 	bookmarkWindow = 10 * time.Minute
 )

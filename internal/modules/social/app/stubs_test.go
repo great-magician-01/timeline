@@ -1151,18 +1151,18 @@ func (s *stubFolders) ListFoldersWithCounts(_ context.Context, _ int64) ([]domai
 
 // stubSet 汇总全部 fake 端口，默认构造一个可直接调用读路径的 Service。
 type stubSet struct {
-	clk      clock.Clock
-	ids      IDGenerator
-	tx       TxRunner
-	users    *stubUsers
-	posts    *stubPosts
-	notices  *stubNotices
-	audit    *stubAudit
-	follows  *stubFollows
-	requests *stubRequests
-	likes    *stubLikes
-	comments *stubComments
-	reposts  *stubReposts
+	clk       clock.Clock
+	ids       IDGenerator
+	tx        TxRunner
+	users     *stubUsers
+	posts     *stubPosts
+	notices   *stubNotices
+	audit     *stubAudit
+	follows   *stubFollows
+	requests  *stubRequests
+	likes     *stubLikes
+	comments  *stubComments
+	reposts   *stubReposts
 	bookmarks *stubBookmarks
 	folders   *stubFolders
 
