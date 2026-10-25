@@ -17,9 +17,6 @@ import (
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
 )
 
-// 编译期占位：确保 repo 包在仅含共享辅助函数时也保留 doc 注释。
-var _ = errors.Is
-
 // notFound 把 pgx.ErrNoRows 映射为领域 not_found，避免存储层错误泄漏到 app。
 func notFound(err error, message string) error {
 	if errors.Is(err, pgx.ErrNoRows) {

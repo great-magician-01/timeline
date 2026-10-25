@@ -216,6 +216,7 @@ func New(cfg *config.Config, log *slog.Logger, readiness *db.Readiness, ids IDGe
 		Clock:     clk,
 		IDs:       ids,
 		Tx:        tx,
+		Log:       moduleLog(logModuleGroup),
 		Users:     authApp,
 		Groups:    grouprepo.NewConversationRepo(pool),
 		Members:   grouprepo.NewMemberRepo(pool),

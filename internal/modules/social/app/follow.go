@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 
-	"github.com/great-magician-01/timeline/internal/modules/social/domain"
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
 	"github.com/great-magician-01/timeline/internal/shared/contracts"
 	"github.com/great-magician-01/timeline/internal/shared/model"
@@ -179,6 +178,3 @@ func (s *Service) followPage(ctx context.Context, rows []FollowRow, limit int) (
 	}
 	return page, nil
 }
-
-// 保证 domain 常量被引用（关注申请方向在 domain 中统一维护）。
-var _ = domain.DirectionIncoming

@@ -1,4 +1,5 @@
-// 通知未读数：登录后轮询（docs/REQUIREMENTS.md 11：首版通过轮询更新）
+// 通知未读数：SSE notification 信号触发即时刷新（接线在 composables/realtime.ts），
+// 登录后的 30 秒轮询是断线/未连接期间的降级兜底。
 import { reactive } from 'vue'
 import { fetchUnreadCount } from '../api/social'
 import { authState } from './auth'

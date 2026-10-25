@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/great-magician-01/timeline/internal/modules/media/domain"
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
 	"github.com/great-magician-01/timeline/internal/platform/clock"
 	"github.com/great-magician-01/timeline/internal/platform/db"
@@ -159,6 +158,3 @@ func (s *Service) wrap(message string, err error) error {
 // 因此不再断言 contracts.ContentService 直接满足该窄接口——contracts.ContentService
 // 的接口清单不随 media 的局部需求扩张，保持 media 只依赖自身声明的窄端口。
 var _ contracts.MediaService = (*Service)(nil)
-
-// 保证 domain 常量在编译期被引用，避免误删（同时给读者定位用途定义）。
-var _ = domain.PurposePost

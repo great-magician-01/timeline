@@ -4,6 +4,7 @@
 package app
 
 import (
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -27,6 +28,7 @@ type Deps struct {
 	Clock clock.Clock
 	IDs   IDGenerator
 	Tx    TxRunner
+	Log   *slog.Logger
 
 	// Users 读取账号行与作者摘要（auth 实现）。
 	Users contracts.UserReader
@@ -51,10 +53,13 @@ type Service struct {
 	deps Deps
 }
 
-// New 组装群聊服务；nil Clock 回退系统时钟，nil 限频器使用生产默认参数。
+// New 组装群聊服务；nil Clock 回退系统时钟，nil Log 回退默认 logger，nil 限频器使用生产默认参数。
 func New(deps Deps) *Service {
 	if deps.Clock == nil {
 		deps.Clock = clock.System()
+	}
+	if deps.Log == nil {
+		deps.Log = slog.Default()
 	}
 	if deps.WriteLimiter == nil {
 		deps.WriteLimiter = ratelimit.New(writeLimit, writeWindow)

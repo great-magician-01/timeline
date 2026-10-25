@@ -242,7 +242,11 @@ func (s *Service) triggerAIMentions(ctx context.Context, groupID int64, msg mode
 			MentionedBy: msg.SenderID,
 		}
 		db.AfterCommit(ctx, func(context.Context) {
-			_ = s.deps.AITrigger.OnGroupMention(context.Background(), signal)
+			// 触发是尽力而为：失败只告警不重试，日志用于排查「AI 没有接话」类问题。
+			if err := s.deps.AITrigger.OnGroupMention(context.Background(), signal); err != nil {
+				s.deps.Log.Warn("群消息 @提及 触发 AI 回复任务失败", "err", err,
+					"group_id", groupID, "ai_id", user.ID, "message_id", msg.ID)
+			}
 		})
 	}
 	return nil
