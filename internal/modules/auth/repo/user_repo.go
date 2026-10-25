@@ -19,8 +19,10 @@ import (
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
 
-// userColumns 是 users 表的完整行投影，字段顺序与 scanUser 一致。
-const userColumns = `id, username, COALESCE(email, ''), COALESCE(password_hash, ''),
+// UserColumns 是 users 表完整行投影的权威定义，字段顺序与 scanUser 一致。
+// admin 的只读 read-model 镜像本清单做跨表查询（模块间非测试代码不得互相 import，
+// 无法直接复用），user_columns_sync_test.go 守护镜像与权威定义保持一致。
+const UserColumns = `id, username, COALESCE(email, ''), COALESCE(password_hash, ''),
 	nickname, avatar_url, banner_url, bio, role, is_super_admin, is_ai, status,
 	require_follow_approval, dm_policy, token_version, suspended_at, created_at, updated_at`
 
@@ -59,19 +61,19 @@ func (r *UserRepo) Insert(ctx context.Context, u model.User) error {
 // ByID 按 ID 读取账号；不存在返回领域 NotFound。
 func (r *UserRepo) ByID(ctx context.Context, id int64) (model.User, error) {
 	return r.queryUser(ctx, r.exec(ctx).QueryRow(ctx,
-		`SELECT `+userColumns+` FROM users WHERE id = $1`, id))
+		`SELECT `+UserColumns+` FROM users WHERE id = $1`, id))
 }
 
 // ByIDForUpdate 在调用方事务内按 ID 读取账号并加行锁。
 func (r *UserRepo) ByIDForUpdate(ctx context.Context, id int64) (model.User, error) {
 	return r.queryUser(ctx, r.exec(ctx).QueryRow(ctx,
-		`SELECT `+userColumns+` FROM users WHERE id = $1 FOR UPDATE`, id))
+		`SELECT `+UserColumns+` FROM users WHERE id = $1 FOR UPDATE`, id))
 }
 
 // ByUsername 按用户名（大小写不敏感）读取账号。
 func (r *UserRepo) ByUsername(ctx context.Context, username string) (model.User, error) {
 	return r.queryUser(ctx, r.exec(ctx).QueryRow(ctx,
-		`SELECT `+userColumns+` FROM users WHERE LOWER(username) = LOWER($1)`, username))
+		`SELECT `+UserColumns+` FROM users WHERE LOWER(username) = LOWER($1)`, username))
 }
 
 // ByLoginIdentifier 按用户名或邮箱（大小写不敏感）读取账号。
@@ -79,7 +81,7 @@ func (r *UserRepo) ByUsername(ctx context.Context, username string) (model.User,
 // 保持 LOWER(email) 可命中 users_email_unique（LOWER(email) WHERE email IS NOT NULL）索引。
 func (r *UserRepo) ByLoginIdentifier(ctx context.Context, identifier string) (model.User, error) {
 	return r.queryUser(ctx, r.exec(ctx).QueryRow(ctx,
-		`SELECT `+userColumns+` FROM users
+		`SELECT `+UserColumns+` FROM users
 		 WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1)`, identifier))
 }
 
@@ -94,7 +96,7 @@ func (r *UserRepo) UpdateProfile(
 		    avatar_url = COALESCE($4::text, avatar_url),
 		    updated_at = $5
 		WHERE id = $1
-		RETURNING `+userColumns, id, nickname, bio, avatarURL, at))
+		RETURNING `+UserColumns, id, nickname, bio, avatarURL, at))
 }
 
 // UpdateProfileFields 按字段更新用户名/昵称/简介（nil 表示不修改），用于 AI 身份与
@@ -109,7 +111,7 @@ func (r *UserRepo) UpdateProfileFields(
 		    bio = COALESCE($4::text, bio),
 		    updated_at = $5
 		WHERE id = $1
-		RETURNING `+userColumns, id, username, nickname, bio, at))
+		RETURNING `+UserColumns, id, username, nickname, bio, at))
 	if err != nil {
 		return model.User{}, mapUserWriteError(err)
 	}
@@ -145,7 +147,7 @@ func (r *UserRepo) UpdateDMPolicy(ctx context.Context, id int64, policy string, 
 // UpdateRole 更新角色并返回更新后的账号行（审计由 app 在同一事务内写入）。
 func (r *UserRepo) UpdateRole(ctx context.Context, id int64, role string, at time.Time) (model.User, error) {
 	return r.queryUser(ctx, r.exec(ctx).QueryRow(ctx,
-		`UPDATE users SET role = $2, updated_at = $3 WHERE id = $1 RETURNING `+userColumns,
+		`UPDATE users SET role = $2, updated_at = $3 WHERE id = $1 RETURNING `+UserColumns,
 		id, role, at))
 }
 
@@ -157,7 +159,7 @@ func (r *UserRepo) UpdateStatus(
 		UPDATE users
 		SET status = $2, suspended_at = $3, token_version = $4, updated_at = $5
 		WHERE id = $1
-		RETURNING `+userColumns, id, status, suspendedAt, tokenVersion, at))
+		RETURNING `+UserColumns, id, status, suspendedAt, tokenVersion, at))
 }
 
 // UpdatePassword 更新密码哈希与 token_version（会话失效由调用方在同一事务内处理）。
@@ -221,7 +223,7 @@ func (r *UserRepo) Search(ctx context.Context, keyword string, cursor int64, lim
 	}
 	args = append(args, limit+1)
 	rows, err := r.exec(ctx).Query(ctx,
-		`SELECT `+userColumns+` FROM users WHERE `+strings.Join(where, " AND ")+
+		`SELECT `+UserColumns+` FROM users WHERE `+strings.Join(where, " AND ")+
 			` ORDER BY id DESC LIMIT $`+fmt.Sprint(len(args)), args...)
 	if err != nil {
 		return nil, err
@@ -271,7 +273,7 @@ func (r *UserRepo) GetUsers(ctx context.Context, ids []int64) (map[int64]model.U
 		return result, nil
 	}
 	rows, err := r.exec(ctx).Query(ctx,
-		`SELECT `+userColumns+` FROM users WHERE id = ANY($1)`, ids)
+		`SELECT `+UserColumns+` FROM users WHERE id = ANY($1)`, ids)
 	if err != nil {
 		return nil, err
 	}
