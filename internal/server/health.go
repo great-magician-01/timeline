@@ -9,8 +9,9 @@ import (
 	"github.com/great-magician-01/timeline/internal/platform/db"
 )
 
-// registerHealth 注册 /healthz 与 /readyz。
+// registerHealth 注册 /health、/healthz 与 /readyz。
 func (s *Server) registerHealth() {
+	s.engine.GET("/health", s.handleHealthz)
 	s.engine.GET("/healthz", s.handleHealthz)
 	s.engine.GET("/readyz", s.handleReadyz)
 }

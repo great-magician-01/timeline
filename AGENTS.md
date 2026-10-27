@@ -1,7 +1,7 @@
 # Timeline 项目指南
 
-> **文档版本**：0.3.4  
-> **最近更新**：2026-10-26  
+> **文档版本**：0.3.5  
+> **最近更新**：2026-10-27  
 > **关联文档**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（后端目标架构权威）、[`docs/README.md`](docs/README.md)（文档索引）
 
 本文件面向首次接触本仓库的 AI 编码代理。项目文档、代码注释和界面文案主要使用简体中文；修改代码和文档时沿用这一语言习惯。本文区分**当前已实现的行为**与**文档中的目标设计**，不要把设计清单误当成已经完成的功能。
@@ -12,7 +12,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 
 当前仓库处于 **V1 已实现、待人工验证** 阶段，功能范围已全部落地：
 
-- Go/Gin HTTP 服务、`/healthz` 存活检查、`/readyz` 就绪检查，以及前端构建产物的 Go 内嵌托管和 SPA 回退。
+- Go/Gin HTTP 服务、`/health`（`/healthz` 别名）与 `/healthz` 存活检查、`/readyz` 就绪检查，以及前端构建产物的 Go 内嵌托管和 SPA 回退。
 - PostgreSQL 连接、失败退避重试、最小迁移器 v2（支持 `no-transaction` 指令）；`migrations/` 内按文件名顺序追加的迁移（`0001`–`0025`，含账号、超级管理员标记、内容、社交、AI、后台作业、AI 记忆来源、时间默认值移除、并发索引与 `pg_trgm` 搜索索引，以及 SQL 最简原则改造的查询索引批次、冗余索引删除、`posts/reposts.author_is_ai` 作者类型快照列、`attachment_usage` 配额冗余计数表、私信会话/消息与 `users.dm_policy`、个人主页置顶 `pinned_at`/`pinned_sort`、收藏 `bookmarks`/`bookmark_folders` 两表与配套索引、个人主页横幅 `users.banner_url`/`users.banner_attachment_id` 与 `attachments_purpose_check` 加入 `banner` 用途、群聊 `group_conversations`/`group_members`/`group_messages` 三表与 `ai_behavior_settings.allow_group_message`、`ai_tasks` 触发/动作 CHECK 扩展等表结构变更）。
 - 账号：用户名/邮箱注册与登录、bcrypt 哈希、HttpOnly 服务端会话、游客与会话 CSRF、三维登录限频、资料与密码修改、关注审批设置、头像上传、个人主页横幅（`purpose=banner` 附件上传后同事务写回 `banner_url`、`POST /users/me/banner/delete` 移除、未设置时主页默认占位、横幅附件公开可读）；公开 `GET /auth/config` 提供注册开关状态与 `bootstrap_required` 初始化状态。空库首个注册用户自动成为唯一超级管理员；超级管理员可授权/撤销管理员，普通管理员不能操作超管账号。
 - 内容：富文本/Markdown 统一安全渲染、帖子、草稿与自动保存冲突、定时发布、编辑历史与版本恢复、附件上传与图片缩略图/视频封面（ffmpeg 可选）、可见性（公开/仅关注者/仅自己）、时间线（全站/关注/个人主页）、个人主页置顶（作者置顶自己的已发布帖子到主页顶部，最多 3 条、支持调整顺序，普通流排除置顶帖）、表情选取（发帖/编辑帖编辑器、首页快速发布、评论、转发引用附言、私信五处文本输入位置提供表情选取面板，emoji 以纯文本插入、纯前端实现）。
@@ -45,7 +45,7 @@ Timeline 是一个支持长文、多附件、分级可见性、完整社交互�
 
 - `go.mod` / `go.sum`：Go 版本与依赖。
 - `web/package.json`：前端脚本与依赖；提供 Vitest `test` 脚本，目前没有 `lint` 或 `format` 脚本。
-- `web/vite.config.ts`：Vue 与 Tailwind 插件；开发代理将 `/api`、`/healthz`、`/readyz` 转发到 `http://localhost:5070`。
+- `web/vite.config.ts`：Vue 与 Tailwind 插件；开发代理将 `/api`、`/health`、`/healthz`、`/readyz` 转发到 `http://localhost:5070`。
 - `web/tsconfig*.json`：TypeScript 项目引用和检查规则，包括未使用变量/参数检查。
 - `.env.example`：部署配置模板，真实凭据不得写入或提交。
 - `Dockerfile` / `docker-compose.yml`：多阶段镜像与单应用 Compose（外部 PostgreSQL）。
@@ -315,4 +315,5 @@ cd web && npm test && npm run build
 | 2026-10-24 | 0.3.1 | 修复前端 SSE 停止泄漏并补测试与 CI：`realtime.ts` 将实际连接保存到模块级句柄，新增 Vitest 生命周期回归测试（启动防重、停止关闭/幂等、重建与错误状态）；`web/package.json` 新增 `npm test`，§2/§4/§5/§6 同步前端测试命令。GitHub Actions 新增独立 PostgreSQL 17 集成任务（预装 `pg_trgm`、`TIMELINE_INTEGRATION=1 go test -p 1 -count=1 ./...`）和前端测试步骤，应用镜像构建依赖全部测试；CI 不启动应用容器。同步 `DEPLOYMENT.md` 0.4.7、`docs/README.md` 0.1.19 及根目录/`web/` README。 |
 | 2026-10-24 | 0.3.2 | 代码审查收尾：清理全仓 gofmt 漂移（`internal/app/wire.go` 常量与依赖块对齐、`content/http` DTO 对齐与 doc 注释规范化、`social/app` 限频常量与测试桩对齐、`shared/contracts/social.go` 字段对齐，共 7 个文件，纯格式变更无语义变化）；CI backend job 新增 gofmt 门禁步骤（对 `git ls-files '*.go'` 全部文件执行 `gofmt -l`，存在未格式化文件即失败）；§2/§4/§5 同步 CI 描述。 |
 | 2026-10-24 | 0.3.3 | 新增群聊：§1 功能清单补群聊条目（独立域、建群与名额、拉人矩阵、两级角色、解散只读、游标未读、限频、AI 群行为面）并把迁移范围补到 `0001`–`0025`、实时推送条目补 `group` 事件；§3 模块域补 `group`（四层）、shared 补 `chat` 包；§4 集成测试命令补 `TestGroupIntegration`；§6 测试清单补群聊单测与集成测试、前端补 realtime `group` 信号用例；新增迁移 `0025_group_chat`（群聊三表 + `allow_group_message` + `ai_tasks` CHECK 扩展）。同步 `REQUIREMENTS.md` 0.32.0、`API.md` 0.13.0、`DATA_MODEL.md` 0.14.0、`PAGES_AND_PERMISSIONS.md` 0.1.27、`WORKFLOWS.md` 0.13.0、`ACCEPTANCE.md` 0.9.0、`ARCHITECTURE.md` 0.6.0、`DESIGN_SYSTEM.md` 0.6.0、`docs/README.md` 0.1.20 与 `migrations/README.md`。 |
+| 2026-10-27 | 0.3.5 | 新增 `GET /health` 存活检查别名，与 `/healthz` 返回相同响应且不依赖数据库；补充无数据库单元测试、Vite 开发代理与接口文档。无迁移及其他 API 行为变更。 |
 | 2026-10-26 | 0.3.4 | 代码质量修复：auth repo 导出权威 users 投影 `UserColumns` 并新增投影同步守护测试（测试文件不受模块互斥约束，admin 镜像与 session JOIN 投影均与权威定义比对；`banner_url`/`dm_policy` 两处真实漂移由新测试发现并修复）；`agent/app/task.go` 按职责拆分为 task/memory/reconcile 三文件（纯移动无语义变化），清理 agent/media/social 共 4 处 `var _ =` 保活占位；group 新增 `Log` 依赖（组合根注入，nil 回退默认 logger），群消息 @提及 触发 AI 回复失败时记 WARN 日志；修正 `stores/notifications.ts` 过时的「仅轮询」头注释；前端新增 7 个 Vitest 测试文件共 42 项用例（useCursorList/theme/auth/site/notifications/messages/groups），§6 同步测试覆盖描述。无迁移、无 API 与行为变更。 |

@@ -72,11 +72,16 @@ func TestUnknownAPIAfterReadyReturns404(t *testing.T) {
 
 func TestHealthDoesNotRequireDatabase(t *testing.T) {
 	srv := newSlimServer(t, &config.Config{LogLevel: "debug"})
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-	resp := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(resp, req)
-	if resp.Code != http.StatusOK {
-		t.Fatalf("/healthz status=%d body=%s", resp.Code, resp.Body.String())
+	for _, path := range []string{"/health", "/healthz"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		resp := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(resp, req)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", path, resp.Code, resp.Body.String())
+		}
+		if got := strings.TrimSpace(resp.Body.String()); got != `{"status":"ok"}` {
+			t.Fatalf("%s body=%s", path, resp.Body.String())
+		}
 	}
 }
 

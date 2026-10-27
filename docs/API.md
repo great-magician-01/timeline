@@ -1,8 +1,8 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.13.0  
-> **最近更新**：2026-10-24  
+> **文档版本**：0.13.1  
+> **最近更新**：2026-10-27  
 > **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.32.0  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
 > **用途**：前后端接口对接、接口实现与验收用例的依据
@@ -367,11 +367,12 @@
 
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
+| GET | `/health` | 存活检查别名：与 `/healthz` 相同，返回 `200 {"status":"ok"}` | 无 |
 | GET | `/healthz` | 存活检查：进程可响应即返回 `200 {"status":"ok"}` | 无（仅供容器健康检查与运维） |
 | GET | `/readyz` | 就绪检查：验证数据库连通、迁移已完成；未就绪返回 `503` | 无 |
 
-1. 两个接口不在 `/api/v1` 下，不参与 CSRF，也不返回任何业务数据。
-2. SPA 路由回退不得覆盖这两个路径，部署配置（`DEPLOYMENT.md`）依赖它们做容器健康检查。
+1. 三个接口不在 `/api/v1` 下，不参与 CSRF，也不返回任何业务数据。
+2. SPA 路由回退不得覆盖这三个路径，部署配置（`DEPLOYMENT.md`）依赖 `/healthz` 与 `/readyz` 做容器健康检查。
 3. 是否额外提供包含版本号的接口（如 `/version`）在实现时确定。
 
 ## 15. 管理后台接口
@@ -554,4 +555,5 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 | 2026-10-21 | 0.10.0 | 需求基线更新至 0.27.0，新增收藏接口（§8）：`POST /posts/:id/bookmark`（可选 `folder_id`，幂等 + 移动语义）、`POST /posts/:id/unbookmark`、`GET /me/bookmarks`（ID 游标分页 + 夹过滤三态）、`GET/POST /me/bookmark-folders`、`POST /me/bookmark-folders/:id`（重命名）与 `:id/delete`（删除并归还默认收藏）；§2.8 post_brief 的 `viewer_state` 补 `bookmarked`、新增可选 `bookmark` 字段；§14 补收藏限频口径。 |
 | 2026-10-23 | 0.11.0 | 需求基线更新至 0.30.0，新增个人主页横幅：§4 新增 `POST /users/me/banner/delete` 并补 `POST /users/me` 的横幅写回说明；§2.8 新增公开账号完整对象 `user`（含 `banner_url`，空串=未设置，不进入 user_brief）；§11 附件 `purpose` 增加 `banner`（仅图片内容，非图片 400）、横幅附件公开可读并写回 `banner_url`；§15 待细化补横幅尺寸建议。 |
 | 2026-10-23 | 0.12.0 | 需求基线更新至 0.31.0，新增实时事件接口（新第 11 章，原 11–16 章顺延为 12–17 章）：`GET /api/v1/events`（Login 策略、GET 无需 CSRF，游客 401），SSE 流响应头（`text/event-stream`/`no-cache`/`X-Accel-Buffering: no`）、首行 `retry: 3000`、25 秒心跳注释、连接保持至客户端断开或服务关闭；定义 `notification`（data `{}`）与 `dm`（data 含雪花 ID 字符串 `conversation_id`）两种提示信号事件、事务提交后发布时序与按用户隔离投递；连接上限单用户 3 条/全局 2000 条，超限 503 `unavailable`（§2.6 错误码表同步新增该行）；§11.3 明确「事件是提示信号、客户端须重新拉取」的使用约定与 30 秒轮询降级兜底关系；§2.8 附件章节引用改为第 12 章；§16 待细化移除「未来实时通知（SSE/WebSocket）的接口预留」（已实现）；路由总数基线更新为 133 条（GET 53 / POST 80，`GET /events` 归入 Login 组）。 |
+| 2026-10-27 | 0.13.1 | 系统接口新增 `GET /health`，作为 `/healthz` 的存活检查别名；两者均无需认证、不依赖数据库并返回 `{"status":"ok"}`，既有接口契约不变。 |
 | 2026-10-24 | 0.13.0 | 需求基线更新至 0.32.0，新增群聊接口（新第 11 章，原 11–17 章顺延为 12–18 章，全文小节编号同步）：GET `groups/unread-count`、`GET/POST /groups`、`GET /groups/:id`、`GET /groups/:id/members`（`joinedAt:id` 字符串复合游标）、`GET /groups/:id/messages`（cursor 翻旧 + after_id 增量）；POST `/groups/:id/messages`、`/groups/:id/read`（已读游标幂等，返回 `{"updated":0|1}`）、`/groups/:id/hide`、`/groups/:id/rename`、`/groups/:id/invite`（一次 1–20 人按用户名，幂等拉回）、`/groups/:id/transfer`、`/groups/:id/leave`、`/groups/:id/dissolve`、`/groups/:id/members/:uid/remove`、`/groups/messages/:id/recall`，共 16 条（GET 5 / POST 11，Login/HumanWrite 策略）；§2.8 新增 group/group_member/group_message 对象；§12 SSE 事件表新增 `group` 事件（载荷复用 `conversation_id` 字段携带群 ID，发送/撤回/成员变更/解散后向全部有效成员发布）；§16 限频补群聊条目（发送与建群/拉人共享 60 次/10 分钟，幂等动作不限频）；错误语义：非成员一律 404、角色与资格拒绝 403、校验 400、`group_owner_limit`/`group_member_limit` 409；管理后台无任何群聊接口。 |

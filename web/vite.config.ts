@@ -10,6 +10,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': backend,
+      '/health': backend,
       '/healthz': backend,
       '/readyz': backend,
     },

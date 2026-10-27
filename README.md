@@ -187,7 +187,7 @@ npm ci
 npm run dev
 ```
 
-Vite 会把 `/api`、`/healthz`、`/readyz` 代理到 `http://localhost:5070`。打开 Vite 输出的地址（默认 `http://localhost:5173`）就可以开始开发，Go 服务本身监听 `:5070`。
+Vite 会把 `/api`、`/health`、`/healthz`、`/readyz` 代理到 `http://localhost:5070`。打开 Vite 输出的地址（默认 `http://localhost:5173`）就可以开始开发，Go 服务本身监听 `:5070`。
 
 > 想让 Go 直接托管前端？先 `cd web && npm run build`，再重启 Go 服务。`go:embed` 只在编译时读取 `web/dist`，只改 `web/src` 或只重启旧二进制都不会更新嵌入资源。
 
@@ -202,6 +202,9 @@ Vite 会把 `/api`、`/healthz`、`/readyz` 代理到 `http://localhost:5070`。
 ### 第五步：确认服务真的活了
 
 ```bash
+curl -s http://localhost:5070/health
+# {"status":"ok"}
+
 curl -s http://localhost:5070/healthz
 # {"status":"ok"}
 
