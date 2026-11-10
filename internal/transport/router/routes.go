@@ -15,9 +15,8 @@ type Route struct {
 	Handler func(Deps) gin.HandlerFunc
 }
 
-// Routes 返回全部业务路由（133 条，基线 b6fed97 + 私信 11 条 + 置顶 3 条 + 收藏 7 条
-// + 主页横幅移除 1 条 + 实时事件流 1 条；新增业务接口时同步维护并更新 routes_test.go
-// 的数量断言）。
+// Routes 返回全部业务路由（160 条：群聊基线 149 条 + 个人网盘/公开文件 10 条
+// + 文章附件精确解除 1 条；新增业务接口时同步维护并更新 routes_test.go 的数量断言）。
 func Routes() []Route {
 	return []Route{
 		// ---------- 公开 / 可选会话 ----------
@@ -37,6 +36,8 @@ func Routes() []Route {
 		{http.MethodGet, "/me/scheduled", Login, func(d Deps) gin.HandlerFunc { return d.Content.ListMyScheduled }},
 		{http.MethodGet, "/me/bookmarks", Login, func(d Deps) gin.HandlerFunc { return d.Content.ListBookmarks }},
 		{http.MethodGet, "/me/bookmark-folders", Login, func(d Deps) gin.HandlerFunc { return d.Social.ListBookmarkFolders }},
+		{http.MethodGet, "/drive/folders", Login, func(d Deps) gin.HandlerFunc { return d.Media.ListDriveFolders }},
+		{http.MethodGet, "/drive/files", Login, func(d Deps) gin.HandlerFunc { return d.Media.ListDriveFiles }},
 		{http.MethodGet, "/timeline/following", Login, func(d Deps) gin.HandlerFunc { return d.Content.FollowingTimeline }},
 		{http.MethodGet, "/notifications", Login, func(d Deps) gin.HandlerFunc { return d.Notice.List }},
 		{http.MethodGet, "/notifications/unread-count", Login, func(d Deps) gin.HandlerFunc { return d.Notice.UnreadCount }},
@@ -67,6 +68,7 @@ func Routes() []Route {
 		{http.MethodPost, "/posts", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Content.CreatePost }},
 		{http.MethodPost, "/posts/pinned/reorder", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Content.ReorderPinnedPosts }},
 		{http.MethodPost, "/posts/:id", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Content.UpdatePost }},
+		{http.MethodPost, "/posts/:id/attachments/:attachment_id/detach", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Content.DetachAttachment }},
 		{http.MethodPost, "/posts/:id/publish", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Content.PublishPost }},
 		{http.MethodPost, "/posts/:id/schedule", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Content.SchedulePost }},
 		{http.MethodPost, "/posts/:id/cancel-schedule", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Content.CancelSchedule }},
@@ -107,10 +109,18 @@ func Routes() []Route {
 		{http.MethodPost, "/me/bookmark-folders/:id/delete", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Social.DeleteBookmarkFolder }},
 		{http.MethodPost, "/attachments", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.Upload }},
 		{http.MethodPost, "/attachments/:id/delete", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.Delete }},
+		{http.MethodPost, "/drive/folders", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.CreateDriveFolder }},
+		{http.MethodPost, "/drive/folders/:id", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.RenameDriveFolder }},
+		{http.MethodPost, "/drive/folders/:id/visibility", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.SetDriveFolderVisibility }},
+		{http.MethodPost, "/drive/folders/:id/delete", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.DeleteDriveFolder }},
+		{http.MethodPost, "/drive/files/:id", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.SetDriveFileVisibility }},
+		{http.MethodPost, "/drive/files/:id/move", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.MoveDriveFile }},
+		{http.MethodPost, "/drive/files/:id/delete", HumanWrite, func(d Deps) gin.HandlerFunc { return d.Media.DeleteDriveFile }},
 
 		// ---------- 公开读（可选会话获得 viewer_state） ----------
 		{http.MethodGet, "/users/search", Optional, func(d Deps) gin.HandlerFunc { return d.Auth.SearchUsers }},
 		{http.MethodGet, "/users/:username", Optional, func(d Deps) gin.HandlerFunc { return d.Auth.GetProfile }},
+		{http.MethodGet, "/users/:username/drive/files", Optional, func(d Deps) gin.HandlerFunc { return d.Media.ListPublicDriveFiles }},
 		{http.MethodGet, "/users/:username/posts", Optional, func(d Deps) gin.HandlerFunc { return d.Content.UserTimeline }},
 		{http.MethodGet, "/users/:username/followers", Optional, func(d Deps) gin.HandlerFunc { return d.Social.ListFollowers }},
 		{http.MethodGet, "/users/:username/following", Optional, func(d Deps) gin.HandlerFunc { return d.Social.ListFollowing }},

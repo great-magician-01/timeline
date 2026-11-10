@@ -670,31 +670,34 @@ func TestSearchTagSuggestGuards(t *testing.T) {
 	}
 }
 
-// TestLinkAttachments 校验发布附件关联：空集合直接成功、端口缺失/失败返回错误。
-func TestLinkAttachments(t *testing.T) {
+// TestRevokeDrivePublicOnRestriction 校验公开内容不改动网盘，非公开内容同事务撤销公开。
+func TestRevokeDrivePublicOnRestriction(t *testing.T) {
 	ctx := context.Background()
 	at := contentTestNow
 
-	if err := newTestService(t, Deps{}).linkAttachments(ctx, 1, nil, at); err != nil {
+	if err := newTestService(t, Deps{}).revokeDrivePublicOnRestriction(ctx, model.VisibilityPublic, []int64{2}, at); err != nil {
+		t.Fatalf("公开文章不应撤销网盘公开: %v", err)
+	}
+	if err := newTestService(t, Deps{}).revokeDrivePublicOnRestriction(ctx, model.VisibilityPrivate, nil, at); err != nil {
 		t.Fatalf("空附件应返回 nil，实际 %v", err)
 	}
-	err := newTestService(t, Deps{}).linkAttachments(ctx, 1, []int64{2}, at)
+	err := newTestService(t, Deps{}).revokeDrivePublicOnRestriction(ctx, model.VisibilityPrivate, []int64{2}, at)
 	e := requireKind(t, err, apperr.KindInternal)
 	if e.Message != "附件服务未就绪" {
 		t.Fatalf("附件端口缺失文案错误: %q", e.Message)
 	}
 
 	media := &fakeMedia{}
-	if err := newTestService(t, Deps{Media: media}).linkAttachments(ctx, 1, []int64{2, 3}, at); err != nil {
-		t.Fatalf("关联附件失败: %v", err)
+	if err := newTestService(t, Deps{Media: media}).revokeDrivePublicOnRestriction(ctx, model.VisibilityFollowers, []int64{2, 3}, at); err != nil {
+		t.Fatalf("撤销网盘公开失败: %v", err)
 	}
-	if len(media.linked) != 2 || media.linked[0] != 2 || media.linked[1] != 3 || !media.linkedAt.Equal(at) {
-		t.Fatalf("关联附件参数错误: %+v at=%v", media.linked, media.linkedAt)
+	if len(media.revoked) != 2 || media.revoked[0] != 2 || media.revoked[1] != 3 || !media.revokedAt.Equal(at) {
+		t.Fatalf("撤销公开参数错误: %+v at=%v", media.revoked, media.revokedAt)
 	}
 
 	cause := errors.New("附件服务不可用")
 	media = &fakeMedia{linkErr: cause}
-	err = newTestService(t, Deps{Media: media}).linkAttachments(ctx, 1, []int64{2}, at)
+	err = newTestService(t, Deps{Media: media}).revokeDrivePublicOnRestriction(ctx, model.VisibilityPrivate, []int64{2}, at)
 	requireKind(t, err, apperr.KindInternal)
 	if !errors.Is(err, cause) {
 		t.Fatal("应保留附件端口错误")

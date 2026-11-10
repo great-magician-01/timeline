@@ -21,11 +21,13 @@ import (
 // ===== 上传 =====
 
 // uploadSuccessResults 是图片上传成功所需的查询顺序：预检读一次已用空间，
-// 事务内写附件行、累加 attachment_usage、写衍生文件行（各一条命令）。
+// 事务内写附件、累加配额、确保默认目录、写网盘条目与衍生文件行。
 func uploadSuccessResults() []pgResult {
 	return []pgResult{
 		usageResult(0),
 		commandResult("INSERT 0 1"),
+		commandResult("INSERT 0 1"),
+		postFolderResult(7),
 		commandResult("INSERT 0 1"),
 		commandResult("INSERT 0 1"),
 	}
@@ -49,6 +51,10 @@ func TestUploadSuccessJSON(t *testing.T) {
 	}
 	if attachment["id"] != "101" {
 		t.Fatalf("附件 ID = %v，期望字符串 \"101\"", attachment["id"])
+	}
+	driveFile, ok := body["drive_file"].(map[string]any)
+	if !ok || driveFile["visibility"] != "private" || driveFile["folder_id"] != "7" {
+		t.Fatalf("文章附件应默认进入私密网盘目录: %s", recorder.Body.String())
 	}
 	if attachment["kind"] != domain.KindImage || attachment["media_type"] != "image/png" {
 		t.Fatalf("附件种类/媒体类型 = %v/%v", attachment["kind"], attachment["media_type"])
@@ -290,7 +296,7 @@ func TestContentDeniedByPostVisibility(t *testing.T) {
 	postID := int64(9)
 	row := testAttachmentRow(42, 7)
 	row.PostID = &postID
-	env.expect(attachmentResult(row))
+	env.expect(attachmentResult(row), noDriveFileResult())
 	c, recorder := newTestContext(http.MethodGet, "/api/v1/attachments/42/content")
 	withPathParams(c, map[string]string{"id": "42"})
 	env.handler.Content(c)
@@ -401,7 +407,7 @@ func TestDerivativeInvalidParams(t *testing.T) {
 func TestDerivativePendingThenSuccess(t *testing.T) {
 	t.Run("尚未生成", func(t *testing.T) {
 		env := newHTTPTestEnv(t)
-		env.expect(attachmentResult(testAttachmentRow(42, 7)), derivativeResult(repo.Derivative{
+		env.expect(attachmentResult(testAttachmentRow(42, 7)), noDriveFileResult(), derivativeResult(repo.Derivative{
 			ID: 5, AttachmentID: 42, DerivativeType: model.DerivativeThumbnail,
 			Status: model.DerivativePending, CreatedAt: testNow, UpdatedAt: testNow,
 		}))
@@ -478,6 +484,7 @@ func TestDeleteSuccessJSON(t *testing.T) {
 	env.content.detached = true
 	env.expect(
 		attachmentResult(testAttachmentRow(42, 7)),
+		noDriveFileResult(),
 		commandResult("UPDATE 1"),
 		commandResult("UPDATE 0"),
 	)
@@ -499,7 +506,7 @@ func TestDeleteReferencedByVersion(t *testing.T) {
 	env := newHTTPTestEnv(t)
 	env.content.detached = true
 	env.content.referenced = true
-	env.expect(attachmentResult(testAttachmentRow(42, 7)))
+	env.expect(attachmentResult(testAttachmentRow(42, 7)), noDriveFileResult())
 	c, recorder := newTestContext(http.MethodPost, "/api/v1/attachments/42/delete")
 	withPathParams(c, map[string]string{"id": "42"})
 	withViewer(c, humanViewer(7))

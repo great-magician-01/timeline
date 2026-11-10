@@ -155,6 +155,10 @@ const listExpiredTempAttachmentCandidatesSQL = `
 	  AND a.purpose = 'post'
 	  AND a.created_at < $1
 	  AND a.id <> ALL($2)
+		  AND NOT EXISTS (
+			SELECT 1 FROM drive_files AS df
+			WHERE df.attachment_id = a.id AND df.status = 'active'
+		  )
 	ORDER BY a.created_at, a.id
 	LIMIT $3`
 

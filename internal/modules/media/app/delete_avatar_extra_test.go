@@ -64,7 +64,7 @@ func TestDeleteReferencedByVersionKeepsAvailable(t *testing.T) {
 	env := newMediaTestEnv(t)
 	env.content.detached = true
 	env.content.referenced = true
-	env.expect(attachmentResult(testAttachmentRow(42, 7)))
+	env.expect(attachmentResult(testAttachmentRow(42, 7)), noDriveFileResult())
 
 	result, err := env.svc.Delete(context.Background(), 7, 42)
 	if err != nil {
@@ -94,6 +94,7 @@ func TestDeleteMarksDeletedAndCancelsDerivatives(t *testing.T) {
 	env.content.referenced = false
 	env.expect(
 		attachmentResult(testAttachmentRow(42, 7)),
+		noDriveFileResult(),
 		commandResult("UPDATE 1"),
 		commandResult("UPDATE 0"),
 	)
@@ -117,7 +118,7 @@ func TestDeleteMarksDeletedAndCancelsDerivatives(t *testing.T) {
 func TestDeleteConcurrentAlreadyDeleted(t *testing.T) {
 	env := newMediaTestEnv(t)
 	env.content.detached = true
-	env.expect(attachmentResult(testAttachmentRow(42, 7)), commandResult("UPDATE 0"))
+	env.expect(attachmentResult(testAttachmentRow(42, 7)), noDriveFileResult(), commandResult("UPDATE 0"))
 
 	result, err := env.svc.Delete(context.Background(), 7, 42)
 	if err != nil {
@@ -136,20 +137,20 @@ func TestDeleteErrors(t *testing.T) {
 	t.Run("解除草稿关联失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
 		env.content.detachErr = errors.New("content 不可用")
-		env.expect(attachmentResult(testAttachmentRow(42, 7)))
+		env.expect(attachmentResult(testAttachmentRow(42, 7)), noDriveFileResult())
 		_, err := env.svc.Delete(context.Background(), 7, 42)
 		requireKind(t, err, apperr.KindInternal)
 	})
 	t.Run("检查历史版本引用失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
 		env.content.referencedErr = errors.New("content 不可用")
-		env.expect(attachmentResult(testAttachmentRow(42, 7)))
+		env.expect(attachmentResult(testAttachmentRow(42, 7)), noDriveFileResult())
 		_, err := env.svc.Delete(context.Background(), 7, 42)
 		requireKind(t, err, apperr.KindInternal)
 	})
 	t.Run("失效附件失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(attachmentResult(testAttachmentRow(42, 7)), dbErrorResult("update 失败"))
+		env.expect(attachmentResult(testAttachmentRow(42, 7)), noDriveFileResult(), dbErrorResult("update 失败"))
 		_, err := env.svc.Delete(context.Background(), 7, 42)
 		requireKind(t, err, apperr.KindInternal)
 	})
@@ -162,7 +163,7 @@ func TestDeleteErrors(t *testing.T) {
 	t.Run("事务入口未初始化", func(t *testing.T) {
 		env := newMediaTestEnv(t)
 		env.svc.tx = nil
-		env.expect(attachmentResult(testAttachmentRow(42, 7)))
+		env.expect(attachmentResult(testAttachmentRow(42, 7)), noDriveFileResult())
 		_, err := env.svc.Delete(context.Background(), 7, 42)
 		if err == nil || !strings.Contains(err.Error(), "事务管理器未初始化") {
 			t.Fatalf("期望事务管理器未初始化错误，实际 %v", err)

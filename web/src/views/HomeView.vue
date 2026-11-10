@@ -7,9 +7,10 @@ import { errorMessage } from '../api/client'
 import { createPost, fetchTimeline } from '../api/posts'
 import type { TimelineFilter } from '../api/posts'
 import { listFollowRequests } from '../api/social'
-import type { Attachment, PostBrief, Visibility } from '../api/types'
+import type { Attachment, DriveFile, PostBrief, Visibility } from '../api/types'
 import AlertNote from '../components/AlertNote.vue'
 import AppIcon from '../components/AppIcon.vue'
+import DrivePicker from '../components/DrivePicker.vue'
 import EmojiPicker from '../components/EmojiPicker.vue'
 import EmptyState from '../components/EmptyState.vue'
 import MediaUploader from '../components/MediaUploader.vue'
@@ -134,6 +135,14 @@ function onQuickAttachmentRemoved(id: string): void {
   attachments.value = attachments.value.filter((item) => item.id !== id)
 }
 
+const showQuickDrivePicker = ref(false)
+
+function onQuickDrivePicked(files: DriveFile[]): void {
+  const existing = new Set(attachments.value.map((item) => item.id))
+  attachments.value = [...attachments.value, ...files.filter((file) => !existing.has(file.id))]
+  showQuickDrivePicker.value = false
+}
+
 // ---------- 待处理的关注申请提示 ----------
 
 const pendingCount = ref(0)
@@ -200,8 +209,10 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
         <MediaUploader
           :attachments="attachments"
           :disabled="posting"
+          allow-drive-pick
           @added="onQuickAttachmentAdded"
           @removed="onQuickAttachmentRemoved"
+          @pick-from-drive="showQuickDrivePicker = true"
         >
           <template #toolbar="{ pick, dragging }">
             <div class="flex flex-wrap items-center gap-2.5">
@@ -284,6 +295,8 @@ watch(() => authState.user?.id, () => void loadPendingRequests(), { immediate: t
         </AlertNote>
         <AlertNote v-if="postError" kind="error">{{ postError }}</AlertNote>
       </section>
+
+      <DrivePicker :open="showQuickDrivePicker" @close="showQuickDrivePicker = false" @pick="onQuickDrivePicked" />
 
       <RouterLink
         v-if="user && pendingCount > 0"

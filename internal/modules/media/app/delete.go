@@ -30,6 +30,12 @@ func (s *Service) Delete(ctx context.Context, userID, attachmentID int64) (Delet
 		// 不向非上传者暴露附件是否存在。
 		return DeleteResult{}, apperr.NotFound("附件不存在或无权操作")
 	}
+	// 网盘文件必须按具体帖子解除关联，或走网盘删除；旧接口不能跨帖全量解绑。
+	if _, err := repo.GetDriveFile(ctx, s.exec(ctx), attachmentID); err == nil {
+		return DeleteResult{}, apperr.Validation("请从具体文章移除附件，或在网盘中删除文件")
+	} else if !repo.IsNotFound(err) {
+		return DeleteResult{}, s.internal("读取附件网盘归属失败", err)
+	}
 	at := s.clk.Now()
 	var result DeleteResult
 	err = s.tx.WithTx(ctx, func(txCtx context.Context) error {

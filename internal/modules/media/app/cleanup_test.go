@@ -35,7 +35,7 @@ type fakeContentPort struct {
 	got        []int64
 }
 
-func (f *fakeContentPort) ActiveDraftAttachmentIDs(_ context.Context, attachmentIDs []int64) ([]int64, error) {
+func (f *fakeContentPort) ReferencedAttachmentIDs(_ context.Context, attachmentIDs []int64) ([]int64, error) {
 	f.calls++
 	f.got = append([]int64{}, attachmentIDs...)
 	return f.referenced, f.err

@@ -64,6 +64,7 @@ type ContentHandlers interface {
 	GetPost(c *gin.Context)
 	CreatePost(c *gin.Context)
 	UpdatePost(c *gin.Context)
+	DetachAttachment(c *gin.Context)
 	PublishPost(c *gin.Context)
 	SchedulePost(c *gin.Context)
 	CancelSchedule(c *gin.Context)
@@ -165,6 +166,16 @@ type MediaHandlers interface {
 	Content(c *gin.Context)
 	Derivative(c *gin.Context)
 	Delete(c *gin.Context)
+	ListDriveFolders(c *gin.Context)
+	CreateDriveFolder(c *gin.Context)
+	RenameDriveFolder(c *gin.Context)
+	SetDriveFolderVisibility(c *gin.Context)
+	DeleteDriveFolder(c *gin.Context)
+	ListDriveFiles(c *gin.Context)
+	ListPublicDriveFiles(c *gin.Context)
+	SetDriveFileVisibility(c *gin.Context)
+	MoveDriveFile(c *gin.Context)
+	DeleteDriveFile(c *gin.Context)
 }
 
 // AIHandlers 覆盖模型预设、AI 身份/模型/行为与分层记忆。

@@ -5,6 +5,7 @@ package http
 import (
 	"errors"
 	stdhttp "net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -61,10 +62,21 @@ func (h *Handler) Upload(c *gin.Context) {
 	}
 	defer source.Close()
 
+	var folderID *int64
+	if raw := strings.TrimSpace(c.PostForm("folder_id")); raw != "" {
+		id, err := httpx.ParseID(raw)
+		if err != nil {
+			httpx.Error(c, stdhttp.StatusBadRequest, "invalid_request", "folder_id 无效")
+			return
+		}
+		folderID = &id
+	}
 	result, err := h.svc.Upload(ctx, app.UploadInput{
 		Viewer:   viewer,
 		Filename: fileHeader.Filename,
 		Purpose:  c.PostForm("purpose"),
+		Source:   c.PostForm("source"),
+		FolderID: folderID,
 		SizeHint: fileHeader.Size,
 		Precheck: &precheck,
 		Content:  source,
@@ -73,9 +85,13 @@ func (h *Handler) Upload(c *gin.Context) {
 		h.respondError(c, err)
 		return
 	}
-	c.JSON(stdhttp.StatusCreated, gin.H{
+	response := gin.H{
 		"attachment": view.AttachmentResponseFor(result.Attachment, result.Derivatives),
-	})
+	}
+	if result.DriveFile != nil {
+		response["drive_file"] = driveFileResponseFor(*result.DriveFile)
+	}
+	c.JSON(stdhttp.StatusCreated, response)
 }
 
 // Content 处理 GET /api/v1/attachments/:id/content。

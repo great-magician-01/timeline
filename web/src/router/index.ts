@@ -93,6 +93,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '我的收藏', requiresAuth: true },
   },
   {
+    path: '/drive',
+    name: 'drive',
+    component: () => import('../views/DriveView.vue'),
+    meta: { title: '我的网盘', requiresAuth: true },
+  },
+  {
     path: '/follow-requests',
     name: 'follow-requests',
     component: () => import('../views/FollowRequestsView.vue'),
@@ -163,6 +169,12 @@ const routes: RouteRecordRaw[] = [
     name: 'user-following',
     component: () => import('../views/FollowingListView.vue'),
     meta: { title: '关注' },
+  },
+  {
+    path: '/users/:username/drive',
+    name: 'user-drive',
+    component: () => import('../views/PublicDriveView.vue'),
+    meta: { title: '公开网盘' },
   },
   {
     path: '/settings',

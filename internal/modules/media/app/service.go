@@ -36,6 +36,12 @@ type ContentPort interface {
 	// ActiveDraftAttachmentIDs 返回仍被生效草稿关联的附件 ID 子集。
 	// 消费者：media 临时附件清理（替代直接查询 content 拥有的 post_draft_attachments）。
 	ActiveDraftAttachmentIDs(ctx context.Context, attachmentIDs []int64) ([]int64, error)
+	// ReferencedAttachmentIDs 返回仍被任一历史版本或生效草稿引用的附件 ID 子集。
+	ReferencedAttachmentIDs(ctx context.Context, attachmentIDs []int64) ([]int64, error)
+	// HasNonPublicAttachmentReference 判断附件是否被非公开或已删除内容引用。
+	HasNonPublicAttachmentReference(ctx context.Context, attachmentID int64) (bool, error)
+	// CanViewAttachment 判断访问者是否能通过任一当前可见文章读取附件。
+	CanViewAttachment(ctx context.Context, viewer model.Viewer, attachmentID int64) (bool, error)
 }
 
 // Deps 是 media 模块的构造依赖，由组合根（internal/app）注入。

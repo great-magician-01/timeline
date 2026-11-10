@@ -1,9 +1,9 @@
 # Timeline 后端目标架构
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.6.0  
-> **最近更新**：2026-10-24  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.32.0  
+> **文档版本**：0.7.1  
+> **最近更新**：2026-11-10  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.33.0  
 > **关联文档**：[`DATA_MODEL.md`](DATA_MODEL.md)、[`WORKFLOWS.md`](WORKFLOWS.md)、[`API.md`](API.md)、[`DEPLOYMENT.md`](DEPLOYMENT.md)  
 > **用途**：后端分层、依赖边界、数据所有权与架构守卫的权威说明；改造过程细节见仓库根目录 `CODE_QUALITY_REFACTOR_PLAN.md`（过程文档，非长期权威）
 
@@ -61,7 +61,7 @@ internal/
     ├── dm/       # 1:1 私信会话、消息、已读、撤回（管理后台不可见）
     ├── group/    # 群聊：群、成员（两级角色）、消息、已读/隐藏游标、解散只读（管理后台不可见）
     ├── realtime/ # SSE 实时推送通道（GET /api/v1/events）：特例，仅 app+http 两层——纯传输通道，无 SQL、无状态机，故无 domain/repo
-    ├── media/    # 附件、衍生文件、清理
+    ├── media/    # 附件、个人网盘文件夹/文件、衍生文件、配额与清理
     ├── ai/       # 预设、AI 身份/行为、记忆、运行时
     ├── agent/    # 调度、决策、动作、调用记录、AI 管理接口
     └── admin/    # 审核/概览/任务/审计查询（编排型上下文，无自有实体）
@@ -111,7 +111,7 @@ cmd/server ──▶ internal/app
 | `modules/notice` | `notifications`、`mentions` |
 | `modules/dm` | `dm_conversations`、`dm_messages` |
 | `modules/group` | `group_conversations`、`group_members`、`group_messages` |
-| `modules/media` | `attachments`、`attachment_derivatives` |
+| `modules/media` | `attachments`、`attachment_derivatives`、`attachment_usage`、`drive_folders`、`drive_files` |
 | `modules/ai` | `model_providers`、`ai_profiles`、`ai_model_settings`、`ai_behavior_settings`、`ai_memories`、`ai_memory_sources` |
 | `modules/agent` | `ai_tasks`、`ai_task_memory_refs`、`ai_call_logs`、`ai_action_counters` |
 | `modules/admin` | 无自有实体；只读 read-model 跨表 JOIN/聚合，不写任何表 |
@@ -123,10 +123,13 @@ cmd/server ──▶ internal/app
 
 规则：一张表只有一个写所有者；其它模块需要读写时通过所有者 app 的端口。`media` 更新头像与主页横幅、`admin` 停用/重置密码等 `users` 写操作都经 `auth/app` 端口完成。`users.avatar_attachment_id` 与 `users.banner_attachment_id`（`0024`，横幅经 `UserWriter.SetBanner` 双写，移除由 auth 自身用例清空）由 auth 拥有、media 通过端口双写；历史头像的旧数据由迁移 `0016_review_fixes` 一次性回填，用于替代附件清理里拼 URL 的跨表条件。`users.dm_policy`（`0021`）由 auth 拥有并读写；`dm` 模块通过 `auth` 的 `UserReader` 读取策略与账号状态、通过 `social` 的 `RelationReader` 读取关注关系，`dm` 不向其它模块暴露能力（私信不进通知中心、管理后台不可见）。
 
+个人网盘仍归 `media`，不新增 `modules/drive`，避免复制上传、存储、配额与衍生文件链路。`drive_folders`/`drive_files` 只由 media repo 读写；content 不直接查询这两张表。文章附件关联的事实来源仍是 content 拥有的 `post_draft_attachments`/`post_version_attachments`，media 通过自身 `ContentPort` 获取批量引用与当前可见性判断；`attachments.post_id` 仅为兼容字段，不得继续作为授权、清理或后台关联筛选依据。文章可见性降级/删除与撤销网盘公开、公开设置与全部引用复核、精确解除单篇关联都在 app 编排的同一外层事务内协作，不跨模块写 SQL。
+
 ## 5. 端口与 contracts
 
 - 消费者在 `modules/<x>/app/port.go` 定义窄接口（如 `content/app` 的 `PostReader`、`social/app` 的 `Notifier`、`auth/app` 的 `UserWriter`）；生产者由组合根传入，不反向 import。
 - 跨模块命令/查询/结果结构放 `shared/contracts`（如 `ActorPostInput`、`CommentInput`、`NotificationInput`、`AuditEntry`、`JobEnqueue`、`SystemSettings`）；跨模块读取端口同样内嵌在发布接口里（如 `SocialService` 内嵌 `RelationReader` 与 `BookmarkReader`，content 经后者读取收藏 refs、social 持有收藏表）。群聊批次（`0025`）新增 `contracts/group.go`：`GroupAITrigger`（group→agent，群消息 @提及 成员 AI，事务提交后调用）、`GroupReader`（agent 侧读取 AI 的有效群成员资格/群快照/活跃群 ID 列表）、`GroupMessageWriter.WriteFromAI`（AI 群发言写入）；行为开关经 `contracts.BehaviorSettings.AllowGroupMessage` 传递；聊天文本公共限制（2000 字/64KiB/2 分钟撤回窗/预览截断）抽为 `internal/shared/chat` 纯函数，dm 与 group domain 共同引用。
+- 网盘协作沿用窄端口：`media/app.ContentPort` 增加按附件集合读取草稿/版本引用、按访问者与当前文章状态判断附件可读性、检查非公开/删除引用及精确解除等能力，由 content app 实现；`contracts.MediaService` 对 content 提供归属/用途/公开冲突校验与文章降级后的批量撤销公开。批量清理通过端口取回全部有效引用，不直接 JOIN content 表；管理后台附件关联只读投影同步改为基于草稿/版本关联。
 - 平台端口同样以接口注入：`platform/jobs.Runner`（入队/领取）、`platform/audit.Writer`、`platform/settings.Reader/Writer`、`platform/clock.Clock`；`shared/contracts.RealtimePublisher`（`PublishNotification(recipientID)` / `PublishDM(userID, conversationID)` / `PublishGroup(userID, groupID)`）由组合根以 `realtimeAdapter` 适配 `platform/eventbus` 注入，notice、dm 与 group 模块 app 消费（模式同 audit/jobs 适配器）。
 - 实时推送链路（发布-订阅）：notice `CreateNotification`（实际写入且接收者为活跃人类时发布，幂等跳过不发）、dm `SendMessage`/`RecallMessage`（成功后向会话双方发布，撤回幂等重放不发）与 group 的发送/撤回/成员变更/解散（成功后向全部有效成员发布）在用例中经 `db.AfterCommit` 注册回调，事务提交成功后调用 `RealtimePublisher` 把 `{Kind, ConversationID}` 信号（`group` 事件的 `ConversationID` 字段携带群 ID）投递到 `platform/eventbus`，由 `modules/realtime/http` 的 `GET /api/v1/events` SSE 订阅消费；回滚或提交失败不发布。事件总线是信号语义（缓冲满/无订阅者即丢弃），客户端保留轮询兜底。
 - **单实例边界**：`platform/eventbus` 的订阅与投递都在进程内存中，不跨实例广播——SSE 实时推送不支持多实例负载均衡部署。未来水平扩展时替换 Broker 实现（如 PostgreSQL `LISTEN/NOTIFY` 或 Redis pub/sub），`RealtimePublisher` 消费端口与 SSE 协议不变。
@@ -172,7 +175,7 @@ cmd/server ──▶ internal/app
 | `SuperAdminWrite` | `AdminWrite → RequireSuperAdmin` | `grant-admin` / `revoke-admin`（CSRF 在超管校验之前，保持现有错误语义） |
 | `GuestWrite` | `Ready → GuestCSRF` | `POST /auth/register`、`POST /auth/login` |
 
-`ResolveSession` 每请求最多查一次会话并把 `model.Viewer`/`model.Session` 放入上下文；`RequireLogin/Admin/SuperAdmin` 只读上下文不查库。路由表是纯数据，`routes_test.go` 无数据库断言总数、Method+Path 唯一、非 GET 必须写策略、`/admin` 必须是 Admin/SuperAdmin 策略等。当前路由基线共 149 条（GET 58 / POST 91，含群聊 16 条：GET 5 / POST 11）。
+`ResolveSession` 每请求最多查一次会话并把 `model.Viewer`/`model.Session` 放入上下文；`RequireLogin/Admin/SuperAdmin` 只读上下文不查库。路由表是纯数据，`routes_test.go` 无数据库断言总数、Method+Path 唯一、非 GET 必须写策略、`/admin` 必须是 Admin/SuperAdmin 策略等。既有群聊完成后基线为 149 条；本轮个人网盘新增 11 条（GET 3 / POST 8：本人目录与文件、公开用户文件、文章精确解除），当前基线为 160 条（GET 61 / POST 99），已由 `routes_test.go` 的方法分布与策略计数断言核对。
 
 ## 8. 架构守卫
 
@@ -194,7 +197,7 @@ cmd/server ──▶ internal/app
 
 ## 9. 迁移状态
 
-- 迁移文件按文件名追加执行，记录于 `timeline.schema_migrations`；仓库当前包含 `0001`–`0025` 迁移文件（是否已应用以部署记录为准；`0025_group_chat` 为群聊三表、`ai_behavior_settings.allow_group_message` 与 `ai_tasks` 触发/动作 CHECK 扩展，普通事务、无回填、无 `CONCURRENTLY`）。
+- 迁移文件按文件名追加执行，记录于 `timeline.schema_migrations`；当前仓库包含 `0001`–`0026`，其中 `0026_drive_files` 已提交并在隔离测试 schema 成功执行；部署实例是否已应用以实际执行记录为准。
 - SSE 实时推送（`platform/eventbus` + `modules/realtime`）为进程内存结构与 SSE 通道，不涉及任何表结构变更，本轮无新增迁移（`0001`–`0024` 不变）。
 - 迁移器 v2（`platform/migrate`）支持首行 `-- timeline:no-transaction`：该文件语句不包事务，用于 `CREATE INDEX CONCURRENTLY`；此类迁移必须幂等（`IF NOT EXISTS`），失败后按顺序人工核对重跑，迁移器不自动回滚。`CONCURRENTLY` 失败留下的 INVALID 索引处置见 `DEPLOYMENT.md` 第 6 章。
 - `0011_drop_time_defaults`：移除 43 个业务时间列的 `DEFAULT now()`，`schema_migrations.applied_at` 为唯一白名单；必须在应用侧“所有写路径显式传时间”上线后执行。
@@ -212,15 +215,17 @@ cmd/server ──▶ internal/app
 - `0023_bookmarks`（普通事务）：新增 `timeline.bookmark_folders`（收藏夹，`deleted_at` 逻辑删除）与 `timeline.bookmarks`（`is_active` 失效 + `folder_id NULL` 默认收藏）及配套部分索引；`(user_id, post_id)` 唯一索引非部分以支撑 upsert 复活；无回填、无 `CONCURRENTLY`。
 - `0024_user_banner`（普通事务）：`"user".users` 新增 `banner_url`/`banner_attachment_id`，`attachments_purpose_check` 重建为含 `banner`；无回填、不建 `banner_attachment_id` 索引。
 - `0025_group_chat`（普通事务）：新增 `timeline.group_conversations`（owner/`status` CHECK `active|dissolved`/`last_message_id`）、`timeline.group_members`（两级角色 CHECK、成员级 `last_read_message_id`/`hidden_message_id` 游标、`left_at` 逻辑删除；UNIQUE`(group_id, user_id)` + 两个 `left_at IS NULL` 部分索引）与 `timeline.group_messages`（`richtext` 固定格式、`published|recalled` CHECK、`(group_id, id DESC)` 索引）；`ai_behavior_settings` 加 `allow_group_message`（默认 FALSE）；`ai_tasks` 的 `trigger_type` CHECK 扩展 `group_mention`/`group_schedule`、`action_type` CHECK 扩展 `group_message`（DROP+ADD 同名约束）。无外键、无业务时间默认值、无物理删除、无回填。
-- **执行顺序**：先切换迁移器 v2（支持 no-transaction），再应用 `0013`/`0014`；旧的事务式迁移器执行 `CREATE INDEX CONCURRENTLY` 会失败。单个升级窗口内按文件名顺序执行到 `0025`，失败时按 `DEPLOYMENT.md` 第 6、9 章人工核对。
+- `0026_drive_files`（普通事务）：新增 `timeline.drive_folders` 与 `timeline.drive_files` 及约束/索引；系统目录 `(owner_id, system_key='post')` 唯一，文件默认私密、根目录 `folder_id NULL`；按评审约定只回填有效且仍被草稿/版本引用的 `post` 附件到上传者默认文章目录，统一私密、幂等、固定迁移初始时间，不改既有业务时间，不回填头像/横幅/无引用临时附件；无外键、无物理删除、无业务时间默认值。
+- **执行顺序**：先切换迁移器 v2（支持 no-transaction），再应用 `0013`/`0014`；旧的事务式迁移器执行 `CREATE INDEX CONCURRENTLY` 会失败。单个升级窗口内按文件名顺序执行；当前仓库迁移至 `0026`，失败时按 `DEPLOYMENT.md` 第 6、9 章人工核对。
 
 ## 10. 当前改造进度（refactor 分支）
 
 - 目标架构已全部落地并接管运行路径：`cmd/server`（进程生命周期）→ `internal/app`（组合根）→ `transport/router`（声明式路由）→ `modules/*` 十域四层（外加 `realtime` 仅 app+http 的实时推送特例）；`platform/*`、`shared/*`（model/access/contracts/page/richtext/chat/format/view）、`transport/{httpx,middleware}`、slim `internal/server`、`internal/testkit` 集成测试脚手架、迁移器 v2 与架构守卫均已完成。旧 `internal/*` 业务包已从仓库删除，集成测试迁移到 testkit + `internal/server`/模块 `http` harness。
-- 迁移：`0001`–`0025` 已追加（`0016` 头像回填与不匹配索引清理；`0017`–`0020` 为 SQL 最简原则改造的查询索引、冗余计数表与作者类型快照列；`0021` 为私信会话/消息与 `users.dm_policy`；`0022`–`0024` 为置顶列、收藏两表与用户横幅列；`0025` 为群聊三表与 AI 群聊开关/任务枚举扩展）；新树 SQL 不再使用 `now()`/`CURRENT_DATE`/`::date`/`interval` 等数据库时间权威。
+- 迁移：`0001`–`0026` 已追加（`0016` 头像回填与不匹配索引清理；`0017`–`0020` 为 SQL 最简原则改造的查询索引、冗余计数表与作者类型快照列；`0021` 为私信会话/消息与 `users.dm_policy`；`0022`–`0024` 为置顶列、收藏两表与用户横幅列；`0025` 为群聊三表与 AI 群聊开关/任务枚举扩展；`0026` 为网盘两表与存量文章附件私密回填）；新树 SQL 不再使用 `now()`/`CURRENT_DATE`/`::date`/`interval` 等数据库时间权威。
 - 新增 SSE 实时推送（2026-10-23）：`platform/db.AfterCommit` 提交后回调、`platform/eventbus` 进程内按用户事件总线、`shared/contracts.RealtimePublisher` 端口与 `modules/realtime`（仅 app+http）承载 Login 策略的 `GET /api/v1/events`；notice/dm 在事务提交后发布实时信号，前端保留轮询兜底；单实例前提（不支持多实例负载均衡 SSE，扩展路径为替换 Broker 实现），无新增迁移。
 - 架构守卫：`go test ./internal/architecture` 全绿；扫描范围含新树、`cmd/`、`internal/server` 与 `internal/testkit` 显式例外，新增 `cmd/server` import 白名单、事务原语与遗留符号规则（详见第 8 章）。
 - 本次行为修复（审查问题）：AI 候选范围/目标作者二次授权、任务失败自动重试与 reconcile、记忆沉淀合法值与来源失效复核、`model_override`、联网搜索有限工具轮次、`global_public` 候选与评论/回复开关语义、停机二次校验与暂停范围、发帖限频兜底、搜索 trigram 查询形态、附件/引帖校验事务化、附件清理两步端口流程与头像兜底、作业 Reactivate/人工重试 500/GetJob 404、bootstrap `/api` 503、路由注册竞态、审计单写、资料统计口径、登录标识索引写法、架构守卫扩展与 `0016` 迁移。
+- 个人网盘（2026-11-10）已落地：现有 media 内增加 `drive_folders`/`drive_files` 目录与文件元数据、默认文章目录和公开控制，多文章附件鉴权/清理/后台关联投影已切换到 content 的草稿与版本关联；前端 `/drive`、`/users/:username/drive` 与文章网盘选择器已实现，`TestDriveIntegration` 覆盖上传自动入库、公开冲突、文章降级撤销公开、跨用户隔离、网盘删除保留引用与精确解除。路由基线 160 条、单元/集成测试与前端构建均已通过；完整 P0 人工验收仍待执行。
 - 待完成：SQL/索引性能验证（`EXPLAIN`、对账任务）；完整 P0/SEC 人工验收与部署机复演（`docs/ACCEPTANCE.md`、`docs/DEPLOYMENT.md`）。
 
 ## 11. 架构不变式（DoD 摘录）
@@ -247,4 +252,6 @@ cmd/server ──▶ internal/app
 | 2026-10-21 | 0.4.2 | 需求基线更新至 0.27.0，新增收藏：§4 数据所有权补 `bookmarks`/`bookmark_folders` 归 social（content 仅经 `BookmarkReader` 读 refs 组装列表，不触收藏表）；§5 端口说明补 `SocialService` 内嵌 `BookmarkReader` 先例；§9 迁移范围 0001–0023 并补 `0022_post_pinned`（上轮置顶未记录）与 `0023_bookmarks` 两条说明。 |
 | 2026-10-23 | 0.4.3 | 需求基线更新至 0.30.0，新增个人主页横幅：§4 数据所有权补 `users.banner_attachment_id`（media 经 `UserWriter.SetBanner` 双写、auth 提供 ClearBanner 移除用例）；§9 迁移范围 0001–0024 并补 `0024_user_banner` 说明（users 横幅列 + `attachments_purpose_check` 放宽，清理候选固定 `purpose='post'` 无需清理侧改动）。 |
 | 2026-10-23 | 0.5.0 | 需求基线更新至 0.31.0，新增 SSE 实时推送：§1 原则微调（不引入外部消息队列，进程内 eventbus 仅作信号通道）；§2 platform 树补 `eventbus`（进程内按用户事件总线：无业务语义、单实例前提、缓冲满/无订阅者即丢弃、每用户 ≤3/全局 ≤2000 连接）与 `db` 的 `AfterCommit` 注释，模块树新增 `modules/realtime`（仅 app+http 特例：纯传输通道无 SQL 无状态机），并补进程生命周期（`App.Start` 布防退出信号、先断 SSE 再 `http.Server.Shutdown`、`sync.Once` 幂等关闭）；§4 补 realtime 无自有实体；§5 补 notice/dm → AfterCommit → `RealtimePublisher` → eventbus → SSE 订阅的发布-订阅链路与单实例边界（不支持多实例负载均衡，扩展路径替换 Broker：LISTEN/NOTIFY 或 Redis，端口不变）；§6 事务补 AfterCommit 契约；§7 路由基线 133 条（GET 53/POST 80）、Login 补 `/api/v1/events`；§9 注明无新增迁移；§10 进度同步。 |
+| 2026-11-10 | 0.7.0 | 需求基线更新至 0.33.0，个人网盘仍归 media：§2/§4 增加 `drive_folders`/`drive_files` 数据所有权；§5 明确 content/media 窄端口、多文章关联鉴权、公开撤销与精确解除事务协作；§7 给出新增 11 条后的目标路由 160 条（待实现核对）；§9/§10 增加实施中的 `0026_drive_files` 与迁移回填边界，不宣称已落地或通过测试。 |
+| 2026-11-10 | 0.7.1 | 个人网盘落地状态同步：§7 路由基线 160 条已由测试核对；§9 迁移范围更新为 `0001`–`0026` 并注明测试 schema 已验证；§10 记录后端、前端、清理/鉴权改造与 `TestDriveIntegration` 已落地，完整 P0 人工验收仍未执行。 |
 | 2026-10-24 | 0.6.0 | 需求基线更新至 0.32.0，新增群聊模块：§2 模块树新增 `modules/group`（四层，正常特例非 realtime 型）、shared 树补 `chat/`（聊天文本公共限制，dm/group 共用）、eventbus 注释补 Kind `group`；§4 数据所有权补 `group_conversations`/`group_members`/`group_messages` 归 group；§5 补 `contracts/group.go` 三端口（`GroupAITrigger`/`GroupReader`/`GroupMessageWriter`）、`BehaviorSettings.AllowGroupMessage` 与 `RealtimePublisher.PublishGroup`（group 发送/撤回/成员变更/解散经 AfterCommit 向全部有效成员发布）；§7 路由基线 149 条（GET 58/POST 91，群聊 16 条）；§9 迁移范围 `0001`–`0025` 并补 `0025_group_chat` 说明；§10 进度同步（十域四层、迁移到 0025）。 |

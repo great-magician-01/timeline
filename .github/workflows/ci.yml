@@ -108,7 +108,11 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: npm ci
-        run: npm ci
+        run: |
+          # GitHub Runner 访问 npmmirror 持续出现 502/504；仅在 CI 工作区把 lockfile
+          # 下载地址切到官方 registry，本地开发仍保留镜像源。
+          sed -i 's#https://registry.npmmirror.com#https://registry.npmjs.org#g' package-lock.json
+          npm ci
 
       - name: npm test
         run: npm test
@@ -137,5 +141,6 @@ jobs:
           tags: timeline-app:ci
           build-args: |
             APP_VERSION=ci-${{ github.sha }}
+            NPM_REGISTRY=https://registry.npmjs.org
           cache-from: type=gha
           cache-to: type=gha,mode=max

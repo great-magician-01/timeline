@@ -5,10 +5,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import AlertNote from './AlertNote.vue'
+import DrivePicker from './DrivePicker.vue'
 import MediaUploader from './MediaUploader.vue'
 import RichTextEditor from './RichTextEditor.vue'
 import UserAvatar from './UserAvatar.vue'
-import type { Attachment, PostDetail, Visibility } from '../api/types'
+import type { Attachment, DriveFile, PostDetail, Visibility } from '../api/types'
 import { errorMessage, fieldErrors } from '../api/client'
 import {
   cancelSchedule,
@@ -368,6 +369,20 @@ function onAttachmentRemoved(id: string): void {
   markDirty()
 }
 
+const showDrivePicker = ref(false)
+
+function onDrivePicked(files: DriveFile[]): void {
+  const existing = new Set(attachments.value.map((item) => item.id))
+  const added = files.filter((file) => !existing.has(file.id))
+  if (added.length === 0) {
+    showDrivePicker.value = false
+    return
+  }
+  attachments.value = [...attachments.value, ...added]
+  markDirty()
+  showDrivePicker.value = false
+}
+
 const saveLabel = computed(() => {
   switch (saveState.value) {
     case 'saving':
@@ -422,9 +437,12 @@ const saveLabel = computed(() => {
     <MediaUploader
       :attachments="attachments"
       :disabled="busy"
+      allow-drive-pick
       @added="onAttachmentAdded"
       @removed="onAttachmentRemoved"
+      @pick-from-drive="showDrivePicker = true"
     />
+    <DrivePicker :open="showDrivePicker" @close="showDrivePicker = false" @pick="onDrivePicked" />
 
     <p v-if="fieldError.content_source" :class="ui.fieldError">{{ fieldError.content_source }}</p>
 

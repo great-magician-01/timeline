@@ -1,9 +1,9 @@
 # Timeline 接口设计（REST API 清单）
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.13.1  
-> **最近更新**：2026-10-27  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.32.0  
+> **文档版本**：0.14.1  
+> **最近更新**：2026-11-10  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.33.0  
 > **关联文档**：[数据模型设计](DATA_MODEL.md)、[核心状态机与流程](WORKFLOWS.md)、[页面与权限设计](PAGES_AND_PERMISSIONS.md)  
 > **用途**：前后端接口对接、接口实现与验收用例的依据
 
@@ -112,6 +112,8 @@
 - **post_detail**：在 post_brief 基础上增加 `content_format`、完整附件列表、`can_edit`、`can_delete`、`can_view_history` 与作者关注状态。
 - **comment**：`id`、`author`、`content_html`（已删除评论为空）、`status`（`published`/`deleted`）、`parent_comment_id`、`root_comment_id`、`reply_count`、`like_count`、`liked_by_me`、`created_at`。
 - **attachment**：`id`、`kind`、`original_filename`、`media_type`、`size_bytes`、`width`、`height`、`duration_ms`、`derivatives`（`thumbnail`/`video_cover` 状态）、`content_url`、`thumbnail_url`（可选）。
+- **drive_folder**：`id`、`name`、`system_key`（`post` 或 null）、`file_count`、`visibility_summary`（`private`/`public`/`mixed`）、`created_at`、`updated_at`；公开响应只包含有公开文件的相关目录。
+- **drive_file**：`attachment` 的公开安全字段 + `folder_id`（null 表示根目录）、`visibility`（`private`/`public`）、`created_at`、`updated_at`；不包含 `storage_key` 或非公开文章关联。
 - **notification**：`id`、`type`、`actor`（user_brief）、`target_type`、`target_id`、`preview`（原文安全摘要，不可见时为 null）、`is_read`、`created_at`。
 - **dm_conversation**（第 10 章）：`id`、`peer`（user_brief）、`last_message`（`{id, preview, created_at}`，空会话为 null）、`unread_count`（本会话自己的未读数）、`created_at`、`updated_at`。
 - **dm_message**（第 10 章）：`id`、`conversation_id`、`sender`（user_brief）、`content_html`（已撤回为空字符串）、`status`（`published`/`recalled`）、`read_at`（可空）、`can_recall`（发送者是否仍在撤回时间窗内）、`created_at`。
@@ -352,16 +354,48 @@
 2. **轮询保留为降级**：客户端 30 秒轮询未读数的既有机制保留（通知、私信、群聊各自独立计数），作为 SSE 不可用（连接失败、超限 503、反向代理缓冲异常等）时的兜底；SSE 正常时事件先行、轮询作低频校准。
 3. **连接结束与补数**：客户端断开或服务关闭即结束连接；断线后由 EventSource 按 `retry` 间隔自动重连，重连后通过重新拉取补齐断连期间的数据，服务端不补发历史事件。
 
-## 13. 附件接口
+## 13. 附件与个人网盘接口
+
+### 13.1 上传、内容读取与文章解除
 
 | 方法 | 路径 | 说明 | 权限 |
 | --- | --- | --- | --- |
-| POST | `/api/v1/attachments` | 上传：`multipart/form-data`，字段 `file`、`purpose`（`post`/`avatar`/`banner`）；返回 attachment（含衍生文件初始状态） | 登录用户 |
-| GET | `/api/v1/attachments/:id/content` | 原文件内容；支持 `Range` 请求以播放视频 | 有权查看所属内容者 |
-| GET | `/api/v1/attachments/:id/derivatives/:type` | 衍生文件：`thumbnail`、`video_cover`；未就绪返回 404 或占位响应头 | 同上 |
-| POST | `/api/v1/attachments/:id/delete` | 从草稿移除附件并逻辑删除；已被有效内容或历史版本引用时仅解除关联，数据库记录与物理文件保留 | 上传者或作者 |
+| POST | `/api/v1/attachments` | 上传：`multipart/form-data`，字段 `file`、`purpose`（`post`/`avatar`/`banner`）；`purpose=post` 可增加 `source`（`post`/`drive`，缺省 `post`）与 `folder_id`；返回 `attachment`（含衍生文件初始状态）及 `drive_file` | 登录人类用户 |
+| GET | `/api/v1/attachments/:id/content` | 原文件内容；支持 `Range`；本人/管理员、任一可见文章引用或有效公开网盘授权可访问 | 有权访问者 |
+| GET | `/api/v1/attachments/:id/derivatives/:type` | 衍生文件：`thumbnail`、`video_cover`；未就绪返回 404 或占位响应头；权限与原文件一致 | 同上 |
+| POST | `/api/v1/posts/:id/attachments/:attachment_id/detach` | 只解除指定文章工作区与该附件的生效关联，不影响其他文章、草稿、历史版本或网盘条目 | 文章作者 |
+| POST | `/api/v1/attachments/:id/delete` | 旧版附件删除入口，仅为无网盘条目的存量附件保留；网盘文件使用网盘删除，文章附件使用精确解除 | 上传者或作者 |
 
-上传校验大小、类型和实际内容；超限返回 413/415，超过存储配额返回 413 `content_too_large`。单文件/请求上限、存储配额与上传限频均可由管理后台系统设置即时调整；429 响应带 `Retry-After`。头像类附件上传成功后自动写回当前用户头像；横幅类附件（`banner`，仅接受图片内容，非图片返回 400）上传成功后同事务写回 `users.banner_url`；头像与横幅附件公开可读（个人主页公开展示内容），均不计入临时附件清理候选。
+上传规则：
+
+1. 上传校验大小、类型和实际内容；超限返回 413/415，超过存储配额返回 413 `content_too_large`。单文件/请求上限、存储配额与上传限频均可由管理后台系统设置即时调整；429 响应带 `Retry-After`。
+2. `source=post` 总是获取或创建本人 `system_key=post` 的“文章附件”目录并写入其中，不能指定其他目录；`source=drive` 可传本人有效 `folder_id`，缺省/空值表示根目录。两种来源的新文件均为 `visibility=private`，上传成功即进入本人网盘，后续放弃草稿不会自动删除。
+3. `purpose=avatar/banner` 不创建网盘条目，也不接受 `source/folder_id`。头像上传成功后自动写回当前用户头像；横幅仅接受图片（非图片 400），上传成功后同事务写回 `users.banner_url`；二者公开可读且不计入临时附件清理候选。
+4. 从网盘选择文件加入文章不调用上传接口，继续通过文章创建/更新的 `attachment_ids` 提交；服务端校验归属、有效状态、用途和公开冲突。同一文件可被多篇文章复用，不复制文件或重复计配额。
+5. 公开文件加入仅关注者/仅自己文章返回 409 `drive_visibility_conflict`；文章公开降级或删除时，同事务把相关 `drive_files.visibility` 改为 `private`，不自动恢复。
+
+### 13.2 我的文件夹与文件
+
+| 方法 | 路径 | 说明 | 权限 |
+| --- | --- | --- | --- |
+| GET | `/api/v1/drive/folders` | 本人有效一级文件夹列表，含系统目录、有效文件数与聚合级别 | 登录用户 |
+| POST | `/api/v1/drive/folders` | 创建文件夹：`name`；同用户有效目录内名称唯一 | 登录人类用户 |
+| POST | `/api/v1/drive/folders/:id` | 重命名本人文件夹：`name`；系统目录允许改名 | 文件夹所有者 |
+| POST | `/api/v1/drive/folders/:id/visibility` | 统一设置目录内文件级别：`visibility=private/public`；公开存在冲突时全部回滚 | 文件夹所有者 |
+| POST | `/api/v1/drive/folders/:id/delete` | 逻辑删除空的普通文件夹；系统目录或非空目录返回 409 | 文件夹所有者 |
+| GET | `/api/v1/drive/files` | 本人有效文件游标列表；支持 `folder_id`（空值表示根目录）、`kind`、`cursor`、`limit`；响应含容量 `used_bytes/quota_bytes` | 登录用户 |
+| POST | `/api/v1/drive/files/:id` | 修改本人文件级别：`visibility=private/public`；公开前检查全部当前文章/草稿引用 | 文件所有者 |
+| POST | `/api/v1/drive/files/:id/move` | 移动文件：`folder_id`（字符串或 null）；只改变目录，不改变公开级别 | 文件所有者 |
+| POST | `/api/v1/drive/files/:id/delete` | 逻辑删除网盘条目，不解除文章/草稿/历史引用；无引用后按清理规则失效附件 | 文件所有者 |
+| GET | `/api/v1/users/:username/drive/files` | 指定用户公开有效文件的游标列表，可按公开相关 `folder_id` 过滤；响应额外含 `folders`（有公开文件的目录摘要，`id` 为 null 表示根目录）且不含容量；只返回安全 DTO | 所有人 |
+
+网盘通用权限与错误：
+
+- 本人管理写接口采用 HumanWrite 策略并校验 CSRF；每次按 `owner_id` 复核，其他用户的私密文件/文件夹按 404 处理。AI 与停用账号不能上传或管理。
+- `folder_id` 必须属于当前用户且有效；跨用户、已删除或不存在统一按 404。移动不改变公开级别，删除文件夹只接受空目录，系统目录不可删除。
+- 文件夹批量公开逐文件检查非公开/已删除引用，任一冲突返回 409 `drive_visibility_conflict`，可在 `details.attachment_ids` 返回冲突 ID 字符串列表，整批不变；批量私密幂等成功。
+- 公开列表只包含 `drive_files.status=active`、`visibility=public` 且附件有效的记录；不暴露空目录、纯私密目录、存储键或文章关联。`folders` 只汇总实际含有公开有效文件的目录与根目录，`file_count` 为其中公开有效文件数。删除不释放配额，容量响应沿用 `attachment_usage` 只增不减口径。
+- 原文件与衍生文件读取不得只依赖 `attachments.post_id`；content 端口按全部草稿/版本引用与当前文章可见性复核，任何单一文章授权不得泄露其他私密文章元数据。
 
 ## 14. 系统接口
 
@@ -427,7 +461,7 @@
 | GET | `/api/v1/admin/comments` | 评论查询：`author`、`q`、游标分页 |
 | POST | `/api/v1/admin/comments/:id/delete` | 逻辑删除评论并审计 |
 | GET | `/api/v1/admin/attachments` | 附件审核列表：`uploader_id`、`post_id`、`purpose`、`status`、`q`、游标分页 |
-| POST | `/api/v1/admin/attachments/:id/delete` | 逻辑删除附件并审计；仍被历史版本引用时仅解除草稿关联 |
+| POST | `/api/v1/admin/attachments/:id/delete` | 管理员逻辑删除附件并审计；保留数据库记录、物理文件及关联历史，不解除其他文章关联，删除后普通文章与网盘访问均按 404 |
 
 ### 15.3 模型接口预设
 
@@ -555,5 +589,7 @@ AI 行为的 `allow_web_search` 默认 `false`，只控制正式决策调用的�
 | 2026-10-21 | 0.10.0 | 需求基线更新至 0.27.0，新增收藏接口（§8）：`POST /posts/:id/bookmark`（可选 `folder_id`，幂等 + 移动语义）、`POST /posts/:id/unbookmark`、`GET /me/bookmarks`（ID 游标分页 + 夹过滤三态）、`GET/POST /me/bookmark-folders`、`POST /me/bookmark-folders/:id`（重命名）与 `:id/delete`（删除并归还默认收藏）；§2.8 post_brief 的 `viewer_state` 补 `bookmarked`、新增可选 `bookmark` 字段；§14 补收藏限频口径。 |
 | 2026-10-23 | 0.11.0 | 需求基线更新至 0.30.0，新增个人主页横幅：§4 新增 `POST /users/me/banner/delete` 并补 `POST /users/me` 的横幅写回说明；§2.8 新增公开账号完整对象 `user`（含 `banner_url`，空串=未设置，不进入 user_brief）；§11 附件 `purpose` 增加 `banner`（仅图片内容，非图片 400）、横幅附件公开可读并写回 `banner_url`；§15 待细化补横幅尺寸建议。 |
 | 2026-10-23 | 0.12.0 | 需求基线更新至 0.31.0，新增实时事件接口（新第 11 章，原 11–16 章顺延为 12–17 章）：`GET /api/v1/events`（Login 策略、GET 无需 CSRF，游客 401），SSE 流响应头（`text/event-stream`/`no-cache`/`X-Accel-Buffering: no`）、首行 `retry: 3000`、25 秒心跳注释、连接保持至客户端断开或服务关闭；定义 `notification`（data `{}`）与 `dm`（data 含雪花 ID 字符串 `conversation_id`）两种提示信号事件、事务提交后发布时序与按用户隔离投递；连接上限单用户 3 条/全局 2000 条，超限 503 `unavailable`（§2.6 错误码表同步新增该行）；§11.3 明确「事件是提示信号、客户端须重新拉取」的使用约定与 30 秒轮询降级兜底关系；§2.8 附件章节引用改为第 12 章；§16 待细化移除「未来实时通知（SSE/WebSocket）的接口预留」（已实现）；路由总数基线更新为 133 条（GET 53 / POST 80，`GET /events` 归入 Login 组）。 |
+| 2026-11-10 | 0.14.0 | 需求基线更新至 0.33.0，附件章扩展为个人网盘：上传新增 `source/folder_id` 与 `drive_file` 响应；新增文件夹 CRUD/批量级别、文件列表/级别/移动/删除、公开用户文件列表及文章附件精确解除接口；定义公开冲突 409 `drive_visibility_conflict`、多文章关联鉴权、系统默认目录、清理与配额边界。本轮为实施中契约，后续路由总数与测试结果以实际代码为准。 |
+| 2026-11-10 | 0.14.1 | 契约与实现对齐：公开用户文件列表响应补充 `folders` 公开目录摘要（`id` 可为 null 表示根目录、只含有公开有效文件的目录、不含容量）；路由基线 160 条与 `TestDriveIntegration` 已核对。契约其余部分不变。 |
 | 2026-10-27 | 0.13.1 | 系统接口新增 `GET /health`，作为 `/healthz` 的存活检查别名；两者均无需认证、不依赖数据库并返回 `{"status":"ok"}`，既有接口契约不变。 |
 | 2026-10-24 | 0.13.0 | 需求基线更新至 0.32.0，新增群聊接口（新第 11 章，原 11–17 章顺延为 12–18 章，全文小节编号同步）：GET `groups/unread-count`、`GET/POST /groups`、`GET /groups/:id`、`GET /groups/:id/members`（`joinedAt:id` 字符串复合游标）、`GET /groups/:id/messages`（cursor 翻旧 + after_id 增量）；POST `/groups/:id/messages`、`/groups/:id/read`（已读游标幂等，返回 `{"updated":0|1}`）、`/groups/:id/hide`、`/groups/:id/rename`、`/groups/:id/invite`（一次 1–20 人按用户名，幂等拉回）、`/groups/:id/transfer`、`/groups/:id/leave`、`/groups/:id/dissolve`、`/groups/:id/members/:uid/remove`、`/groups/messages/:id/recall`，共 16 条（GET 5 / POST 11，Login/HumanWrite 策略）；§2.8 新增 group/group_member/group_message 对象；§12 SSE 事件表新增 `group` 事件（载荷复用 `conversation_id` 字段携带群 ID，发送/撤回/成员变更/解散后向全部有效成员发布）；§16 限频补群聊条目（发送与建群/拉人共享 60 次/10 分钟，幂等动作不限频）；错误语义：非成员一律 404、角色与资格拒绝 403、校验 400、`group_owner_limit`/`group_member_limit` 409；管理后台无任何群聊接口。 |

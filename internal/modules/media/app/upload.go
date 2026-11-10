@@ -24,6 +24,9 @@ type UploadInput struct {
 	Viewer   model.Viewer
 	Filename string
 	Purpose  string
+	// Source=post 时进入系统“文章附件”目录；Source=drive 时可选择 FolderID，nil 表示根目录。
+	Source   string
+	FolderID *int64
 	// SizeHint 是客户端 multipart 头部声明的大小，仅用于提前拒绝明显超配额的请求；
 	// 真实大小以 storage.Save 实际写入字节为准。
 	SizeHint int64
@@ -48,6 +51,7 @@ type UploadPrecheck struct {
 type UploadResult struct {
 	Attachment  model.Attachment
 	Derivatives map[string]string
+	DriveFile   *DriveFile // purpose=post 时同时返回网盘条目；头像/横幅为 nil
 }
 
 // PrecheckUpload 在 http 层解析 multipart 之前完成鉴权、上传限频与「存储配额已满」预检，
@@ -110,6 +114,16 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, err
 	if err != nil {
 		return UploadResult{}, err
 	}
+	source, err := domain.NormalizeUploadSource(in.Source)
+	if err != nil {
+		return UploadResult{}, err
+	}
+	if purpose != domain.PurposePost && (source == domain.UploadSourceDrive || in.FolderID != nil) {
+		return UploadResult{}, apperr.Invalid("头像和主页横幅不能加入网盘")
+	}
+	if purpose == domain.PurposePost && source == domain.UploadSourcePost && in.FolderID != nil {
+		return UploadResult{}, apperr.Invalid("文章附件自动进入默认目录，不能指定 folder_id")
+	}
 	if in.SizeHint > 0 && domain.ExceedsStorageQuota(precheck.UsedBytes, in.SizeHint, precheck.StorageQuotaBytes) {
 		return UploadResult{}, domain.ErrStorageQuotaExceeded
 	}
@@ -143,6 +157,7 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, err
 	filename := domain.SanitizeFilename(in.Filename)
 	width, height := s.imageDimensions(key)
 	derivatives := map[string]string{}
+	var driveFolderID *int64
 
 	err = s.tx.WithTx(ctx, func(txCtx context.Context) error {
 		txExec := s.exec(txCtx)
@@ -167,6 +182,23 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, err
 		// 不再随历史附件数实时 SUM（附件逻辑删除不释放磁盘，计数只增不减）。
 		if err := repo.AddUsage(txCtx, txExec, in.Viewer.ID, size, at); err != nil {
 			return s.internal("更新已用存储空间失败", err)
+		}
+
+		if purpose == domain.PurposePost {
+			folderID, err := s.resolveUploadFolder(txCtx, in.Viewer, source, in.FolderID, at)
+			if err != nil {
+				return err
+			}
+			driveFolderID = folderID
+			if err := repo.InsertDriveFile(txCtx, txExec, repo.DriveFileRow{
+				Attachment: repo.AttachmentRow{Attachment: model.Attachment{ID: attachmentID}},
+				OwnerID:    in.Viewer.ID,
+				FolderID:   folderID,
+				CreatedAt:  at,
+				UpdatedAt:  at,
+			}); err != nil {
+				return s.internal("把附件加入网盘失败", err)
+			}
 		}
 
 		// 无法解码的图片类型直接记为 canceled（不回退为失败，也不投递作业）。
@@ -241,23 +273,28 @@ func (s *Service) Upload(ctx context.Context, in UploadInput) (UploadResult, err
 		return UploadResult{}, err
 	}
 
-	return UploadResult{
-		Attachment: model.Attachment{
-			ID:               attachmentID,
-			UploaderID:       in.Viewer.ID,
-			Kind:             kind,
-			OriginalFilename: filename,
-			MediaType:        mediaType,
-			SizeBytes:        size,
-			StorageKey:       key,
-			Status:           model.AttachmentAvailable,
-			Width:            width,
-			Height:           height,
-			CreatedAt:        at,
-			UpdatedAt:        at,
-		},
-		Derivatives: derivatives,
-	}, nil
+	attachment := model.Attachment{
+		ID:               attachmentID,
+		UploaderID:       in.Viewer.ID,
+		Kind:             kind,
+		OriginalFilename: filename,
+		MediaType:        mediaType,
+		SizeBytes:        size,
+		StorageKey:       key,
+		Status:           model.AttachmentAvailable,
+		Width:            width,
+		Height:           height,
+		CreatedAt:        at,
+		UpdatedAt:        at,
+	}
+	result := UploadResult{Attachment: attachment, Derivatives: derivatives}
+	if purpose == domain.PurposePost {
+		result.DriveFile = &DriveFile{
+			Attachment: attachment, Derivatives: derivatives, FolderID: driveFolderID,
+			Visibility: domain.DriveVisibilityPrivate, CreatedAt: at, UpdatedAt: at,
+		}
+	}
+	return result, nil
 }
 
 // imageDimensions 解析图片宽高；只依赖标准库解码器（jpeg/png/gif），

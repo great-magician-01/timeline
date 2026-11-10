@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // 附件上传：多选与拖放、进度、失败提示与移除（docs/REQUIREMENTS.md 7.4）
 // 上传成功后再把附件 ID 交给上层，避免把尚未落库的本地文件混进正文提交。
+// 文章上传自动进入网盘“文章附件”目录；“移除”只从当前文章待提交列表移除，
+// 文件仍保留在网盘，绝不在这里删除附件记录。
 import { ref } from 'vue'
 import AppIcon from './AppIcon.vue'
-import { deleteAttachment, uploadAttachment } from '../api/media'
+import { uploadAttachment } from '../api/media'
 import { errorMessage } from '../api/client'
 import type { Attachment } from '../api/types'
 import { ui } from '../styles/ui'
@@ -13,11 +15,14 @@ const props = defineProps<{
   /** 已关联的附件（来自服务端） */
   attachments: Attachment[]
   disabled?: boolean
+  /** 在默认工具栏中显示“从网盘选择”入口 */
+  allowDrivePick?: boolean
 }>()
 
 const emit = defineEmits<{
   (event: 'added', attachment: Attachment): void
   (event: 'removed', id: string): void
+  (event: 'pick-from-drive'): void
 }>()
 
 defineSlots<{
@@ -104,20 +109,10 @@ function onSelect(event: Event): void {
   ;(event.target as HTMLInputElement).value = ''
 }
 
-async function remove(attachment: Attachment): Promise<void> {
+/** 只从当前文章待提交列表移除；保存文章时由后端替换关联，文件继续留在网盘 */
+function remove(attachment: Attachment): void {
   if (props.disabled) return
-  try {
-    await deleteAttachment(attachment.id)
-    emit('removed', attachment.id)
-  } catch (err) {
-    const task: UploadTask = {
-      key: ++counter,
-      name: attachment.original_filename,
-      percent: 100,
-      error: errorMessage(err),
-    }
-    tasks.value.push(task)
-  }
+  emit('removed', attachment.id)
 }
 
 function dismiss(key: number): void {
@@ -153,11 +148,21 @@ function previewURL(attachment: Attachment): string {
           <AppIcon name="upload" :size="15" />
           添加附件
         </button>
+        <button
+          v-if="allowDrivePick"
+          type="button"
+          :class="[ui.button, ui.buttonSmall, ui.buttonSecondary]"
+          :disabled="disabled"
+          @click="emit('pick-from-drive')"
+        >
+          <AppIcon name="folder" :size="15" />
+          从网盘选择
+        </button>
         <span
           :class="['text-[12.5px]', dragging ? 'font-semibold text-primary' : 'text-ink-3']"
           aria-live="polite"
         >
-          {{ dragging ? '松开鼠标即可上传' : '支持图片、视频与其他文件，可拖拽上传' }}
+          {{ dragging ? '松开鼠标即可上传' : '上传后自动保存到我的网盘；支持图片、视频与文件' }}
         </span>
       </div>
     </slot>

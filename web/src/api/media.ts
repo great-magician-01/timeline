@@ -8,9 +8,17 @@ import {
   notifyUnauthorized,
   refreshCsrfToken,
 } from './client'
-import type { Attachment } from './types'
+import type { Attachment, DriveFile } from './types'
 
 export type UploadPurpose = 'post' | 'avatar' | 'banner'
+export type UploadSource = 'post' | 'drive'
+
+/** 上传选项：文章上传自动进入“文章附件”目录；网盘直传可选目录或根目录 */
+export interface UploadOptions {
+  source?: UploadSource
+  /** 仅 source=drive 时生效；null/缺省表示根目录 */
+  folderId?: string | null
+}
 
 interface ErrorPayload {
   error?: { code?: string; message?: string; details?: unknown }
@@ -28,12 +36,15 @@ export function uploadAttachment(
   file: File,
   purpose: UploadPurpose = 'post',
   onProgress?: (percent: number) => void,
-): Promise<{ attachment: Attachment }> {
+  options: UploadOptions = {},
+): Promise<{ attachment: Attachment; drive_file?: DriveFile }> {
   return new Promise((resolve, reject) => {
     const send = (retry: boolean) => {
       const form = new FormData()
       form.append('file', file)
       form.append('purpose', purpose)
+      if (options.source) form.append('source', options.source)
+      if (options.folderId) form.append('folder_id', options.folderId)
 
       const xhr = new XMLHttpRequest()
       xhr.open('POST', `${API_BASE}/attachments`)
@@ -52,7 +63,7 @@ export function uploadAttachment(
           payload = null
         }
         if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(payload as unknown as { attachment: Attachment })
+          resolve(payload as unknown as { attachment: Attachment; drive_file?: DriveFile })
           return
         }
         const error = toApiError(xhr.status, payload)

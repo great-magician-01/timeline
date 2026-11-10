@@ -111,6 +111,28 @@ func (h *Handler) UpdatePost(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"post": detailResponseFor(detail)})
 }
 
+// DetachAttachment 精确解除当前帖子工作区中的一条附件关联，不删除网盘文件。
+func (h *Handler) DetachAttachment(c *gin.Context) {
+	viewer, ok := h.requireViewer(c)
+	if !ok {
+		return
+	}
+	postID, ok := pathID(c, "id")
+	if !ok {
+		return
+	}
+	attachmentID, ok := pathID(c, "attachment_id")
+	if !ok {
+		return
+	}
+	detached, err := h.svc.DetachAttachment(c.Request.Context(), viewer, postID, attachmentID)
+	if err != nil {
+		h.fail(c, "解除帖子附件关联失败", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"detached": detached})
+}
+
 // PublishPost 立即发布草稿或定时帖。
 func (h *Handler) PublishPost(c *gin.Context) {
 	viewer, ok := h.requireViewer(c)

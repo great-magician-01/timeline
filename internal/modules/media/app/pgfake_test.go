@@ -353,6 +353,26 @@ var idColumn = []pgColumn{{"id", oidInt8}}
 
 var usageColumn = []pgColumn{{"used_bytes", oidInt8}}
 
+var driveFolderColumnsForTest = []pgColumn{
+	{"id", oidInt8}, {"owner_id", oidInt8}, {"name", oidText}, {"system_key", oidText},
+	{"status", oidText}, {"created_at", oidTimestamptz}, {"updated_at", oidTimestamptz}, {"deleted_at", oidTimestamptz},
+}
+
+// postFolderResult 返回幂等确保文章默认目录后的目录行。
+func postFolderResult(ownerID int64) pgResult {
+	return pgResult{columns: driveFolderColumnsForTest, rows: [][]any{{
+		ownerID, ownerID, "文章附件", "post", "active", testNow, testNow, nil,
+	}}}
+}
+
+var driveFileRowColumnsForTest = append([]pgColumn{
+	{"attachment_id", oidInt8}, {"owner_id", oidInt8}, {"folder_id", oidInt8},
+	{"visibility", oidText}, {"status", oidText}, {"created_at", oidTimestamptz},
+	{"updated_at", oidTimestamptz}, {"deleted_at", oidTimestamptz}, {"folder_name", oidText},
+}, attachmentRowColumns...)
+
+func noDriveFileResult() pgResult { return pgResult{columns: driveFileRowColumnsForTest} }
+
 var derivativeStatusColumns = []pgColumn{
 	{"attachment_id", oidInt8}, {"derivative_type", oidText}, {"status", oidText},
 }

@@ -73,6 +73,7 @@ const mainNav = computed<NavEntry[]>(() => {
       { label: '群聊', to: '/groups', icon: 'users' },
       { label: '关注申请', to: '/follow-requests', icon: 'user-plus' },
       { label: '我的收藏', to: '/bookmarks', icon: 'bookmark' },
+      { label: '我的网盘', to: '/drive', icon: 'folder' },
       { label: '草稿', to: '/drafts', icon: 'file-text' },
       { label: '定时发布', to: '/scheduled', icon: 'calendar' },
       { label: '我的主页', to: `/users/${user.value.username}`, icon: 'user' },

@@ -43,11 +43,12 @@ type SchedulePostInput struct {
 
 // contentInput 是创建与更新共用、尚未渲染校验的内容输入。
 type contentInput struct {
-	Format        string
-	Source        string
-	Visibility    string
-	AttachmentIDs []int64
-	QuotedPostID  *int64
+	Format                string
+	Source                string
+	Visibility            string
+	AttachmentIDs         []int64
+	ExistingAttachmentIDs []int64
+	QuotedPostID          *int64
 }
 
 // CreatePost 创建草稿、立即发布或设置定时发布。
@@ -196,22 +197,9 @@ func (s *Service) UpdatePost(
 	var following map[int64]bool
 	var updated model.Post
 	err := s.withTx(ctx, func(txCtx context.Context) error {
-		// 附件归属与引用目标校验必须与写入处于同一事务（数据库无外键，完整性由应用层保证）。
-		author, err := s.loadUser(txCtx, viewer.ID, "作者账号不存在")
-		if err != nil {
-			return err
-		}
-		// 引用目标在编辑阶段不可变更：历史版本不记录该字段，改动会导致时间线语义不一致。
-		content, err := s.prepareContent(txCtx, author, contentInput{
-			Format:        in.ContentFormat,
-			Source:        in.ContentSource,
-			Visibility:    in.Visibility,
-			AttachmentIDs: in.AttachmentIDs,
-		}, false)
-		if err != nil {
-			return err
-		}
 		now := s.Now()
+		// 先锁定帖子并取得既有引用，供媒体校验区分“既有公开文件随文章降级”与
+		// “新加入公开文件到非公开文章”。所有写入仍位于同一事务。
 		post, err := s.repo.GetPostForUpdate(txCtx, postID)
 		if err != nil {
 			return err
@@ -223,12 +211,34 @@ func (s *Service) UpdatePost(
 		if err != nil {
 			return err
 		}
+		existingAttachmentIDs, err := s.repo.AttachmentIDsForPost(txCtx, postID)
+		if err != nil {
+			return s.wrap(err, "读取帖子既有附件失败")
+		}
+		author, err := s.loadUser(txCtx, viewer.ID, "作者账号不存在")
+		if err != nil {
+			return err
+		}
+		// 引用目标在编辑阶段不可变更：历史版本不记录该字段，改动会导致时间线语义不一致。
+		content, err := s.prepareContent(txCtx, author, contentInput{
+			Format:                in.ContentFormat,
+			Source:                in.ContentSource,
+			Visibility:            in.Visibility,
+			AttachmentIDs:         in.AttachmentIDs,
+			ExistingAttachmentIDs: existingAttachmentIDs,
+		}, false)
+		if err != nil {
+			return err
+		}
 		if domain.Editable(post.Status) {
 			updated, err = s.updateDraftWorkspace(txCtx, post, content, in, now)
 		} else {
 			updated, err = s.appendVersion(txCtx, post, content, now)
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		return s.revokeDrivePublicOnRestriction(txCtx, content.Visibility, content.AttachmentIDs, now)
 	})
 	if err != nil {
 		return PostDetail{}, err
@@ -326,9 +336,6 @@ func (s *Service) appendVersion(
 	}
 	if err := s.repo.InsertVersionAttachments(ctx, versionID, content.AttachmentIDs); err != nil {
 		return post, s.wrap(err, "写入版本附件失败")
-	}
-	if err := s.linkAttachments(ctx, post.ID, content.AttachmentIDs, at); err != nil {
-		return post, err
 	}
 	if err := s.repo.SetCurrentVersionAndVisibility(ctx, post.ID, versionID, content.Visibility, at); err != nil {
 		return post, s.wrap(err, "更新当前版本失败")
@@ -457,9 +464,6 @@ func (s *Service) publishLocked(ctx context.Context, postID int64, actorID int64
 		}
 		if err := s.repo.InsertVersionAttachments(ctx, versionID, attachments); err != nil {
 			return s.wrap(err, "写入版本附件失败")
-		}
-		if err := s.linkAttachments(ctx, postID, attachments, at); err != nil {
-			return err
 		}
 		if err := s.repo.SetPublished(ctx, postID, versionID, publishedAt, at); err != nil {
 			return s.wrap(err, "更新发布状态失败")
@@ -623,8 +627,15 @@ func (s *Service) deletePost(
 		if post.Status == model.PostStatusDeleted {
 			return nil
 		}
+		attachmentIDs, err := s.repo.AttachmentIDsForPost(txCtx, postID)
+		if err != nil {
+			return s.wrap(err, "读取待删除帖子的附件失败")
+		}
 		if err := s.repo.SoftDelete(txCtx, postID, now); err != nil {
 			return s.wrap(err, "删除帖子失败")
+		}
+		if err := s.revokeDrivePublicOnRestriction(txCtx, model.VisibilityPrivate, attachmentIDs, now); err != nil {
+			return err
 		}
 		if err := s.cancelPublishJobs(txCtx, postID, now); err != nil {
 			return err
@@ -688,9 +699,11 @@ func (s *Service) prepareContent(
 			return domain.Content{}, apperr.Internal("附件服务未就绪")
 		}
 		if err := s.deps.Media.CheckAttachmentsUsable(ctx, contracts.AttachmentCheckInput{
-			UploaderID:    author.ID,
-			AttachmentIDs: attachmentIDs,
-			Purpose:       domain.AttachmentPurposePost,
+			UploaderID:            author.ID,
+			AttachmentIDs:         attachmentIDs,
+			ExistingAttachmentIDs: in.ExistingAttachmentIDs,
+			Purpose:               domain.AttachmentPurposePost,
+			PostVisibility:        visibility,
 		}); err != nil {
 			return domain.Content{}, s.wrap(err, "校验附件使用权限失败")
 		}
@@ -801,16 +814,16 @@ func (s *Service) notifyQuote(ctx context.Context, post model.Post, at time.Time
 	return nil
 }
 
-// linkAttachments 把附件正式挂到帖子上（attachments 表归 media 模块）。
-func (s *Service) linkAttachments(ctx context.Context, postID int64, attachmentIDs []int64, at time.Time) error {
-	if len(attachmentIDs) == 0 {
+// revokeDrivePublicOnRestriction 在文章进入非公开状态时同事务撤销网盘公开。
+func (s *Service) revokeDrivePublicOnRestriction(ctx context.Context, visibility string, attachmentIDs []int64, at time.Time) error {
+	if visibility == model.VisibilityPublic || len(attachmentIDs) == 0 {
 		return nil
 	}
 	if s.deps.Media == nil {
 		return apperr.Internal("附件服务未就绪")
 	}
-	if err := s.deps.Media.LinkAttachmentsToPost(ctx, postID, attachmentIDs, at); err != nil {
-		return s.wrap(err, "关联帖子附件失败")
+	if err := s.deps.Media.RevokePublicDriveFiles(ctx, attachmentIDs, at); err != nil {
+		return s.wrap(err, "撤销文章附件网盘公开状态失败")
 	}
 	return nil
 }

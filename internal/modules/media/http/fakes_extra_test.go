@@ -170,6 +170,21 @@ func (f *fakeContent) ActiveDraftAttachmentIDs(context.Context, []int64) ([]int6
 	return f.activeDraft, f.activeDraftErr
 }
 
+func (f *fakeContent) ReferencedAttachmentIDs(context.Context, []int64) ([]int64, error) {
+	return f.activeDraft, f.activeDraftErr
+}
+
+func (f *fakeContent) HasNonPublicAttachmentReference(context.Context, int64) (bool, error) {
+	return f.referenced, f.referencedErr
+}
+
+func (f *fakeContent) CanViewAttachment(context.Context, model.Viewer, int64) (bool, error) {
+	if f.visibleErr != nil {
+		return false, f.visibleErr
+	}
+	return len(f.visiblePosts) > 0, nil
+}
+
 // fakeIDs 生成确定性的附件/衍生文件 ID。
 type fakeIDs struct {
 	next int64
@@ -737,6 +752,25 @@ func derivativeResult(row repo.Derivative) pgResult {
 func usageResult(total int64) pgResult {
 	return pgResult{columns: usageColumn, rows: [][]any{{total}}}
 }
+
+// postFolderResult 返回文章默认目录的幂等查询结果。
+func postFolderResult(ownerID int64) pgResult {
+	columns := []pgColumn{
+		{"id", oidInt8}, {"owner_id", oidInt8}, {"name", oidText}, {"system_key", oidText},
+		{"status", oidText}, {"created_at", oidTimestamptz}, {"updated_at", oidTimestamptz}, {"deleted_at", oidTimestamptz},
+	}
+	return pgResult{columns: columns, rows: [][]any{{ownerID, ownerID, "文章附件", "post", "active", testNow, testNow, nil}}}
+}
+
+// driveFileRowColumns 是 repo.GetDriveFile 的扫描列顺序：网盘字段 + 附件完整列。
+var driveFileRowColumns = append([]pgColumn{
+	{"attachment_id", oidInt8}, {"owner_id", oidInt8}, {"folder_id", oidInt8},
+	{"visibility", oidText}, {"status", oidText}, {"created_at", oidTimestamptz},
+	{"updated_at", oidTimestamptz}, {"deleted_at", oidTimestamptz}, {"folder_name", oidText},
+}, attachmentRowColumns...)
+
+// noDriveFileResult 表示附件没有网盘条目（旧版临时附件或头像/横幅）。
+func noDriveFileResult() pgResult { return pgResult{columns: driveFileRowColumns} }
 
 func commandResult(tag string) pgResult { return pgResult{tag: tag} }
 
