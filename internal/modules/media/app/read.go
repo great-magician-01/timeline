@@ -39,10 +39,9 @@ func (s *Service) getAttachment(ctx context.Context, attachmentID int64) (repo.A
 }
 
 // requireAttachmentAccess 校验访问者能否读取附件内容（原文件与衍生文件共用）。
-// 规则：purpose='avatar' 的头像附件与 purpose='banner' 的主页横幅附件公开可读
-// （均为个人主页公开展示内容）；其余附件继承所属帖子的可见性；
-// 尚未关联任何帖子的附件只有上传者本人与管理员可查看。不满足时返回 404，
-// 不暴露资源存在性（docs/PAGES_AND_PERMISSIONS.md §8）。
+// 规则：头像/横幅公开；上传者与管理员可读；其他访问者可通过任一当前可见文章读取，
+// 或读取未被非公开/已删除内容约束的公开网盘文件。未关联的旧附件仍只有上传者/管理员可读。
+// 不满足时统一返回 404，不暴露资源存在性。
 func (s *Service) requireAttachmentAccess(ctx context.Context, viewer model.Viewer, row repo.AttachmentRow) error {
 	if !row.Available() {
 		return apperr.NotFound("附件不存在或已失效")
@@ -50,19 +49,33 @@ func (s *Service) requireAttachmentAccess(ctx context.Context, viewer model.View
 	if row.Purpose == domain.PurposeAvatar || row.Purpose == domain.PurposeBanner {
 		return nil
 	}
-	if row.PostID == nil {
-		if viewer.IsAdmin || (viewer.Authenticated && viewer.ID == row.UploaderID) {
+	if viewer.IsAdmin || (viewer.Authenticated && viewer.ID == row.UploaderID) {
+		return nil
+	}
+	if s.content == nil {
+		return s.internal("内容服务未初始化", errContentPortMissing)
+	}
+	visible, err := s.content.CanViewAttachment(ctx, viewer, row.ID)
+	if err != nil {
+		return s.wrap("校验附件文章访问权限失败", err)
+	}
+	if visible {
+		return nil
+	}
+	driveFile, err := repo.GetDriveFile(ctx, s.exec(ctx), row.ID)
+	if err != nil && !repo.IsNotFound(err) {
+		return s.internal("读取网盘附件公开状态失败", err)
+	}
+	if err == nil && driveFile.Status == "active" && driveFile.Visibility == domain.DriveVisibilityPublic {
+		restricted, err := s.content.HasNonPublicAttachmentReference(ctx, row.ID)
+		if err != nil {
+			return s.wrap("复核公开网盘附件引用失败", err)
+		}
+		if !restricted {
 			return nil
 		}
-		return apperr.NotFound("附件不存在或无权访问")
 	}
-	if _, err := s.content.GetVisiblePost(ctx, viewer, *row.PostID); err != nil {
-		if apperr.IsKind(err, apperr.KindNotFound) {
-			return apperr.NotFound("附件不存在或无权访问")
-		}
-		return s.internal("校验附件所属帖子可见性失败", err)
-	}
-	return nil
+	return apperr.NotFound("附件不存在或无权访问")
 }
 
 // OpenContent 打开附件原文件：先做鉴权读取校验，再按存储键打开物理文件。

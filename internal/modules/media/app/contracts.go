@@ -57,6 +57,28 @@ func (s *Service) CheckAttachmentsUsable(ctx context.Context, in contracts.Attac
 			return invalid
 		}
 	}
+	// 非公开文章不能新引入公开网盘文件。既有引用允许在同事务内由 content 撤销公开，
+	// 从而支持文章从公开下调为仅关注者/仅自己，而不是把降级操作卡死。
+	if in.PostVisibility != "" && in.PostVisibility != model.VisibilityPublic {
+		driveRows, err := repo.DriveFilesForUpdate(ctx, s.exec(ctx), in.AttachmentIDs)
+		if err != nil {
+			return s.internal("锁定网盘附件公开状态失败", err)
+		}
+		existing := make(map[int64]struct{}, len(in.ExistingAttachmentIDs))
+		for _, id := range in.ExistingAttachmentIDs {
+			existing[id] = struct{}{}
+		}
+		for _, id := range in.AttachmentIDs {
+			row, ok := driveRows[id]
+			if !ok || row.Status != "active" || row.Visibility != domain.DriveVisibilityPublic {
+				continue
+			}
+			if _, ok := existing[id]; !ok {
+				return apperr.Conflict("drive_visibility_conflict", "公开网盘文件不能加入非公开文章").
+					WithDetails(driveConflictDetails([]int64{id}))
+			}
+		}
+	}
 	return nil
 }
 

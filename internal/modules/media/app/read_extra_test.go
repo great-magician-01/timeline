@@ -52,12 +52,13 @@ func TestRequireAttachmentAccess(t *testing.T) {
 	publicPost := model.Post{ID: postID, AuthorID: 3, Status: model.PostStatusPublished, Visibility: model.VisibilityPublic}
 
 	cases := []struct {
-		name    string
-		row     func() repo.AttachmentRow
-		viewer  model.Viewer
-		content func(*stubContent)
-		want    apperr.Kind
-		wantNil bool
+		name        string
+		row         func() repo.AttachmentRow
+		viewer      model.Viewer
+		content     func(*stubContent)
+		want        apperr.Kind
+		wantNil     bool
+		driveLookup bool
 	}{
 		{
 			name: "附件已失效",
@@ -80,10 +81,11 @@ func TestRequireAttachmentAccess(t *testing.T) {
 			wantNil: true,
 		},
 		{
-			name:   "未挂帖附件游客不可读",
-			row:    func() repo.AttachmentRow { return testAttachmentRow(42, 7) },
-			viewer: guestViewer(),
-			want:   apperr.KindNotFound,
+			name:        "未挂帖附件游客不可读",
+			row:         func() repo.AttachmentRow { return testAttachmentRow(42, 7) },
+			viewer:      guestViewer(),
+			want:        apperr.KindNotFound,
+			driveLookup: true,
 		},
 		{
 			name:    "未挂帖附件上传者本人可读",
@@ -107,10 +109,11 @@ func TestRequireAttachmentAccess(t *testing.T) {
 			wantNil: true,
 		},
 		{
-			name:   "帖子不可见按附件不存在处理",
-			row:    func() repo.AttachmentRow { return postRow },
-			viewer: guestViewer(),
-			want:   apperr.KindNotFound,
+			name:        "帖子不可见按附件不存在处理",
+			row:         func() repo.AttachmentRow { return postRow },
+			viewer:      guestViewer(),
+			want:        apperr.KindNotFound,
+			driveLookup: true,
 		},
 		{
 			name:   "可见性校验数据库错误映射为内部错误",
@@ -125,6 +128,9 @@ func TestRequireAttachmentAccess(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			env := newMediaTestEnv(t)
+			if tc.driveLookup {
+				env.expect(noDriveFileResult())
+			}
 			if tc.content != nil {
 				tc.content(env.content)
 			}
@@ -136,8 +142,12 @@ func TestRequireAttachmentAccess(t *testing.T) {
 				return
 			}
 			requireKind(t, err, tc.want)
-			if got := len(env.stub.recorded()); got != 0 {
-				t.Fatalf("可见性校验不应直接触库，实际查询 %d 次", got)
+			wantQueries := 0
+			if tc.driveLookup {
+				wantQueries = 1
+			}
+			if got := len(env.stub.recorded()); got != wantQueries {
+				t.Fatalf("可见性校验查询数 = %d，期望 %d", got, wantQueries)
 			}
 		})
 	}
@@ -173,7 +183,7 @@ func TestOpenContentSuccess(t *testing.T) {
 func TestOpenContentDeniedAndMissing(t *testing.T) {
 	t.Run("游客读取未挂帖附件", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(attachmentResult(testAttachmentRow(42, 7)))
+		env.expect(attachmentResult(testAttachmentRow(42, 7)), noDriveFileResult())
 		_, err := env.svc.OpenContent(context.Background(), guestViewer(), 42)
 		requireKind(t, err, apperr.KindNotFound)
 	})
@@ -213,7 +223,7 @@ func TestOpenDerivative(t *testing.T) {
 	})
 	t.Run("鉴权失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(attachmentResult(testAttachmentRow(42, 7)))
+		env.expect(attachmentResult(testAttachmentRow(42, 7)), noDriveFileResult())
 		_, err := env.svc.OpenDerivative(context.Background(), guestViewer(), 42, model.DerivativeThumbnail)
 		requireKind(t, err, apperr.KindNotFound)
 	})

@@ -1,9 +1,9 @@
 # Timeline 数据模型设计
 
 > **文档状态**：设计基线，持续更新  
-> **文档版本**：0.14.0  
-> **最近更新**：2026-10-24  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.32.0  
+> **文档版本**：0.15.1  
+> **最近更新**：2026-11-10  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.33.0  
 > **关联文档**：[页面与权限设计](PAGES_AND_PERMISSIONS.md)、[核心状态机与流程](WORKFLOWS.md)  
 > **用途**：数据库迁移、接口设计、后台任务和验收用例的依据
 
@@ -88,6 +88,7 @@
 5. 迁移只管理表结构，不负责创建数据库本身；数据库由部署配置提供，名称从配置读取。
 6. 迁移默认只做结构变更，不回填业务数据。例如 `0010_super_admin` 只追加 `users.is_super_admin` 列、CHECK 约束与单超管部分唯一索引，**不把任何存量管理员提升为超级管理员**；存量部署升级后没有超级管理员，由启动日志告警（详见第 6.1 节与 `DEPLOYMENT.md` 第 9 章）。
 7. 数据回填是经单独评审的显式例外，必须幂等并在迁移注释中说明依据：`0016_review_fixes` 为修复附件清理的头像判定，当 `avatar_url` 恰为 `/api/v1/attachments/<id>/content` 时用正则提取 ID 回填 `"user".users.avatar_attachment_id`（仅当该列为 NULL，可重复执行），并删除与查询形态不匹配的 `timeline.ai_tasks_daily` 索引；保留 `ai_call_logs_retention_id`，不改任何业务时间列、不更新 `updated_at`、不做物理删除。`0019_author_is_ai_and_attachment_usage` 为两项展示优化回填：`posts/reposts.author_is_ai` 快照自 `"user".users.is_ai`（`is_ai` 创建后不可变，回填无需后续维护），`attachment_usage` 从 `attachments` 明细按上传者聚合已用字节（含已逻辑删除行，与旧实时 SUM 口径一致）；两处回填都只用 `WHERE` 限定未处理/不一致行、可重复执行、不修改业务时间列，`updated_at` 使用固定字面量表示迁移初始值。
+8. `0026_drive_files` 是另一项经评审核准的回填：为既有有效文章附件建立个人网盘索引，具体筛选、默认目录、固定迁移时间、幂等与禁止自动公开要求见 §6.39；不修改既有内容或附件业务时间，不回填无引用临时附件、头像或横幅。
 
 ## 5. 实体总览
 
@@ -95,7 +96,7 @@
 
 - **账号与认证（`user`）**：`users`、`auth_sessions`
 - **帖子与内容（`timeline`）**：`posts`、`post_drafts`、`post_versions`、`post_version_attachments`、`post_draft_attachments`、`tags`、`post_tags`、`post_search`
-- **附件与媒体（`timeline`）**：`attachments`、`attachment_derivatives`
+- **附件与媒体（`timeline`）**：`attachments`、`attachment_derivatives`、`attachment_usage`、`drive_folders`、`drive_files`
 - **社交互动（`timeline`）**：`follows`、`follow_requests`、`likes`、`comments`、`reposts`、`mentions`、`bookmarks`、`bookmark_folders`
 - **通知（`timeline`）**：`notifications`
 - **私信（`timeline`）**：`dm_conversations`、`dm_messages`
@@ -200,9 +201,10 @@
 ### 6.6 post_version_attachments / post_draft_attachments（`timeline`）
 
 - `post_version_attachments`：`version_id`、`attachment_id`、`sort_order`。
-- `post_draft_attachments`：`post_id`、`attachment_id`、`sort_order`。
-- 用途：分别记录历史版本和草稿工作区的附件引用与顺序。
-- 附件标记失效前必须同时检查这两张表以及草稿、帖子的引用；清理只更新状态，不删除数据库记录与物理文件。
+- `post_draft_attachments`：`post_id`、`attachment_id`、`sort_order`、`is_active`。
+- 用途：分别记录历史版本和草稿工作区的附件引用与顺序；同一附件可关联多个版本和草稿，是多文章复用及内容访问鉴权的事实来源。
+- 解除草稿关联只把指定 `(post_id, attachment_id)` 的 `is_active` 置为 FALSE，不得按附件 ID 全量解除；历史版本关联只追加、不覆盖。
+- 附件标记失效前必须同时检查网盘条目、这两张表以及草稿、帖子的引用；清理只更新状态，不删除数据库记录与物理文件。
 
 ### 6.7 tags / post_tags（`timeline`）
 
@@ -222,7 +224,7 @@
 
 - `id`：主键。
 - `uploader_id`：上传者，指向 `"user".users`。
-- `post_id`：所属帖子，允许在发布前关联草稿。
+- `post_id`：旧单帖关联字段，允许为空；自个人网盘与多文章复用起仅保留兼容信息，不再作为附件访问、引用判断或清理的事实来源，运行期关联查询使用 `post_version_attachments` / `post_draft_attachments`。
 - `purpose`：`post`、`avatar`、`banner`（`0024` 加入 banner；CHECK 约束 `attachments_purpose_check` 兜底）。头像与横幅附件公开可读，post 附件继承所属帖子可见性。
 - `kind`：`image`、`video`、`file`。
 - `original_filename`、`media_type`、`size_bytes`。
@@ -231,7 +233,7 @@
 - `width`、`height`、`duration_ms`：可选媒体信息。
 - `created_at`、`updated_at`。
 
-规则方向：删除只置 `deleted`，数据库记录与存储文件均保留，不做物理删除。
+规则方向：删除只置 `deleted`，数据库记录与存储文件均保留，不做物理删除。有效 `drive_files` 条目独立决定网盘展示与公开授权；`attachments.status=available` 不代表任何游客都可读取，仍需通过内容引用或网盘公开鉴权。
 
 ### 6.10 attachment_derivatives（`timeline`）
 
@@ -521,6 +523,35 @@
 - 索引：`group_messages_group (group_id, id DESC)` 支撑对话翻页与增量拉取（`after_id`）。
 - 设计意图：群消息首期不进入 AI 分层记忆（不写 `ai_memory_sources`），仅作任务期上下文（群名 + 最近 20 条）；AI 产出的群消息不再触发其他 AI 的 @ 提及（防循环），因此 `mentions` 表不承载群内提及，群 @ 提及经 `group_mention` 触发类型入 AI 任务。
 
+### 6.38 drive_folders（`timeline`，`0026` 新增）
+
+- `id`：主键。
+- `owner_id`：文件夹所有者，指向 `"user".users`；所有读写按当前用户复核。
+- `name`：一级文件夹名称；同一用户的有效文件夹内唯一。
+- `system_key`：可空系统目录标识；`post` 表示“文章附件”默认目录，普通目录为 `NULL`。`(owner_id, system_key)` 唯一保证每个用户至多一个文章默认目录，PostgreSQL 唯一索引允许多个 `NULL`。
+- `status`：`active`、`deleted`；系统目录不可删除，普通目录仅在无有效文件时可逻辑删除。
+- `created_at`、`updated_at`、`deleted_at`：应用 Clock 显式传参，`deleted_at` 与状态一致。
+- 文件夹不保存独立 ACL 或公开继承字段；公开/私密/混合是其有效文件 `visibility` 的聚合展示。首版无 `parent_id`，不支持多级嵌套。
+
+### 6.39 drive_files（`timeline`，`0026` 新增）
+
+- `attachment_id`：主键并逻辑引用 `attachments.id`，与附件一对一；对外文件 ID 与该雪花 ID 一致，JSON 字符串化。
+- `owner_id`：网盘所有者，上传时与 `attachments.uploader_id` 一致。
+- `folder_id`：可空，逻辑引用 `drive_folders.id`；`NULL` 表示根目录。移动只修改此列，不改变公开级别或内容引用。
+- `visibility`：`private`、`public`，默认 `private`，是文件最终公开级别；文件夹批量设置只是同事务批量更新该列。
+- `status`：`active`、`deleted`，独立表示网盘条目生命周期；删除不更新内容关联，也不级联删除附件。
+- `created_at`、`updated_at`、`deleted_at`：应用 Clock 显式传参。
+- CHECK 约束覆盖公开级别、状态与删除时间一致性；不建外键、不物理删除。
+- 有效且公开的行提供网盘直接访问授权，但存在非公开/已删除文章或草稿引用时不得进入/保持 `public`；文章降级/删除与同事务改回 `private`。
+- 有效行使附件免于临时清理；`status=deleted` 且所有有效草稿/版本引用均消失后，附件才可按保留期标记失效。`attachment_usage` 不因网盘删除递减。
+
+### `0026` 存量回填约定
+
+- 为具有待回填附件的上传者创建唯一系统“文章附件”目录，再插入私密、有效的 `drive_files`。
+- 只处理 `attachments.status='available' AND purpose='post'`，且存在于有效 `post_draft_attachments` 或任一 `post_version_attachments` 的附件；头像、横幅、已失效和无有效引用的临时附件不回填。
+- 使用 `ON CONFLICT DO NOTHING` 或未处理行过滤保证幂等；不改既有附件、草稿、版本或用户的业务时间。新增目录/文件行的迁移初始时间使用固定字面量，不使用数据库时间函数。
+- 这是迁移默认不回填业务数据的显式评审例外，依据是保持既有文章附件在新网盘与多关联鉴权下可管理；不得借回填把任何存量文件公开。
+
 ## 7. 关系概览
 
 以下关系均为逻辑引用：只对引用列建立普通索引，数据库不定义外键约束，引用完整性由应用层在事务内维护。
@@ -528,7 +559,8 @@
 - `"user".users` 1—N `timeline.posts`；AI 用户额外 1—1 `ai_profiles`。
 - `posts` 1—1 `post_drafts`、1—N `post_versions`、1—N `comments`、1—N `reposts`。
 - `post_versions` N—N `attachments`（经 `post_version_attachments`）。
-- `attachments` 1—N `attachment_derivatives`。
+- `attachments` 1—N `attachment_derivatives`；`attachments` 1—1 `drive_files`（网盘条目可不存在）。
+- `users` 1—N `drive_folders` 与 `drive_files`；`drive_folders` 1—N `drive_files`（`folder_id NULL` 表示根目录）。
 - `users` N—N `users`：`follows` 表示生效关系，`follow_requests` 表示申请历史。
 - `users` N—N `users`：`dm_conversations` 表示 1:1 私信会话（规范化排序唯一），`dm_messages` 属于会话并冗余 `recipient_id`。
 - `group_conversations` 1—N `group_members`（`left_at IS NULL` 为有效成员，退出/移出复用同一行）、1—N `group_messages`；`users` N—N `group_conversations`（经 `group_members`），`owner_id` 与 `group_members.role='owner'` 同事务保持一致。
@@ -563,6 +595,7 @@
 18. 个人主页置顶（`0022`）：`posts.pinned_at`/`pinned_sort` 由 CHECK 约束 `posts_pinned_check` 兜底（两列同空同非空、1..3、仅已发布）；置顶查询是「单作者 + 已发布」最多 3 行小集合，复用现有 `posts_author_published` 部分索引，**不新增索引**（SQL 最简原则）。
 19. 收藏（`0023`）：`bookmarks_user_post_unique (user_id, post_id)` 非部分唯一索引兜底收藏幂等与并发；`bookmarks_user_active (user_id, id DESC) WHERE is_active` 支撑收藏列表（全部/默认）游标分页；`bookmarks_user_folder_active (user_id, folder_id, id DESC) WHERE is_active AND folder_id IS NOT NULL` 支撑按夹过滤分页与删除夹时的归还 UPDATE；`bookmark_folders_user_active (user_id) WHERE deleted_at IS NULL` 支撑夹列表与上限计数。
 20. 群聊（`0025`）：`group_members_pair_unique (group_id, user_id)` 唯一组合兜底重复拉人与重新拉回复用行；`group_members_user_active (user_id) WHERE left_at IS NULL` 支撑群列表与群主名额计数；`group_members_group_active (group_id, joined_at) WHERE left_at IS NULL` 支撑成员分页；`group_messages_group (group_id, id DESC)` 支撑消息翻页与 `after_id` 增量；`group_conversations_owner (owner_id)` 支撑按群主统计。未读与隐藏均为成员行上的游标列（`last_read_message_id`/`hidden_message_id`），不建独立索引（未读按群内 `id > 游标` 计数，命中 `group_messages_group`）。
+21. 个人网盘（`0026`）：`drive_folders` 对 `(owner_id, system_key)` 建唯一索引兜底系统目录，对有效目录的 `(owner_id, name)` 建唯一索引防重名，并建 `(owner_id, id DESC) WHERE status='active'` 列表索引；`drive_files` 建 `(owner_id, attachment_id DESC) WHERE status='active'` 本人游标列表、`(folder_id, attachment_id DESC) WHERE status='active'` 目录列表，以及 `(owner_id, attachment_id DESC) WHERE status='active' AND visibility='public'` 公开列表索引。公开查询实际还需 `attachments.status='available'`；跨用户授权不依赖索引或 ID 不可猜测。
 
 ## 9. 与流程文档的状态映射
 
@@ -575,6 +608,8 @@
 | 生效关注关系 | `follows` 行 |
 | 评论状态 | `comments.status` |
 | 原文件状态 | `attachments.status` |
+| 网盘文件夹状态 | `drive_folders.status` + `deleted_at`；`system_key='post'` 为不可删除系统目录 |
+| 网盘条目状态与公开级别 | `drive_files.status` + `visibility`；与附件状态和内容引用分离 |
 | 衍生文件状态 | `attachment_derivatives.status` |
 | AI 任务状态 | `ai_tasks.status` |
 | 记忆状态 | `ai_memories.status` |
@@ -592,6 +627,7 @@
 
 - `posts.like_count`、`comment_count`、`repost_count` 和用户维度计数为展示优化。
 - `attachment_usage.used_bytes`（`0019`）是存储配额展示/校验优化：按上传者维护、只增不减（删除附件不释放配额），可由 `attachments` 明细全量重算校验。
+- 多文章复用只新增草稿/版本关联，不新增附件或 `drive_files` 行，也不移动/复制物理文件，因此不重复增加 `attachment_usage`；移动文件夹和公开级别变化同样不影响配额。
 - `posts.author_is_ai`、`reposts.author_is_ai`（`0019`）是作者类型过滤快照，不是计数；`is_ai` 创建后不可变，因此快照写入后无需对账。
 - 计数变化采用幂等的增量更新，并提供按明细重算的校验方式。
 - 计数与实际明细不一致时以明细为准，允许后台修复。
@@ -644,4 +680,6 @@
 | 2026-10-21 | 0.11.0 | 需求基线更新至 0.26.0，新增个人主页置顶（迁移 `0022_post_pinned`）：§6.3 posts 补 `pinned_at`/`pinned_sort` 列（CHECK 约束 `posts_pinned_check`：两列同空同非空、1..3、仅已发布；删除帖同 UPDATE 清列；置顶写入不改 `updated_at`）；§8 补第 18 条（置顶查询复用 `posts_author_published` 部分索引，不新增索引）。 |
 | 2026-10-21 | 0.12.0 | 需求基线更新至 0.27.0，新增收藏（迁移 `0023_bookmarks`）：§5 实体总览社交互动组补 `bookmarks`/`bookmark_folders`；新增 §6.33/§6.34 两表（收藏夹逻辑删除、删除时同事务归还夹内收藏；收藏 `is_active` 失效 + `folder_id NULL` 默认收藏 + 非部分唯一组合索引支撑 upsert 复活与移动）；§7 补收藏关系；§8 补第 19 条索引方向。 |
 | 2026-10-23 | 0.13.0 | 需求基线更新至 0.30.0，新增个人主页横幅（迁移 `0024_user_banner`）：§6.1 users 补 `banner_url`（空串=未设置）与 `banner_attachment_id`（不回填、不建索引，清理候选固定 `purpose='post'` 无需排除参数）；§6.9 attachments 补 `purpose` 枚举行（`post`/`avatar`/`banner`，CHECK 约束 `attachments_purpose_check` 同名重建）。 |
+| 2026-11-10 | 0.15.0 | 需求基线更新至 0.33.0，新增 `0026_drive_files` 设计：§6.38/6.39 增加 `drive_folders`/`drive_files`（一级目录、系统文章目录、根目录 NULL、文件级公开、独立逻辑删除）；§6.6 明确草稿/版本关联是多文章复用事实来源，§6.9 将 `attachments.post_id` 降为兼容字段；补关系、索引、状态映射、配额不重复/不释放及存量私密回填例外。本轮为实施中模型，迁移是否应用以实际执行记录为准。 |
+| 2026-11-10 | 0.15.1 | 模型与迁移落地状态同步：`0026_drive_files` 已提交并在隔离测试 schema 成功执行；`drive_folders`/`drive_files`、系统文章目录、存量私密回填与相关索引按 0.15.0 设计落地。部署实例应用与数据核对仍以实际执行记录为准。 |
 | 2026-10-24 | 0.14.0 | 需求基线更新至 0.32.0，新增群聊（迁移 `0025_group_chat`）：§5 实体总览新增群聊组；§6.21 `ai_behavior_settings` 补 `allow_group_message`（默认 FALSE）；§6.22 `ai_tasks` 的 `trigger_type` 扩展 `group_mention`/`group_schedule`、`action_type` 扩展 `group_message`；新增 §6.35–§6.37 三表——`group_conversations`（owner/status 两态、`last_message_id` 排序指针、解散只置状态）、`group_members`（两级角色 CHECK、成员级已读游标 `last_read_message_id`、隐藏指针 `hidden_message_id`、`left_at` 逻辑删除与重新拉回复用行、UNIQUE`(group_id, user_id)` + 两个 `left_at IS NULL` 部分索引）、`group_messages`（与 `dm_messages` 同构、撤回保留正文列）；§7 补群关系；§8 补第 20 条索引方向；§9 补群状态映射；§10 记录"群未读按成员级游标不冗余存储"决策。设计意图：未读游标模型替代逐消息已读（避免 N 接收者写入放大）、隐藏指针避免群发全量 UPDATE。 |

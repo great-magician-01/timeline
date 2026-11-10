@@ -195,7 +195,26 @@ func (c *Client) UploadRawWithPurpose(purpose, filename string, content []byte) 
 	return status, payload, raw
 }
 
+// UploadDriveFile 以 source=drive 上传 PNG 到网盘；folderID 为空表示根目录。
+// 返回状态码、响应 JSON 与原始响应体。
+func (c *Client) UploadDriveFile(filename, folderID string) (int, map[string]any, string) {
+	c.t.Helper()
+	fields := map[string]string{"source": "drive"}
+	if folderID != "" {
+		fields["folder_id"] = folderID
+	}
+	status, _, payload, raw := c.uploadMultipartFields(filename, "post", integrationPNGBytes, fields)
+	return status, payload, raw
+}
+
 func (c *Client) uploadMultipart(filename, purpose string, content []byte) (int, http.Header, map[string]any, string) {
+	c.t.Helper()
+	return c.uploadMultipartFields(filename, purpose, content, nil)
+}
+
+func (c *Client) uploadMultipartFields(
+	filename, purpose string, content []byte, fields map[string]string,
+) (int, http.Header, map[string]any, string) {
 	c.t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -208,6 +227,11 @@ func (c *Client) uploadMultipart(filename, purpose string, content []byte) (int,
 	}
 	if err := writer.WriteField("purpose", purpose); err != nil {
 		c.t.Fatal(err)
+	}
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			c.t.Fatal(err)
+		}
 	}
 	if err := writer.Close(); err != nil {
 		c.t.Fatal(err)

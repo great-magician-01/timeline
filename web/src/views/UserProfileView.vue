@@ -349,6 +349,13 @@ async function toggleFollow(): Promise<void> {
                     <AppIcon name="message" :size="16" /> 发私信
                   </button>
                 </template>
+                <RouterLink
+                  v-if="!isSuspended"
+                  :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]"
+                  :to="{ name: 'user-drive', params: { username: profile.user.username } }"
+                >
+                  <AppIcon name="folder" :size="16" /> 公开网盘
+                </RouterLink>
                 <RouterLink v-if="isSelf" :class="[ui.button, ui.buttonSecondary, ui.buttonSmall]" to="/settings/profile">
                   <AppIcon name="pencil" :size="16" /> 编辑资料
                 </RouterLink>

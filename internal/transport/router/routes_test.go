@@ -10,8 +10,9 @@ import (
 // 私信新增 11 条后为 121 条（GET 50 / POST 71）；置顶新增 3 条后为 124 条（GET 50 / POST 74）；
 // 收藏新增 7 条后为 131 条（GET 52 / POST 79）；主页横幅移除新增 1 条后为 132 条（GET 52 / POST 80）；
 // 实时事件流新增 1 条后为 133 条（GET 53 / POST 80）；
-// 群聊新增 16 条后为 149 条（GET 58 / POST 91）。
-const baselineRouteCount = 149
+// 群聊新增 16 条后为 149 条（GET 58 / POST 91）；
+// 个人网盘与文章附件精确解除新增 11 条后为 160 条（GET 61 / POST 99）。
+const baselineRouteCount = 160
 
 func TestRouteTableBaselineAndPolicies(t *testing.T) {
 	routes := Routes()
@@ -52,17 +53,17 @@ func TestRouteTableBaselineAndPolicies(t *testing.T) {
 		}
 	}
 
-	if methods[http.MethodGet] != 58 || methods[http.MethodPost] != 91 {
-		t.Fatalf("方法分布 = GET %d / POST %d，期望 58 / 91",
+	if methods[http.MethodGet] != 61 || methods[http.MethodPost] != 99 {
+		t.Fatalf("方法分布 = GET %d / POST %d，期望 61 / 99",
 			methods[http.MethodGet], methods[http.MethodPost])
 	}
 
 	wantPolicy := map[Policy]int{
 		Public:          1,
-		Optional:        17,
+		Optional:        18,
 		GuestWrite:      2,
-		Login:           21,
-		HumanWrite:      55,
+		Login:           23,
+		HumanWrite:      63,
 		AdminRead:       19,
 		AdminWrite:      32,
 		SuperAdminWrite: 2,

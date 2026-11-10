@@ -68,6 +68,45 @@ export interface QuotedPost {
   post?: PostBrief
 }
 
+export type DriveVisibility = 'private' | 'public'
+
+/** 个人网盘一级文件夹（网盘页只使用一级目录） */
+export interface DriveFolder {
+  id: string
+  name: string
+  /** 'post' 表示文章附件默认目录；系统目录可改名但不可删除 */
+  system_key: 'post' | null
+  file_count: number
+  public_count: number
+  visibility_summary: DriveVisibility | 'mixed'
+  created_at: string
+  updated_at: string
+}
+
+/** 网盘条目：在附件安全摘要上补充目录与公开级别 */
+export interface DriveFile extends Attachment {
+  /** null 表示根目录 */
+  folder_id: string | null
+  folder_name?: string
+  visibility: DriveVisibility
+  updated_at: string
+}
+
+/** 公开网盘页的目录摘要；id 为 null 表示根目录 */
+export interface PublicDriveFolder {
+  id: string | null
+  name: string
+  system_key: 'post' | null
+  file_count: number
+}
+
+/** 网盘文件列表：本人列表带容量，公开列表带目录摘要 */
+export interface DriveFilePage extends CursorPage<DriveFile> {
+  used_bytes?: number
+  quota_bytes?: number
+  folders?: PublicDriveFolder[]
+}
+
 /** 附件摘要（含衍生文件状态） */
 export interface Attachment {
   id: string

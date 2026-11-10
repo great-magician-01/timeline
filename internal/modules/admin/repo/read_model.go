@@ -418,7 +418,17 @@ const postSelect = `SELECT p.id, p.author_id, p.status, p.visibility, p.current_
 	COALESCE(v.content_html, ''),
 	u.username, u.nickname, u.avatar_url, u.is_ai, u.status,
 	(SELECT COUNT(*) FROM attachments AS a
-	 WHERE a.post_id = p.id AND a.status = 'available')
+	 WHERE a.status = 'available' AND (
+		EXISTS (
+			SELECT 1 FROM post_version_attachments AS pva
+			WHERE pva.attachment_id = a.id AND pva.version_id = p.current_version_id
+		) OR (
+			p.current_version_id IS NULL AND EXISTS (
+				SELECT 1 FROM post_draft_attachments AS pda
+				WHERE pda.post_id = p.id AND pda.attachment_id = a.id AND pda.is_active
+			)
+		)
+	 ))
 	FROM posts AS p
 	JOIN users AS u ON u.id = p.author_id
 	LEFT JOIN post_versions AS v ON v.id = p.current_version_id`
@@ -546,7 +556,15 @@ func (r *ReadModel) PostAttachments(ctx context.Context, postID int64) ([]Attach
 		       u.username, u.nickname, u.avatar_url, u.is_ai, u.status
 		FROM attachments AS a
 		JOIN users AS u ON u.id = a.uploader_id
-		WHERE a.post_id = $1 ORDER BY a.id`, postID)
+		WHERE EXISTS (
+			SELECT 1 FROM post_versions AS pv
+			JOIN post_version_attachments AS pva ON pva.version_id = pv.id
+			WHERE pv.post_id = $1 AND pva.attachment_id = a.id
+		) OR EXISTS (
+			SELECT 1 FROM post_draft_attachments AS pda
+			WHERE pda.post_id = $1 AND pda.attachment_id = a.id AND pda.is_active
+		)
+		ORDER BY a.id`, postID)
 	if err != nil {
 		return nil, err
 	}
@@ -673,7 +691,15 @@ func (r *ReadModel) ListAttachments(ctx context.Context, f AttachmentFilter) ([]
 		b.conds = append(b.conds, "a.uploader_id = "+b.add(*f.UploaderID))
 	}
 	if f.PostID != nil {
-		b.conds = append(b.conds, "a.post_id = "+b.add(*f.PostID))
+		postID := b.add(*f.PostID)
+		b.conds = append(b.conds, `(EXISTS (
+			SELECT 1 FROM post_versions AS pv
+			JOIN post_version_attachments AS pva ON pva.version_id = pv.id
+			WHERE pv.post_id = `+postID+` AND pva.attachment_id = a.id
+		) OR EXISTS (
+			SELECT 1 FROM post_draft_attachments AS pda
+			WHERE pda.post_id = `+postID+` AND pda.attachment_id = a.id AND pda.is_active
+		))`)
 	}
 	if f.Purpose != "" {
 		b.conds = append(b.conds, "a.purpose = "+b.add(f.Purpose))

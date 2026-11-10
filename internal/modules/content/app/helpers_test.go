@@ -81,11 +81,13 @@ func (f fakeSocial) ListTimelineReposts(
 // fakeMedia 记录附件校验/关联调用，可按需返回错误。
 type fakeMedia struct {
 	contracts.MediaService
-	checkErr error
-	linkErr  error
-	checked  []contracts.AttachmentCheckInput
-	linked   []int64
-	linkedAt time.Time
+	checkErr  error
+	linkErr   error
+	checked   []contracts.AttachmentCheckInput
+	linked    []int64
+	linkedAt  time.Time
+	revoked   []int64
+	revokedAt time.Time
 }
 
 func (f *fakeMedia) CheckAttachmentsUsable(_ context.Context, in contracts.AttachmentCheckInput) error {
@@ -101,6 +103,12 @@ func (f *fakeMedia) LinkAttachmentsToPost(
 ) error {
 	f.linked = append(f.linked, attachmentIDs...)
 	f.linkedAt = at
+	return f.linkErr
+}
+
+func (f *fakeMedia) RevokePublicDriveFiles(_ context.Context, attachmentIDs []int64, at time.Time) error {
+	f.revoked = append(f.revoked, attachmentIDs...)
+	f.revokedAt = at
 	return f.linkErr
 }
 

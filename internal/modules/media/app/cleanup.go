@@ -42,7 +42,7 @@ func (s *Service) RunCleanup(ctx context.Context) {
 		return
 	}
 
-	// 草稿引用属于 content 模块：通过端口二次过滤后再按 ID 标记失效。
+	// 内容引用属于 content 模块：批量剔除仍被任一历史版本或生效草稿引用的候选。
 	deletable, err := s.filterDraftReferenced(ctx, candidates)
 	if err != nil {
 		s.log.Error("过滤草稿引用附件失败，跳过本次附件清理", "err", err)
@@ -75,7 +75,7 @@ func (s *Service) filterDraftReferenced(ctx context.Context, candidates []int64)
 	if s.content == nil {
 		return nil, s.internal("内容服务未初始化", errors.New("content port is nil"))
 	}
-	referenced, err := s.content.ActiveDraftAttachmentIDs(ctx, candidates)
+	referenced, err := s.content.ReferencedAttachmentIDs(ctx, candidates)
 	if err != nil {
 		return nil, s.wrap("查询草稿附件引用失败", err)
 	}

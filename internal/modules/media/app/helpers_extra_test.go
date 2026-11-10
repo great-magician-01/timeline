@@ -122,6 +122,9 @@ type stubContent struct {
 
 	activeDraft    []int64
 	activeDraftErr error
+	referencedIDs  []int64
+	restricted     bool
+	canView        bool
 
 	detachedIDs   []int64
 	detachedAt    time.Time
@@ -154,6 +157,28 @@ func (f *stubContent) AttachmentReferencedByVersion(_ context.Context, attachmen
 func (f *stubContent) ActiveDraftAttachmentIDs(_ context.Context, attachmentIDs []int64) ([]int64, error) {
 	f.draftQueries = append(f.draftQueries, append([]int64(nil), attachmentIDs...))
 	return f.activeDraft, f.activeDraftErr
+}
+
+func (f *stubContent) ReferencedAttachmentIDs(_ context.Context, attachmentIDs []int64) ([]int64, error) {
+	f.draftQueries = append(f.draftQueries, append([]int64(nil), attachmentIDs...))
+	if f.referencedIDs != nil {
+		return f.referencedIDs, f.referencedErr
+	}
+	return f.activeDraft, f.activeDraftErr
+}
+
+func (f *stubContent) HasNonPublicAttachmentReference(context.Context, int64) (bool, error) {
+	return f.restricted, f.referencedErr
+}
+
+func (f *stubContent) CanViewAttachment(context.Context, model.Viewer, int64) (bool, error) {
+	if f.visibleErr != nil {
+		return false, f.visibleErr
+	}
+	if f.canView || len(f.visiblePosts) > 0 {
+		return true, nil
+	}
+	return false, nil
 }
 
 // stubIDs 生成确定性的附件/衍生文件 ID。

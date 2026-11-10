@@ -195,7 +195,7 @@ func TestUploadValidationBeforeStorage(t *testing.T) {
 // 附件与配额计数及衍生记录写入、衍生作业入队参数。
 func TestUploadImageSuccess(t *testing.T) {
 	env := newMediaTestEnv(t)
-	env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+	env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), postFolderResult(7), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
 	payload := testPNG(t, 32, 16)
 
 	result, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "目录/../照片.png", domain.PurposePost, payload))
@@ -227,6 +227,10 @@ func TestUploadImageSuccess(t *testing.T) {
 	}
 	if got := result.Derivatives[model.DerivativeThumbnail]; got != model.DerivativePending {
 		t.Fatalf("缩略图初始状态 = %q，期望 pending", got)
+	}
+	if result.DriveFile == nil || result.DriveFile.FolderID == nil || *result.DriveFile.FolderID != 7 ||
+		result.DriveFile.Visibility != domain.DriveVisibilityPrivate {
+		t.Fatalf("文章附件未按默认目录进入私密网盘: %+v", result.DriveFile)
 	}
 
 	if len(env.jobs.enqueued) != 1 {
@@ -323,7 +327,7 @@ func TestUploadBannerRejectsNonImage(t *testing.T) {
 // TestUploadNonDecodableImage 可存储但标准库无法解码的图片直接记为 canceled，不投递注定失败的作业。
 func TestUploadNonDecodableImage(t *testing.T) {
 	env := newMediaTestEnv(t)
-	env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+	env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), postFolderResult(7), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
 	result, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "image.webp", domain.PurposePost, testWebPBytes()))
 	if err != nil {
 		t.Fatalf("Upload 返回错误: %v", err)
@@ -346,7 +350,7 @@ func TestUploadNonDecodableImage(t *testing.T) {
 func TestUploadVideoAndText(t *testing.T) {
 	t.Run("视频生成封面作业", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), postFolderResult(7), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
 		result, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "clip.mp4", domain.PurposePost, testMP4Bytes()))
 		if err != nil {
 			t.Fatalf("Upload 返回错误: %v", err)
@@ -366,7 +370,7 @@ func TestUploadVideoAndText(t *testing.T) {
 	})
 	t.Run("普通文件无衍生文件", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), postFolderResult(7), commandResult("INSERT 0 1"))
 		result, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "notes.txt", domain.PurposePost, testTextBytes()))
 		if err != nil {
 			t.Fatalf("Upload 返回错误: %v", err)
@@ -391,7 +395,7 @@ func TestUploadPrecheckedSkipsLimiter(t *testing.T) {
 	if !allowed {
 		t.Fatal("首个额度应消耗成功")
 	}
-	env.expect(commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+	env.expect(commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), postFolderResult(7), commandResult("INSERT 0 1"))
 	in := uploadInput(humanViewer(7), "notes.txt", domain.PurposePost, testTextBytes())
 	in.Precheck = testUploadPrecheck(0)
 	if _, err := env.svc.Upload(context.Background(), in); err != nil {
@@ -443,14 +447,14 @@ func TestUploadDatabaseAndPortFailures(t *testing.T) {
 	})
 	t.Run("衍生记录写入失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
-		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), dbErrorResult("derivative 失败"))
+		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), postFolderResult(7), commandResult("INSERT 0 1"), dbErrorResult("derivative 失败"))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "a.png", domain.PurposePost, testPNG(t, 4, 4)))
 		requireKind(t, err, apperr.KindInternal)
 	})
 	t.Run("作业入队失败", func(t *testing.T) {
 		env := newMediaTestEnv(t)
 		env.jobs.enqueueErr = errors.New("jobs 不可用")
-		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
+		env.expect(usageResult(0), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"), postFolderResult(7), commandResult("INSERT 0 1"), commandResult("INSERT 0 1"))
 		_, err := env.svc.Upload(context.Background(), uploadInput(humanViewer(7), "a.png", domain.PurposePost, testPNG(t, 4, 4)))
 		requireKind(t, err, apperr.KindInternal)
 	})

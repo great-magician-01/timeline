@@ -5,6 +5,7 @@ import (
 
 	"github.com/great-magician-01/timeline/internal/modules/content/domain"
 	"github.com/great-magician-01/timeline/internal/platform/apperr"
+	"github.com/great-magician-01/timeline/internal/shared/contracts"
 	"github.com/great-magician-01/timeline/internal/shared/model"
 )
 
@@ -133,6 +134,20 @@ func (s *Service) RestoreVersion(
 		for _, view := range views {
 			attachmentIDs = append(attachmentIDs, view.Attachment.ID)
 		}
+		if len(attachmentIDs) > 0 {
+			if s.deps.Media == nil {
+				return apperr.Internal("附件服务未就绪")
+			}
+			if err := s.deps.Media.CheckAttachmentsUsable(txCtx, contracts.AttachmentCheckInput{
+				UploaderID:            post.AuthorID,
+				AttachmentIDs:         attachmentIDs,
+				ExistingAttachmentIDs: attachmentIDs,
+				Purpose:               domain.AttachmentPurposePost,
+				PostVisibility:        version.Visibility,
+			}); err != nil {
+				return s.wrap(err, "校验历史版本附件失败")
+			}
+		}
 		sourceVersionID := version.ID
 		newVersionID, err := s.nextID()
 		if err != nil {
@@ -156,12 +171,12 @@ func (s *Service) RestoreVersion(
 		if err := s.repo.InsertVersionAttachments(txCtx, newVersionID, attachmentIDs); err != nil {
 			return s.wrap(err, "写入恢复版本附件失败")
 		}
-		if err := s.linkAttachments(txCtx, postID, attachmentIDs, now); err != nil {
-			return err
-		}
 		if err := s.repo.SetCurrentVersionAndVisibility(
 			txCtx, postID, newVersionID, version.Visibility, now); err != nil {
 			return s.wrap(err, "更新当前版本失败")
+		}
+		if err := s.revokeDrivePublicOnRestriction(txCtx, version.Visibility, attachmentIDs, now); err != nil {
+			return err
 		}
 		updated, err = s.repo.GetPost(txCtx, postID)
 		if err != nil {
