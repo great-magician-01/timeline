@@ -3,9 +3,13 @@
 
 # ---- 前端构建 ----
 FROM node:22-alpine AS web
+# lockfile 默认使用国内镜像；GitHub CI 传入官方 registry 覆盖下载源。
+# 参数不带结尾斜杠，替换结果形如 https://registry.npmjs.org/@babel/...
+ARG NPM_REGISTRY=https://registry.npmmirror.com
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN sed -i "s#https://registry.npmmirror.com#${NPM_REGISTRY}#g" package-lock.json \
+    && npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 

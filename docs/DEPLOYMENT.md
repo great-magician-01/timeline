@@ -1,9 +1,9 @@
 # Timeline Docker 单机部署
 
 > **文档状态**：部署基线，与当前实现同步  
-> **文档版本**：0.4.7  
-> **最近更新**：2026-10-24  
-> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.31.0  
+> **文档版本**：0.4.8  
+> **最近更新**：2026-11-10  
+> **需求基线**：[`REQUIREMENTS.md`](REQUIREMENTS.md) 0.33.0  
 > **关联文档**：[接口设计](API.md)、[数据模型设计](DATA_MODEL.md)、[验收用例](ACCEPTANCE.md)  
 > **用途**：部署脚本与 Compose 实现、运维操作和验收用例的依据
 
@@ -45,6 +45,7 @@
 4. 构建参数 `APP_VERSION`（默认 `dev`）通过 `-ldflags "-X main.appVersion=${APP_VERSION}"` 注入二进制；Compose 的 `build.args.APP_VERSION` 取 `IMAGE_TAG`，启动日志输出 `version` 字段，便于确认实际运行版本。
 5. 运行镜像基础版本在 Dockerfile 中锁定，不使用 `latest`。
 6. 备选方案：如 ffmpeg 的 codec 兼容性在 alpine 上有问题，改用 `debian:*-slim` 基础镜像，其余不变。
+7. 前端构建参数 `NPM_REGISTRY`（默认 `https://registry.npmmirror.com`）用于把 `package-lock.json` 的下载源替换为该 registry；本地/国内构建默认镜像，GitHub CI 传 `https://registry.npmjs.org` 规避镜像 502/504。仅影响构建阶段的依赖下载，不改变运行时。
 
 ### 3.2 数据库（外部独立实例，不属于本镜像与 compose）
 
@@ -302,7 +303,8 @@ backups/20261017-030000/
 8. **0016_review_fixes（本次审查修复）**：普通事务迁移。① 当 `avatar_url` 恰为 `/api/v1/attachments/<id>/content` 时用正则提取 ID，回填 `"user".users.avatar_attachment_id`（仅当该列为 `NULL`，可重复执行，不更新 `updated_at`）；② 删除 `timeline.ai_tasks_daily` 索引（与运行期查询形态不匹配，属纯写放大），保留 `0013` 的 `ai_call_logs_retention_id`。该迁移不修改时间默认值、不改变表字段语义，旧版本二进制仍可运行（新增列/索引回填对旧代码向后兼容）；回填量取决于历史头像用户数，升级前仍建议按第 8 章先做完整备份。
 9. **0017–0020（SQL 最简原则改造）**：`0017`/`0018`/`0020` 为 no-transaction + `CONCURRENTLY` 的索引增删（`0018` 依赖 `0017` 的新索引先建后删，两文件必须按序执行）；并发建/删索引会短暂占用 IO，建议低峰执行，失败按第 6 章核对 INVALID 索引后幂等重跑。`0019` 为普通事务：新增 `posts/reposts.author_is_ai` 快照列并回填、新建 `attachment_usage` 配额冗余表并从附件明细回填（均只处理未处理行、可重复执行、不改业务时间列）。新列/新表对旧二进制向后兼容（旧代码不读该列/表）；但若回滚到 `0019` 之前的旧二进制并继续运行，期间的上传不会累加 `attachment_usage`，恢复新版本前应按附件明细重算该表（`SELECT uploader_id, SUM(size_bytes) FROM timeline.attachments GROUP BY uploader_id` 覆盖写回），否则配额计数会偏小。回填量取决于历史帖子/转发数与上传者数量，升级前按第 8 章完整备份。
 10. **0021_direct_messages（私信）**：普通事务迁移。新增 `"user".users.dm_policy`（`NOT NULL DEFAULT 'all'`，PostgreSQL 快速默认，不重写全表）与 `timeline.dm_conversations`、`timeline.dm_messages` 两表及配套索引；无数据回填、无 `CONCURRENTLY`。新列/新表对旧二进制向后兼容（旧代码不读取），回滚旧镜像通常不需要回滚数据库结构；升级前仍按第 8 章完整备份。
-11. **迁移回滚方式**：仓库迁移只追加、不提供 down 脚本。需要回滚结构时，追加反向迁移（恢复列/索引/默认值）或从升级前完整备份恢复；`no-transaction` 迁移失败不会自动回滚，按第 6 章人工核对后重跑即可（幂等语句可安全重试）。
+11. **0026_drive_files（个人网盘）**：普通事务迁移。新增 `timeline.drive_folders`/`timeline.drive_files` 及配套索引，并把有效且仍被草稿/版本引用的文章附件私密回填到上传者默认“文章附件”目录；无 `CONCURRENTLY`、无外键，不回填头像/横幅/无引用临时附件。旧二进制不读写新表，回滚旧镜像通常不需要回滚数据库结构；升级前按第 8 章完整备份。
+12. **迁移回滚方式**：仓库迁移只追加、不提供 down 脚本。需要回滚结构时，追加反向迁移（恢复列/索引/默认值）或从升级前完整备份恢复；`no-transaction` 迁移失败不会自动回滚，按第 6 章人工核对后重跑即可（幂等语句可安全重试）。
 
 ## 10. 日志、健康与排障
 
@@ -375,3 +377,4 @@ backups/20261017-030000/
 | 2026-10-19 | 0.4.5 | 需求基线更新至 0.25.0（私信）：§9 升级说明新增 `0021_direct_messages`（新增 `users.dm_policy` 快速默认列与私信会话/消息两表，无回填、无 `CONCURRENTLY`、对旧二进制向后兼容）；§10 日志模块标签补 `[dm]`；部署结构、端口、环境变量与备份流程不变。 |
 | 2026-10-23 | 0.4.6 | 需求基线更新至 0.31.0（SSE 实时推送）：§7 新增三条部署注意事项——SSE 长连接（`GET /api/v1/events`，25 秒心跳、每用户 ≤3/全局 ≤2000 连接上限）、反向代理 `proxy_read_timeout` 须大于 25 秒心跳（应用已带 `X-Accel-Buffering: no`，无需改 `proxy_buffering`）、不支持多实例负载均衡部署 SSE（事件总线在进程内存中，单实例前提；扩展路径为 PostgreSQL `LISTEN/NOTIFY` 或 Redis pub/sub）；§9 升级说明补「收到退出信号先断开 SSE 再优雅关闭，重启对在线用户表现为断线重连」。部署结构、端口、环境变量与迁移不变（本轮无新增迁移）。 |
 | 2026-10-24 | 0.4.7 | 同步 CI 验证范围：§4 说明 GitHub Actions 新增独立 PostgreSQL 17 集成任务（临时服务预装 `pg_trgm`，`TIMELINE_INTEGRATION=1 go test -p 1 -count=1 ./...`）、前端 Vitest 步骤及应用镜像构建门控；明确 CI 不启动应用容器、不改变外部 PostgreSQL 部署形态，仍不替代部署机验证。Compose、端口、环境变量与迁移不变。 |
+| 2026-11-10 | 0.4.8 | 个人网盘部署同步：§3.1 新增前端构建参数 `NPM_REGISTRY`（本地默认国内镜像，GitHub CI 使用官方 registry，规避 npmmirror 502/504）；§9 增加 `0026_drive_files` 普通事务迁移说明（网盘两表、存量文章附件私密回填、旧二进制兼容）。Compose 与运行时环境变量不变。 |
